@@ -1,0 +1,18 @@
+version: '3'
+
+env:
+  GO111MODULE: 'on'
+
+tasks:
+  build:
+    desc: Build the student exam application on the native host
+    cmds:
+      - go run github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.29 generate bindings -b -f '-tags bindings' ./cmd/student
+      - npm --prefix frontend ci
+      - npm --prefix frontend run build
+      - mkdir -p ../../build
+      - go build -tags production -o ../../build/cbe-portal-student ./cmd/student
+  run:
+    deps: [build]
+    cmds:
+      - ../../build/cbe-portal-student

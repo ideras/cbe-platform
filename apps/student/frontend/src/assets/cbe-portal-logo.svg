@@ -1,0 +1,76 @@
+<!-- Local branding asset: warm palette exception; drawing geometry unchanged. -->
+<svg viewBox="0 0 310 294.75381" role="img" aria-labelledby="title desc" version="1.1" width="310" height="294.75381" xmlns="http://www.w3.org/2000/svg">
+  <title id="title">Computer Based Evaluation desktop logo</title>
+  <desc id="desc">A front-facing blue desktop monitor with an assessment screen, a realistic keyboard, and a mouse.</desc>
+  <defs>
+  <linearGradient id="monitor" x1="34.82637" y1="35.806198" x2="34.82637" y2="212.3678" gradientTransform="matrix(1.2346965,0,0,0.80991561,22,24)" gradientUnits="userSpaceOnUse">
+  <stop offset="0" stop-color="#DFF0EB"/>
+  <stop offset="1" stop-color="#1E5E58"/>
+  </linearGradient>
+  <linearGradient id="base" x1="81.151833" y1="231.86182" x2="139.11729" y2="289.82727" gradientTransform="matrix(1.3801299,0,0,0.7245695,22,24)" gradientUnits="userSpaceOnUse">
+  <stop offset="0" stop-color="#F6F3EC"/>
+  <stop offset="1" stop-color="#F1E7D2"/>
+  </linearGradient>
+  </defs>
+  <!-- Desktop illustration -->
+  <rect x="0" y="0" width="310" height="294.75381" rx="52" fill="#FFFFFF" style="stroke-width:1" ry="52.000008"/>
+  <circle cx="263" cy="49.999996" r="27" fill="#F6F3EC"/>
+  <circle cx="47" cy="209.00002" r="17" fill="#DFF0EB" opacity="0.7"/>
+  <rect x="45" y="30.999998" width="214" height="139" rx="16" fill="url(#monitor)" stroke="#56656E" stroke-width="4" style="fill:url(#monitor)" ry="16"/>
+  <rect x="57" y="44.999996" width="190" height="107" rx="8" fill="#FFFFFF" stroke="#DCD5C8" stroke-width="2" ry="8"/>
+  <rect x="57" y="44.999996" width="190" height="20" rx="8" fill="#F6F3EC" ry="8"/>
+  <circle cx="71.000008" cy="54.999996" r="3" fill="#56656E"/>
+  <circle cx="82.000008" cy="54.999996" r="3" fill="#DFF0EB"/>
+  <circle cx="93.000008" cy="54.999996" r="3" fill="#1E5E58"/>
+  <rect x="75.000008" y="78" width="12" height="12" rx="3" fill="#F1E7D2" ry="3"/>
+  <path d="m 77.999995,84 3,3 5,-6" fill="none" stroke="#FFFFFF" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2"/>
+  <rect x="96.000008" y="81" width="73" height="6" rx="3" fill="#F6F3EC" ry="3"/>
+  <rect x="75.000008" y="101" width="12" height="12" rx="3" fill="#F1E7D2" ry="3"/>
+  <path d="m 77.999995,107 3,3 5,-6" fill="none" stroke="#FFFFFF" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2"/>
+  <rect x="96.000008" y="104" width="111" height="6" rx="3" fill="#F6F3EC" ry="3"/>
+  <rect x="75.000008" y="124.00001" width="12" height="12" rx="3" fill="#F1E7D2" ry="3"/>
+  <path d="m 77.999995,130 3,3 5,-6" fill="none" stroke="#FFFFFF" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2"/>
+  <rect x="96.000008" y="127.00002" width="87" height="6" rx="3" fill="#F6F3EC" ry="3"/>
+  <path d="m 125.99999,170 h 52 l 12,38 h -76 z" fill="url(#base)" stroke="#56656E" stroke-width="4" stroke-linejoin="round" style="fill:url(#base)"/>
+  <path d="m 92.999995,220 c 0,-9 7,-16 15.999995,-16 h 86 c 9,0 16,7 16,16 z" fill="#1E5E58" stroke="#56656E" stroke-width="4"/>
+  <g transform="translate(-22.000001,-18.557241)">
+  <rect x="45" y="250.00002" width="172" height="43.318748" rx="7" fill="#DFF0EB" stroke-width="3" style="stroke:#56656E" ry="7.0000005"/>
+  <rect x="55" y="256" width="12" height="5" rx="1.5" style="fill:#FFFFFF;stroke:#56656E;stroke-width:1.4" ry="1.5"/>
+  <rect x="71" y="256" width="12" height="5" rx="1.5" style="fill:#FFFFFF;stroke:#56656E;stroke-width:1.4" ry="1.5"/>
+  <rect x="87" y="256" width="12" height="5" rx="1.5" style="fill:#FFFFFF;stroke:#56656E;stroke-width:1.4" ry="1.5"/>
+  <rect x="103" y="256" width="12" height="5" rx="1.5" style="fill:#FFFFFF;stroke:#56656E;stroke-width:1.4" ry="1.5"/>
+  <rect x="119" y="256" width="12" height="5" rx="1.5" style="fill:#FFFFFF;stroke:#56656E;stroke-width:1.4" ry="1.5"/>
+  <rect x="135" y="256" width="12" height="5" rx="1.5" style="fill:#FFFFFF;stroke:#56656E;stroke-width:1.4" ry="1.5"/>
+  <rect x="151" y="256" width="12" height="5" rx="1.5" style="fill:#FFFFFF;stroke:#56656E;stroke-width:1.4" ry="1.5"/>
+  <rect x="167" y="256" width="12" height="5" rx="1.5" style="fill:#FFFFFF;stroke:#56656E;stroke-width:1.4" ry="1.5"/>
+  <rect x="183" y="256" width="23" height="5" rx="1.5" style="fill:#FFFFFF;stroke:#56656E;stroke-width:1.4" ry="1.5"/>
+  <rect x="55" y="265" width="16" height="5" rx="1.5" style="fill:#FFFFFF;stroke:#56656E;stroke-width:1.4" ry="1.5"/>
+  <rect x="75" y="265" width="12" height="5" rx="1.5" style="fill:#FFFFFF;stroke:#56656E;stroke-width:1.4" ry="1.5"/>
+  <rect x="91" y="265" width="12" height="5" rx="1.5" style="fill:#FFFFFF;stroke:#56656E;stroke-width:1.4" ry="1.5"/>
+  <rect x="107" y="265" width="12" height="5" rx="1.5" style="fill:#FFFFFF;stroke:#56656E;stroke-width:1.4" ry="1.5"/>
+  <rect x="123" y="265" width="12" height="5" rx="1.5" style="fill:#FFFFFF;stroke:#56656E;stroke-width:1.4" ry="1.5"/>
+  <rect x="139" y="265" width="12" height="5" rx="1.5" style="fill:#FFFFFF;stroke:#56656E;stroke-width:1.4" ry="1.5"/>
+  <rect x="155" y="265" width="12" height="5" rx="1.5" style="fill:#FFFFFF;stroke:#56656E;stroke-width:1.4" ry="1.5"/>
+  <rect x="171" y="265" width="12" height="5" rx="1.5" style="fill:#FFFFFF;stroke:#56656E;stroke-width:1.4" ry="1.5"/>
+  <rect x="187" y="265" width="19" height="5" rx="1.5" style="fill:#FFFFFF;stroke:#56656E;stroke-width:1.4" ry="1.5"/>
+  <rect x="55" y="274" width="20" height="5" rx="1.5" style="fill:#FFFFFF;stroke:#56656E;stroke-width:1.4" ry="1.5"/>
+  <rect x="79" y="274" width="12" height="5" rx="1.5" style="fill:#FFFFFF;stroke:#56656E;stroke-width:1.4" ry="1.5"/>
+  <rect x="95" y="274" width="12" height="5" rx="1.5" style="fill:#FFFFFF;stroke:#56656E;stroke-width:1.4" ry="1.5"/>
+  <rect x="111" y="274" width="12" height="5" rx="1.5" style="fill:#FFFFFF;stroke:#56656E;stroke-width:1.4" ry="1.5"/>
+  <rect x="127" y="274" width="12" height="5" rx="1.5" style="fill:#FFFFFF;stroke:#56656E;stroke-width:1.4" ry="1.5"/>
+  <rect x="143" y="274" width="12" height="5" rx="1.5" style="fill:#FFFFFF;stroke:#56656E;stroke-width:1.4" ry="1.5"/>
+  <rect x="159" y="274" width="12" height="5" rx="1.5" style="fill:#FFFFFF;stroke:#56656E;stroke-width:1.4" ry="1.5"/>
+  <rect x="175" y="274" width="31" height="5" rx="1.5" style="fill:#FFFFFF;stroke:#56656E;stroke-width:1.4" ry="1.5"/>
+  <rect x="55" y="283" width="18" height="5" rx="1.5" style="fill:#FFFFFF;stroke:#56656E;stroke-width:1.4" ry="1.5"/>
+  <rect x="77" y="283" width="18" height="5" rx="1.5" style="fill:#FFFFFF;stroke:#56656E;stroke-width:1.4" ry="1.5"/>
+  <rect x="99" y="283" width="55" height="5" rx="1.5" style="fill:#FFFFFF;stroke:#56656E;stroke-width:1.4" ry="1.5"/>
+  <rect x="158" y="283" width="18" height="5" rx="1.5" style="fill:#FFFFFF;stroke:#56656E;stroke-width:1.4" ry="1.5"/>
+  <rect x="180" y="283" width="26" height="5" rx="1.5" style="fill:#FFFFFF;stroke:#56656E;stroke-width:1.4" ry="1.5"/>
+  </g>
+  <g>
+  <path d="m 222,231 c 0,-13 10,-23 23,-23 13,0 23,10 23,23 v 15 c 0,12 -10,18 -23,18 -13,0 -23,-6 -23,-18 z" fill="#FFFFFF" stroke="#56656E" stroke-width="3"/>
+  <path d="m 245,209 v 17" stroke="#56656E" stroke-width="3" stroke-linecap="round"/>
+  <rect x="241" y="216" width="8" height="7" rx="3.5" fill="#F1E7D2" ry="3.5"/>
+  </g>
+  <!-- Wordmark -->
+  </svg>

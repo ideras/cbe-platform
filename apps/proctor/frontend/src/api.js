@@ -1,0 +1,4 @@
+import { Events } from '/wails/runtime.js';
+// Closing the main window asks the page to confirm; listener runs on each such request.
+export function OnCloseRequested(listener) { return Events.On('dashboard:close-requested', () => listener()); }
+export { Connect, ChooseCredential, SelectExam, Snapshot, Refresh, Timeline, Image, ForceSubmit, PurgeScreenshots, ChooseExam, ImportExam, DiscardImport, DeleteExam, ChooseClassFile, DiscardClassFile, CreateClass, ClassRoster, RenameClass, DeleteClass, ChooseRosterFile, DiscardRosterFile, ReplaceClassRoster, Disconnect, Publish, Unpublish, ChooseDownloadFolder, DownloadProgress, PrepareDownload, DownloadSubmissions, OpenDownloadFolder, OpenMonitoring, OpenReview, OpenImage, SaveImage, Quit, Settings, SaveSettings, Unlock, PreviewExam, DiscardPreview, CalcAllowedFunctions, CalcEvaluate, CalcEvaluateInt, CalcConvertFraction, CalcInspect } from '../bindings/exam-platform/apps/proctor/internal/dashboard/service.js';

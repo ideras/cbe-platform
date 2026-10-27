@@ -1,0 +1,171 @@
+{
+  "title": "Examen I Parcial – Organización de Computadoras",
+  "duration_seconds": 4800,
+  "grace_seconds": 120,
+  "navigation": "forward_only",
+  "content": {
+    "instructions": "<h3>Instrucciones Generales</h3>\n<ul>\n<li><strong>Duración:</strong> 1 hora 20 minutos.</li>\n<li>Para los ejercicios de traducción a MIPS32, siga las convenciones de llamada estándar de MIPS (<code>$a0</code>–<code>$a3</code> para argumentos, <code>$v0</code> para retorno, <code>$ra</code> para dirección de retorno, <code>$sp</code> para el stack).</li>\n<li>Utilice únicamente las instrucciones vistas en clase: <code>add</code>, <code>sub</code>, <code>addi</code>, <code>and</code>, <code>or</code>, <code>sll</code>, <code>srl</code>, <code>mult</code>, <code>div</code>, <code>mflo</code>, <code>mfhi</code>, <code>lw</code>, <code>sw</code>, <code>lb</code>, <code>lbu</code>, <code>sb</code>, <code>beq</code>, <code>bne</code>, <code>slt</code>, <code>slti</code>, <code>j</code>, <code>jr</code>, <code>jal</code>.</li>\n<li><strong>No está permitido el uso de pseudo-instrucciones</strong> como <code>blt</code>, <code>bgt</code>, <code>move</code>, <code>li</code>, etc. Debe expandirlas a su forma real.</li>\n<li>Puede usar <code>$t0</code>–<code>$t9</code> y <code>$s0</code>–<code>$s7</code> libremente, respetando la convención caller/callee save.</li>\n<li>Todas las variables enteras (<code>int</code>) son de <strong>32 bits (4 bytes)</strong>.</li>\n</ul>",
+    "exercises": [
+      {
+        "id": "1",
+        "title": "Ejercicio 1 — Análisis de Rendimiento",
+        "points": 20,
+        "body": "<p>Considere el siguiente programa en pseudoensamblador que calcula la suma de cuadrados:</p>\n<pre><code>main:\n        $v0 = 0              // sum = 0\n        $v1 = 5              // n = 5\n        $a0 = 0              // i = 0\n\nloop:\n        $a1 = $a0 * $a0      // i * i\n        $v0 = $v0 + $a1      // sum += i * i\n        $a0 = $a0 + 1        // i++\n        $t0 = ($a0 &lt; $v1)    // i &lt; n ?\n        if ($t0 == 1) then goto loop\n\n        // resultado en $v0\n        goto $ra\n</code></pre>",
+        "items": [
+          {
+            "id": "1a",
+            "title": "a. Conteo de Instrucciones",
+            "points": 10,
+            "body": "<p>Realice la traza del programa y desglose la cantidad de instrucciones ejecutadas por categoría:</p>\n<table>\n<thead>\n<tr>\n<th>Categoría</th>\n<th align=\"center\">Cantidad</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>ALU / Escritura de registros</td>\n<td align=\"center\"><span class=\"slot\" data-slot=\"1a.alu\"></span></td>\n</tr>\n<tr>\n<td>Multiplicación</td>\n<td align=\"center\"><span class=\"slot\" data-slot=\"1a.mult\"></span></td>\n</tr>\n<tr>\n<td>Saltos (branches)</td>\n<td align=\"center\"><span class=\"slot\" data-slot=\"1a.branch\"></span></td>\n</tr>\n<tr>\n<td>Saltos incondicionales (jumps)</td>\n<td align=\"center\"><span class=\"slot\" data-slot=\"1a.jump\"></span></td>\n</tr>\n<tr>\n<td><strong>Total</strong></td>\n<td align=\"center\"><span class=\"slot\" data-slot=\"1a.total\"></span></td>\n</tr>\n</tbody>\n</table>\n<p>Escriba la traza o el procedimiento que lo llevó a esos números:</p>\n<div class=\"slot\" data-slot=\"1a.trace\"></div>",
+            "slots": [
+              {
+                "id": "1a.alu",
+                "kind": "blank"
+              },
+              {
+                "id": "1a.mult",
+                "kind": "blank"
+              },
+              {
+                "id": "1a.branch",
+                "kind": "blank"
+              },
+              {
+                "id": "1a.jump",
+                "kind": "blank"
+              },
+              {
+                "id": "1a.total",
+                "kind": "blank"
+              },
+              {
+                "id": "1a.trace",
+                "kind": "text",
+                "lines": 10
+              }
+            ]
+          },
+          {
+            "id": "1b",
+            "title": "b. Cálculo del CPI",
+            "points": 10,
+            "body": "<p>Tomando en cuenta la siguiente clasificación de ciclos por instrucción:</p>\n<ul>\n<li>ALU / Escritura de registros → 1 ciclo</li>\n<li>Multiplicación → 2 ciclos</li>\n<li>Saltos (branches) → 2 ciclos</li>\n<li>Saltos incondicionales (jump) → 2 ciclos</li>\n</ul>\n<p>Calcule:</p>\n<ol>\n<li><strong>(3 pts)</strong> Los ciclos totales del programa: <span class=\"slot\" data-slot=\"1b.cycles\"></span></li>\n<li><strong>(4 pts)</strong> El <strong>CPI</strong> (ciclos por instrucción) del programa: <span class=\"slot\" data-slot=\"1b.cpi\"></span></li>\n<li><strong>(3 pts)</strong> Si se rediseña el multiplicador para que <code>mult</code> tarde solo 1 ciclo, ¿cuál sería el nuevo CPI y la <strong>mejora (speedup)</strong> respecto al CPI original?\nNuevo CPI: <span class=\"slot\" data-slot=\"1b.new_cpi\"></span> — Speedup: <span class=\"slot\" data-slot=\"1b.speedup\"></span></li>\n</ol>\n<p>Muestre sus cálculos:</p>\n<div class=\"slot\" data-slot=\"1b.work\"></div>",
+            "slots": [
+              {
+                "id": "1b.cycles",
+                "kind": "blank"
+              },
+              {
+                "id": "1b.cpi",
+                "kind": "blank"
+              },
+              {
+                "id": "1b.new_cpi",
+                "kind": "blank"
+              },
+              {
+                "id": "1b.speedup",
+                "kind": "blank"
+              },
+              {
+                "id": "1b.work",
+                "kind": "text",
+                "lines": 8
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "2",
+        "title": "Ejercicio 2 — Traducción de Fragmentos Cortos",
+        "points": 15,
+        "body": "<p>Traduzca cada uno de los siguientes fragmentos de C a MIPS32. <strong>No use branches, jumps ni procedimientos.</strong> Suponga que todas las variables ya están mapeadas a los registros indicados.</p>",
+        "items": [
+          {
+            "id": "2a",
+            "title": "a. Aritmética combinada",
+            "points": 5,
+            "body": "<pre><code class=\"language-c\">res = (a * b) + c;\n</code></pre>\n<table>\n<thead>\n<tr>\n<th>Variable</th>\n<th>Registro</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td><code>a</code></td>\n<td><code>$s0</code></td>\n</tr>\n<tr>\n<td><code>b</code></td>\n<td><code>$s1</code></td>\n</tr>\n<tr>\n<td><code>c</code></td>\n<td><code>$s2</code></td>\n</tr>\n<tr>\n<td><code>res</code></td>\n<td><code>$t0</code></td>\n</tr>\n</tbody>\n</table>\n<div class=\"slot\" data-slot=\"2a.code\"></div>",
+            "slots": [
+              {
+                "id": "2a.code",
+                "kind": "code",
+                "language": "mips"
+              }
+            ]
+          },
+          {
+            "id": "2b",
+            "title": "b. Desplazamiento y acceso a memoria",
+            "points": 5,
+            "body": "<pre><code class=\"language-c\">temp = arr[4];\narr[2] = temp + 1;\n</code></pre>\n<table>\n<thead>\n<tr>\n<th>Variable</th>\n<th>Registro</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td><code>temp</code></td>\n<td><code>$t0</code></td>\n</tr>\n<tr>\n<td>base de <code>arr</code></td>\n<td><code>$s0</code></td>\n</tr>\n</tbody>\n</table>\n<p><code>arr</code> es un arreglo de <code>int</code> (4 bytes).</p>\n<div class=\"slot\" data-slot=\"2b.code\"></div>",
+            "slots": [
+              {
+                "id": "2b.code",
+                "kind": "code",
+                "language": "mips"
+              }
+            ]
+          },
+          {
+            "id": "2c",
+            "title": "c. Acceso a bytes",
+            "points": 5,
+            "body": "<pre><code class=\"language-c\">unsigned char first = str[0];\nunsigned char second = str[1];\nstr[2] = first + second;\n</code></pre>\n<table>\n<thead>\n<tr>\n<th>Variable</th>\n<th>Registro</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td><code>first</code></td>\n<td><code>$t0</code></td>\n</tr>\n<tr>\n<td><code>second</code></td>\n<td><code>$t1</code></td>\n</tr>\n<tr>\n<td>base de <code>str</code></td>\n<td><code>$s0</code></td>\n</tr>\n</tbody>\n</table>\n<p><code>str</code> es un arreglo de <code>unsigned char</code> (1 byte cada elemento).</p>\n<div class=\"slot\" data-slot=\"2c.code\"></div>",
+            "slots": [
+              {
+                "id": "2c.code",
+                "kind": "code",
+                "language": "mips"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "3",
+        "title": "Ejercicio 3 — Traducción de Función Completa: Suma de Arreglo",
+        "points": 20,
+        "body": "<p>Traduzca la siguiente función de C a MIPS32.</p>\n<pre><code class=\"language-c\">int sum_array(int arr[], int n) {\n    int sum = 0;\n    for (int i = 0; i &lt; n; i++) {\n        sum = sum + arr[i];\n    }\n    return sum;\n}\n</code></pre>\n<p>Asegúrese de utilizar el convenio de llamadas de MIPS32.</p>\n<div class=\"slot\" data-slot=\"3.code\"></div>",
+        "slots": [
+          {
+            "id": "3.code",
+            "kind": "code",
+            "language": "mips",
+            "starter": "sum_array:\n"
+          }
+        ]
+      },
+      {
+        "id": "4",
+        "title": "Ejercicio 4 — Traducción con Apuntadores (paso por referencia)",
+        "points": 20,
+        "body": "<p>Traduzca la siguiente función de C a MIPS32.</p>\n<pre><code class=\"language-c\">void min_max(int values[], int n, int *pmin, int *pmax) {\n    *pmin = values[0];\n    *pmax = values[0];\n\n    for (int i = 1; i &lt; n; i++) {\n        if (values[i] &lt; *pmin) {\n            *pmin = values[i];\n        }\n        if (values[i] &gt; *pmax) {\n            *pmax = values[i];\n        }\n    }\n}\n</code></pre>\n<p>Asegúrese de utilizar el convenio de llamadas de MIPS32.</p>\n<div class=\"slot\" data-slot=\"4.code\"></div>",
+        "slots": [
+          {
+            "id": "4.code",
+            "kind": "code",
+            "language": "mips",
+            "starter": "min_max:\n"
+          }
+        ]
+      },
+      {
+        "id": "5",
+        "title": "Ejercicio 5 — Traducción Completa: Combinando Arreglos y Apuntadores",
+        "points": 25,
+        "body": "<p>Traduzca el siguiente programa completo de C a MIPS32.</p>\n<pre><code class=\"language-c\">int multiply(int x, int y) {\n    return x * y;\n}\n\nvoid scale_array(int data[], int n, int scale, int *total) {\n    int sum = 0;\n    for (int i = 0; i &lt; n; i++) {\n        data[i] = multiply(data[i], scale);\n        sum = sum + data[i];\n    }\n    *total = sum;\n}\n</code></pre>\n<p>Asegúrese de utilizar el convenio de llamadas de MIPS32.</p>\n<div class=\"slot\" data-slot=\"5.code\"></div>",
+        "slots": [
+          {
+            "id": "5.code",
+            "kind": "code",
+            "language": "mips",
+            "lines": 30,
+            "starter": "multiply:\n\nscale_array:\n"
+          }
+        ]
+      }
+    ]
+  }
+}

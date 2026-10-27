@@ -1,0 +1,48 @@
+# Compiled executables and release packages
+/build/
+/bin/
+/release/
+
+# Frontend dependencies, compiled assets and generated Wails bindings
+node_modules/
+/apps/*/frontend/dist/
+/apps/*/frontend/bindings/
+.vite/
+
+# Test reports, screenshots and coverage output
+test-results/
+playwright-report/
+blob-report/
+coverage/
+coverage.out
+*.coverprofile
+*.test
+
+# Python caches and local virtual environments
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+
+# Local exam data, screenshots and proctor credentials
+/data/
+admin-token
+
+# Local environment and cloud credentials; keep example configuration files
+.env
+.env.*
+!.env.example
+!.env.*.example
+!.env.template
+!.env.*.template
+/.aws/
+
+# Local code indexes and logs
+/.codegraph/
+/.gitnexus/
+*.log
+
+# Operating system files
+.DS_Store
+Thumbs.db
+Desktop.ini

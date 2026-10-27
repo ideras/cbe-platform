@@ -1,0 +1,206 @@
+/* Warm theme shared by the student and proctor desktop applications.
+ * Ocean is reserved for primary actions, active tab underlines and keyboard focus,
+ * plus calculator mode selection and equals. All assets and fonts are local.
+ */
+:root {
+  color-scheme: light;
+
+  --page: #F7F6F2;
+  --surface: #FFFFFF;
+  --hover: #F1EFEA;
+  --ink: #1D2B33;
+  --ink-2: #56656E;
+  --line: #E4E1DA;
+  --line-strong: #D5D0C5;
+  --ocean: #1F5F8B;
+  --ocean-strong: #174A6C;
+  --sea: #E3F1EC;
+  --sea-ink: #1E5E58;
+  --sand: #F1E7D2;
+  --sand-ink: #6B4E1E;
+  --coral: #B0452C;
+  --coral-tint: #F8E6E0;
+  --ok: #2F7D5C;
+  --ok-on-dark: #3F9C76;
+  --sidebar: #1D2B33;
+  --sidebar-ink: var(--ground);
+  --sidebar-ink-2: #9FB0B8;
+  --sidebar-raised: #2A3D49;
+  --transparent: transparent;
+
+  /* Compact import cards reuse the calculator palette and type. */
+  --ground: #EFEBE4;
+  --ground-hover: #E6E1D8;
+  --muted: var(--ink-2);
+  --border: var(--line-strong);
+  --card: var(--surface);
+  --radius: 12px;
+  --radius-ctl: 8px;
+  --control-h: 32px;
+  --mono: var(--font-mono);
+  --disabled-ink: #8A948F;
+  --header-divider: color-mix(in srgb, var(--sea-ink) 14%, transparent);
+  --focus-halo-strong: color-mix(in srgb, var(--ocean) 28%, transparent);
+
+  /* Semantic roles, not additional palette values. */
+  --color-page: var(--page);
+  --color-surface: var(--surface);
+  --color-surface-tint: var(--hover);
+  --color-surface-sunken: var(--page);
+  --color-border: var(--line);
+  --color-border-soft: var(--line);
+  --color-control-bg: var(--surface);
+  --color-control-border: var(--ink-2);
+  --color-text: var(--ink);
+  --color-text-muted: var(--ink-2);
+  --color-heading: var(--ink);
+  --color-accent: var(--ink);
+  --color-on-dark: var(--surface);
+  --color-on-dark-muted: var(--sidebar-ink);
+  --color-placeholder: var(--ink-2);
+  --color-danger: var(--coral);
+  --color-danger-strong: var(--coral);
+  --color-danger-bg: var(--coral-tint);
+  --color-success: var(--sea-ink);
+  --color-success-bg: var(--sea);
+  --color-warning: var(--sand-ink);
+  --color-warning-bg: var(--sand);
+  --color-warning-border: var(--sand-ink);
+  --color-warning-band: var(--sand);
+  /* Focus LOSS is a status, never the keyboard-focus color. */
+  --color-focus: var(--coral);
+  --color-focus-bg: var(--coral-tint);
+  --color-focus-border: var(--coral);
+  --color-disabled-bg: var(--transparent);
+  --color-disabled-border: var(--ink-2);
+  --color-disabled-text: var(--ink-2);
+
+  /* Proctor roles live here too; dashboard.css defines no palette. */
+  --brand: var(--ink-2);
+  --brand-strong: var(--ink);
+  --brand-soft: var(--hover);
+  --nav-top: var(--sidebar);
+  --nav-bottom: var(--sidebar);
+  --nav-active: var(--sidebar-raised);
+  --nav-accent: var(--sidebar-ink);
+  --nav-text: var(--sidebar-ink);
+  --nav-muted: var(--sidebar-ink-2);
+  --page-bg: var(--page);
+  --panel-border: var(--line);
+  --title-ink: var(--ink);
+
+  /* Geometry and opacity are unchanged; neutral ink replaces blue shadows. */
+  --shadow-card: 0 1px 2px rgb(29 43 51 / .08), 0 6px 18px rgb(29 43 51 / .08);
+  --shadow-raised: 0 12px 36px rgb(29 43 51 / .28);
+  --panel-shadow: 0 1px 2px rgb(29 43 51 / .05), 0 8px 24px rgb(29 43 51 / .06);
+  --shadow-search: 0 1px 2px rgb(29 43 51 / .05);
+  --shadow-action: 0 2px 8px rgb(29 43 51 / .3);
+  --shadow-card-hover: 0 2px 4px rgb(29 43 51 / .06), 0 12px 28px rgb(29 43 51 / .16);
+  --shadow-dialog: 0 24px 60px rgb(29 43 51 / .35);
+  --shadow-pressed: inset 0 2px 4px rgb(29 43 51 / .3);
+  --focus-halo: color-mix(in srgb, var(--ocean) 20%, transparent);
+  --pressed: color-mix(in srgb, var(--ink) 8%, var(--surface));
+  --selected: color-mix(in srgb, var(--ink) 10%, var(--page));
+  --current-halo: color-mix(in srgb, var(--ink) 20%, transparent);
+  --backdrop-dialog: rgb(29 43 51 / .55);
+  --backdrop-confirm: rgb(29 43 51 / .5);
+  --backdrop-calculator: rgb(29 43 51 / .45);
+  --sidebar-status: color-mix(in srgb, var(--surface) 7%, var(--sidebar));
+  --sidebar-dot-halo: color-mix(in srgb, var(--ink) 8%, transparent);
+  --spinner-track: color-mix(in srgb, var(--ink-2) 45%, transparent);
+  --status-dot-halo: color-mix(in srgb, var(--ink) 8%, transparent);
+
+  /* Spacing, shape and type are deliberately unchanged. */
+  --space-1: .25rem;
+  --space-2: .5rem;
+  --space-3: .75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --radius-sm: .35rem;
+  --radius-md: .5rem;
+  --radius-lg: .75rem;
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
+  --text-xs: .8rem;
+  --text-sm: .875rem;
+  --text-base: 1rem;
+  --text-lg: 1.15rem;
+  --text-xl: 1.5rem;
+  --ui-gap: .5rem;
+  --ui-control-height: 2.15rem;
+  --focus-ring: 2px solid var(--ocean);
+
+  font-size: 15px;
+  line-height: 1.5;
+  font-family: var(--font-sans);
+  background: var(--color-page);
+  color: var(--color-text);
+}
+*, *::before, *::after { box-sizing: border-box; }
+body { margin: 0; min-height: 100vh; background: var(--color-page); color: var(--color-text); font-size: var(--text-base); }
+
+h1, h2, h3, h4 { margin: var(--space-2) 0 var(--space-1); line-height: 1.25; color: var(--color-heading); font-weight: 650; }
+h1 { font-size: var(--text-xl); font-weight: 700; }
+h2 { font-size: 1.25rem; }
+h3 { font-size: var(--text-lg); }
+h4 { font-size: var(--text-base); }
+strong { color: var(--color-heading); }
+p { margin: var(--space-2) 0; }
+small { font-size: var(--text-sm); }
+ul, ol { margin: var(--space-2) 0; padding-inline-start: 1.4rem; }
+code, pre { font-family: var(--font-mono); }
+pre { margin: var(--space-2) 0; padding: var(--space-2) var(--space-3); background: var(--transparent); border: 1px solid var(--color-border-soft); border-radius: var(--radius-sm); font-size: var(--text-sm); }
+summary { cursor: pointer; min-height: 1.7rem; color: var(--color-accent); font-weight: 600; }
+::selection { background: var(--selected); color: var(--ink); }
+.eyebrow { display: block; font-size: .75rem; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--color-accent); }
+.muted { color: var(--color-text-muted); font-size: var(--text-sm); }
+
+button, input, textarea, select { font: inherit; line-height: 1.25; }
+button {
+  min-height: var(--ui-control-height); padding: .3rem .85rem; cursor: pointer;
+  border: 1px solid var(--ink-2); border-radius: var(--radius-sm);
+  background: var(--surface); color: var(--ink); font-weight: 600;
+  transition: background-color .12s ease, border-color .12s ease, box-shadow .12s ease;
+}
+button:hover:not(:disabled) { background: var(--hover); border-color: var(--ink-2); }
+button:active:not(:disabled) { background: var(--pressed); }
+button.primary { background: var(--ocean); border-color: var(--ocean); color: var(--surface); }
+button.primary:hover:not(:disabled) { background: var(--ocean-strong); border-color: var(--ocean-strong); }
+button.primary:active:not(:disabled) { background: var(--ocean-strong); box-shadow: var(--shadow-pressed); }
+button.danger { background: var(--surface); border-color: var(--coral); color: var(--coral); }
+button.danger:hover:not(:disabled) { background: var(--coral-tint); border-color: var(--coral); }
+button:disabled, button.primary:disabled, button.danger:disabled {
+  cursor: not-allowed; background: transparent; border-color: var(--color-disabled-border); color: var(--color-disabled-text); opacity: .35;
+}
+
+input, textarea, select { padding: .3rem .6rem; border: 1px solid var(--color-control-border); border-radius: var(--radius-sm); background: var(--color-control-bg); color: var(--color-text); }
+input:not([type="checkbox"]):not([type="radio"]), select { min-height: var(--ui-control-height); }
+textarea { line-height: 1.45; resize: vertical; }
+input::placeholder, textarea::placeholder { color: var(--color-placeholder); opacity: 1; }
+input:disabled, textarea:disabled, select:disabled { cursor: not-allowed; background: transparent; border-color: var(--color-disabled-border); color: var(--color-disabled-text); opacity: .35; }
+input[type="checkbox"], input[type="radio"] { width: 1.1rem; height: 1.1rem; margin: .1rem 0; flex-shrink: 0; accent-color: var(--ink); }
+:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+input:focus-visible, textarea:focus-visible, select:focus-visible { border-color: var(--ocean); }
+
+[role="alert"], [role="status"], .callout {
+  --callout-bg: var(--sea); --callout-border: var(--sea-ink); --callout-text: var(--sea-ink);
+  margin: var(--space-3) 0; padding: .55rem var(--space-3);
+  border: 1px solid var(--callout-border); border-left-width: 4px; border-radius: var(--radius-sm);
+  background: var(--callout-bg); color: var(--callout-text);
+}
+[role="alert"], .callout.danger { --callout-bg: var(--coral-tint); --callout-border: var(--coral); --callout-text: var(--coral); font-weight: 500; }
+.callout.success { --callout-bg: var(--sea); --callout-border: var(--sea-ink); --callout-text: var(--sea-ink); font-weight: 600; }
+.callout.warning {
+  --callout-bg: transparent; --callout-border: transparent; --callout-text: var(--sand-ink);
+  border: 0; border-top: 1px solid var(--line); border-left-width: 1px; border-radius: 0;
+  padding: .45rem 0 0;
+}
+.callout.warning::before { content: 'Warning'; display: block; font-size: var(--text-sm); font-weight: 700; }
+.callout.pending {
+  --callout-bg: transparent; --callout-border: var(--ink-2); --callout-text: var(--ink-2);
+  border-left-width: 1px; border-radius: 999px; padding: .3rem .9rem;
+}
+
+@media (pointer: coarse) { :root { --ui-control-height: 2.6rem; --control-h: 36px; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }
