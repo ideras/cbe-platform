@@ -7,7 +7,6 @@ import json
 import os
 from pathlib import Path
 import secrets
-import signal
 import stat
 import subprocess
 import sys
@@ -22,6 +21,11 @@ ROOT = Path(__file__).resolve().parent.parent
 DEMO_CLASS = "Demo class"
 
 
+def server_binary():
+    override = os.environ.get("EXAM_SERVER_BINARY")
+    return Path(override).absolute() if override else ROOT / "build" / ("cbe-portal-server.exe" if os.name == "nt" else "cbe-portal-server")
+
+
 def private_write(path, data):
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8", newline="") as output:
@@ -29,7 +33,7 @@ def private_write(path, data):
 
 
 def server_args(directory, profile):
-    args = [str(ROOT / "build" / "cbe-portal-server"), "-bind", profile["listen"],
+    args = [str(server_binary()), "-bind", profile["listen"],
             "-database", str(directory / "exam.db"), "-screenshots", str(directory / "screenshots"),
             "-admin-token-file", str(directory / "admin-token")]
     return args
@@ -40,7 +44,7 @@ def initialize(directory, port, duration, grace, volume=None, calculator=True):
         raise ValueError("Invalid port, exam duration or grace.")
     if volume is not None and not 0 <= volume <= 100:
         raise ValueError("Invalid exam volume (0-100).")
-    if not (ROOT / "build" / "cbe-portal-server").is_file():
+    if not server_binary().is_file():
         raise ValueError("Build the server first: make server.")
     directory.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     directory.mkdir(mode=0o700)  # Never overwrite or reuse an exam silently.
@@ -111,7 +115,7 @@ def initialize(directory, port, duration, grace, volume=None, calculator=True):
                 profile["exam_id"] = str(uuid.UUID(result["exam_id"]))
         finally:
             if process.poll() is None:
-                process.send_signal(signal.SIGTERM)
+                process.terminate()
                 try:
                     process.wait(timeout=5)
                 except subprocess.TimeoutExpired:
@@ -153,6 +157,8 @@ def main():
             command = server_args(directory, profile)
         else:
             binary = {"student": "cbe-portal-student", "proctor": "cbe-portal-proctor"}[args.command]
+            if os.name == "nt":
+                binary += ".exe"
             command = [str(ROOT / "build" / binary), "-server", profile["server"]]
             if args.command == "proctor":
                 command += ["-exam-id", profile["exam_id"], "-admin-token-file", str(directory / "admin-token")]

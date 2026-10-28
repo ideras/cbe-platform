@@ -1,0 +1,239 @@
+name: Native builds and verification
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+env:
+  MACOSX_DEPLOYMENT_TARGET: '12.0'
+  GOTOOLCHAIN: local
+jobs:
+  native:
+    name: ${{ matrix.os }} ${{ matrix.userarch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {runner: ubuntu-24.04, os: linux, arch: amd64, userarch: x64, setup_arch: x64}
+          - {runner: ubuntu-24.04-arm, os: linux, arch: arm64, userarch: arm64, setup_arch: arm64}
+          - {runner: windows-2025, os: windows, arch: amd64, userarch: x64, setup_arch: x64}
+          - {runner: windows-11-arm, os: windows, arch: arm64, userarch: arm64, setup_arch: arm64}
+          - {runner: macos-15-intel, os: darwin, arch: amd64, userarch: x64, setup_arch: x64}
+          - {runner: macos-15, os: darwin, arch: arm64, userarch: arm64, setup_arch: arm64}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.8'
+          architecture: ${{ matrix.setup_arch }}
+          cache-dependency-path: |
+            go.sum
+            apps/student/go.sum
+            apps/proctor/go.sum
+            shared/examdoc/go.sum
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22.22.3'
+          architecture: ${{ matrix.setup_arch }}
+          cache: npm
+          cache-dependency-path: |
+            apps/student/frontend/package-lock.json
+            apps/proctor/frontend/package-lock.json
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.13'
+          architecture: ${{ matrix.setup_arch }}
+      - name: Install pinned npm
+        run: npm install --global npm@11.17.0
+      - name: Install Linux desktop dependencies
+        if: matrix.os == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libgtk-4-dev libwebkitgtk-6.0-dev
+          pkg-config --modversion gtk4 webkitgtk-6.0
+      - name: Check Windows WebView2 runtime
+        if: matrix.os == 'windows'
+        shell: pwsh
+        run: |
+          $id = '{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
+          $keys = @("HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\$id", "HKCU:\Software\Microsoft\EdgeUpdate\Clients\$id")
+          $versions = @($keys | ForEach-Object { (Get-ItemProperty -Path $_ -Name pv -ErrorAction SilentlyContinue).pv } | Where-Object { $_ -and $_ -ne '0.0.0.0' })
+          if ($versions.Count -eq 0) { throw 'WebView2 Runtime was not detected' }
+          Write-Host "WebView2 Runtime: $($versions -join ', ')"
+      - name: Report platform tools
+        run: |
+          go version
+          go env GOHOSTOS GOHOSTARCH GOOS GOARCH CGO_ENABLED
+          node --version
+          npm --version
+          python --version
+          echo "RUNNER_ARCH=$RUNNER_ARCH"
+          test "$(go env GOVERSION)" = go1.26.8
+          test "$(node --version)" = v22.22.3
+          test "$(npm --version)" = 11.17.0
+      - name: Build all applications
+        id: build
+        run: python scripts/ci/build.py --os '${{ matrix.os }}' --arch '${{ matrix.arch }}' --output build
+      - name: Package native archives
+        if: matrix.os != 'darwin'
+        run: python scripts/ci/package.py --os '${{ matrix.os }}' --arch '${{ matrix.arch }}' --input build --output build/ci/artifacts
+      - name: Upload server archive
+        if: matrix.os != 'darwin'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cbe-portal-server-${{ matrix.os }}-${{ matrix.userarch }}
+          path: build/ci/artifacts/cbe-portal-server-*
+          if-no-files-found: error
+      - name: Upload student archive
+        if: matrix.os != 'darwin'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cbe-portal-student-${{ matrix.os }}-${{ matrix.userarch }}
+          path: build/ci/artifacts/cbe-portal-student-*
+          if-no-files-found: error
+      - name: Upload proctor archive
+        if: matrix.os != 'darwin'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cbe-portal-proctor-${{ matrix.os }}-${{ matrix.userarch }}
+          path: build/ci/artifacts/cbe-portal-proctor-*
+          if-no-files-found: error
+      - name: Verify and upload macOS slices
+        if: matrix.os == 'darwin'
+        run: |
+          expected='${{ matrix.arch }}'
+          if [[ "$expected" == amd64 ]]; then expected=x86_64; fi
+          for app in server student proctor; do lipo -verify_arch "$expected" "build/cbe-portal-$app"; done
+      - if: matrix.os == 'darwin'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: macos-slices-${{ matrix.userarch }}
+          path: |
+            build/cbe-portal-server
+            build/cbe-portal-student
+            build/cbe-portal-proctor
+          if-no-files-found: error
+          retention-days: 3
+      - name: Frontend unit tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        timeout-minutes: 15
+        run: |
+          npm --prefix apps/student/frontend test
+          npm --prefix apps/proctor/frontend test
+      - name: Browser tests on Linux x64
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && matrix.os == 'linux' && matrix.arch == 'amd64' }}
+        timeout-minutes: 30
+        run: |
+          npx --prefix apps/student/frontend playwright install --with-deps chromium
+          npm --prefix apps/student/frontend run test:ui
+          npm --prefix apps/proctor/frontend run test:ui
+      - name: Smoke test native server
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        timeout-minutes: 3
+        run: |
+          suffix=''
+          if [[ '${{ matrix.os }}' == windows ]]; then suffix=.exe; fi
+          python scripts/ci/smoke.py "build/cbe-portal-server$suffix"
+      - name: Go tests and vet
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        timeout-minutes: 100
+        env:
+          REGRESSION_OUT: ${{ runner.temp }}/cbe-regression.json
+        run: |
+          suffix='' race='--race'
+          if [[ '${{ matrix.os }}' == windows ]]; then suffix=.exe; fi
+          if [[ '${{ matrix.os }}' == windows && '${{ matrix.arch }}' == arm64 ]]; then race=''; fi
+          python scripts/ci/test.py --server "build/cbe-portal-server$suffix" --report build/ci/reports $race
+      - name: Upload test logs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: test-logs-${{ matrix.os }}-${{ matrix.userarch }}
+          path: |
+            build/ci/reports/
+            apps/student/frontend/test-results/
+            apps/proctor/frontend/test-results/
+          if-no-files-found: warn
+      - name: Summarize
+        if: always()
+        run: |
+          echo '${{ matrix.os }} / ${{ matrix.userarch }}: ${{ job.status }}' >> "$GITHUB_STEP_SUMMARY"
+  macos-universal:
+    name: macOS universal packaging
+    needs: native
+    if: ${{ always() && !cancelled() }}
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.8'
+          architecture: arm64
+          cache: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22.22.3'
+          architecture: arm64
+          package-manager-cache: false
+      - run: npm install --global npm@11.17.0
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: macos-slices-x64
+          path: slices/x64
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: macos-slices-arm64
+          path: slices/arm64
+      - run: scripts/ci/macos-package.sh slices/x64 slices/arm64 build/ci/artifacts
+      - name: Upload universal server
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cbe-portal-server-macos-universal
+          path: build/ci/artifacts/cbe-portal-server-macos-universal.tar.gz*
+          if-no-files-found: error
+      - name: Upload universal student
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cbe-portal-student-macos-universal
+          path: build/ci/artifacts/cbe-portal-student-macos-universal.zip*
+          if-no-files-found: error
+      - name: Upload universal proctor
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cbe-portal-proctor-macos-universal
+          path: build/ci/artifacts/cbe-portal-proctor-macos-universal.zip*
+          if-no-files-found: error
+  universal-smoke:
+    needs: macos-universal
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15-intel, macos-15]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: cbe-portal-server-macos-universal
+          path: artifact
+      - name: Verify archive and smoke test
+        run: |
+          cd artifact
+          shasum -a 256 -c cbe-portal-server-macos-universal.tar.gz.sha256
+          tar -xzf cbe-portal-server-macos-universal.tar.gz
+          chmod 755 cbe-portal-server
+          lipo -verify_arch x86_64 arm64 cbe-portal-server
+          codesign --verify --strict cbe-portal-server
+          python3 ../scripts/ci/smoke.py cbe-portal-server

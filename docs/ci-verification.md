@@ -1,0 +1,9 @@
+# CI verification status
+
+The workflow in `.github/workflows/ci.yml` builds the three applications on six native runner labels, checks the output architectures, and prepares the fifteen application archives named in the deployment guide. macOS slices are combined within the same workflow run; the final universal server has a separate smoke job for each macOS architecture. Artifacts are uploaded before all tests complete, so their presence does not imply a passing job. The macOS bundles are ad-hoc signed, use CI identifiers and are not notarized.
+
+Local Linux x64 verification passed the pinned Go 1.26.8 build, Go vet and race tests in all six modules with the built-server integrations, both frontend unit suites, both Playwright suites (73 student and 125 proctor tests), archive architecture and checksum checks, and server health. The Windows desktop applications have also been cross-compiled as PE x64/ARM64, which does not verify native execution. See the workflow run for actual hosted job and artifact results; no Windows, macOS or ARM64 hosted result is assumed here.
+
+The Windows server currently checks Unix permission bits for its credential file; Windows permissions use ACLs instead. Its startup and integration tests can fail, and Windows file-mode and symlink assertions require native review. These failures are not suppressed. A Windows ACL policy and native test evidence are required before treating Windows server artifacts as deployable. Linux and macOS retain the existing private-file protection.
+
+Go vet and tests cover all six modules, including desktop integration against the built server and the synthetic regression output. Race tests run except on Windows ARM64. Frontend unit tests run per platform; Chromium browser tests run on Linux x64. Audio device mutation, interactive screen-recording consent and multi-monitor capture remain manual checks. No CI signing, deployment, or publication secrets are required.

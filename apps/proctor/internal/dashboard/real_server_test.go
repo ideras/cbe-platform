@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"testing"
 	"time"
@@ -33,7 +34,11 @@ func TestBuiltServerManualExamWorkflow(t *testing.T) {
 	port := listener.Addr().(*net.TCPAddr).Port
 	listener.Close()
 	dir := filepath.Join(t.TempDir(), "demo")
-	cmd := exec.Command("python3", filepath.Join(root, "scripts/manual_exam.py"), "init", "--directory", dir, "--port", strconv.Itoa(port))
+	python := "python3"
+	if runtime.GOOS == "windows" {
+		python = "python"
+	}
+	cmd := exec.Command(python, filepath.Join(root, "scripts/manual_exam.py"), "init", "--directory", dir, "--port", strconv.Itoa(port))
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("demo initialization: %v %s", err, out)

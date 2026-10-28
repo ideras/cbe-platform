@@ -81,6 +81,8 @@ See the [deployment guide](docs/deployment.md#prepare-the-build-machine) for pla
 
 ## Build the three components
 
+The native build helper `python3 scripts/ci/build.py --os linux --arch amd64 --output build` checks the Go and Node architectures, builds the server, generates bindings and builds both desktop applications. Use `darwin` or `windows` and `amd64` or `arm64` for the native host. Its outputs are intermediate executables. The GitHub Actions workflow builds on six native targets and prepares separate archives; see [the deployment guide](docs/deployment.md) for names, runtime dependencies and verification status.
+
 Run these commands from the repository root.
 
 ### Server

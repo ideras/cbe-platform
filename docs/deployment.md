@@ -107,6 +107,14 @@ For a release build, check out the chosen published tag or commit before buildin
 
 ## Build the applications
 
+For a native intermediate build, `python3 scripts/ci/build.py --os linux --arch amd64 --output build` runs the server and desktop build sequence after checking the host and tool architectures. Substitute the host OS (`linux`, `darwin`, or `windows`) and Go architecture (`amd64` or `arm64`). Run it from a full checkout with the dependencies above installed; on Windows use `python` if `python3` is unavailable. To run the Go checks against that server, use `python3 scripts/ci/test.py --server build/cbe-portal-server --race --report build/ci/reports` (omit `--race` on Windows ARM64 and use the `.exe` server name on Windows).
+
+The GitHub Actions workflow builds each component on native x64 and ARM64 hosts. Each successful packaging step uploads a separate archive and `.sha256` file. For each application (`server`, `student`, `proctor`), Linux names are `cbe-portal-<application>-linux-{x64,arm64}.tar.gz` and Windows names are `cbe-portal-<application>-windows-{x64,arm64}.zip`. The macOS server is `cbe-portal-server-macos-universal.tar.gz`; the desktop bundles are `cbe-portal-{student,proctor}-macos-universal.zip`. Verify a checksum from its archive directory with `sha256sum -c <archive>.sha256`, or `shasum -a 256 -c <archive>.sha256` on macOS. The included manifest records the commit and tool versions. Intermediate macOS slices and test logs are separate artifacts.
+
+Artifacts are uploaded before the platform tests finish, so check the complete workflow result before using them. The initial Windows server has an unresolved credential-file permission check: Windows mode bits do not represent file ACLs, and startup and integration checks can fail. Do not deploy the Windows server until a Windows credential policy and native tests have been verified. The Linux desktop binaries depend on the Ubuntu 24.04 GTK4 and WebKitGTK 6.0 runtime stack; Windows desktops require WebView2. The universal macOS builds target macOS 12 or later and use CI-only bundle identifiers (`org.cbeportal.ci.student` and `org.cbeportal.ci.proctor`). They are ad-hoc signed and are not Developer ID signed or notarized. These identifiers are not production identifiers; changing them affects macOS permission grants.
+
+CI does not verify system audio changes, interactive screen-recording permissions or multi-monitor capture; perform those checks manually on the target desktop. No signing or deployment secrets are used by the workflow.
+
 ### Server
 
 ```sh
@@ -469,7 +477,7 @@ Fullscreen and always-on-top behavior are deterrents and can be bypassed. Evalua
 
 ### macOS application bundles
 
-The current build produces bare executables. For managed distribution on macOS, place each executable in a separate `.app` bundle with its own stable identifier. For example, after building natively on a Mac:
+The local build produces bare executables. For managed distribution on macOS, place each executable in a separate `.app` bundle with its own stable identifier. The CI universal bundles use CI-only identifiers and ad-hoc signatures as described above. For example, after building natively on a Mac:
 
 ```sh
 mkdir -p "release/CBE Portal Student.app/Contents/MacOS"

@@ -36,7 +36,7 @@ proctor:
 	cd apps/proctor && $(WAILS) build
 
 proctor-client-test: server proctor
-	cd apps/proctor && EXAM_SERVER_BINARY="$(CURDIR)/build/cbe-portal-server" go test -race -skip 'TestDisconnectingWhenNotConnectedIsHarmlessAndAnAttemptOrActionBlocksIt' ./internal/dashboard
+	cd apps/proctor && EXAM_SERVER_BINARY="$(CURDIR)/build/cbe-portal-server" go test -race ./internal/dashboard
 
 proctor-ui-test:
 	cd apps/proctor/frontend && npm ci && npm test && npm run test:ui
