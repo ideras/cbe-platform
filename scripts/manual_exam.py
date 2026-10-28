@@ -3,6 +3,7 @@
 
 import argparse
 import csv
+import io
 import json
 import os
 from pathlib import Path
@@ -57,9 +58,11 @@ def initialize(directory, port, duration, grace, volume=None, calculator=True):
     rows = [["canvas_id", "account_number", "name", "email", "sis_user_id"]]
     for index, name in enumerate(["Ada Demo", "Bruno Demo", "Carla Demo", "Diego Demo", "Elena Demo"], 1):
         rows.append([str(index), "%04d" % index, name, "demo%d@example.invalid" % index, "DEMO-%d" % index])
-    fd = os.open(directory / "roster.csv", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8", newline="") as output:
-        csv.writer(output).writerows(rows)
+    # Every private input goes through private_write, which also replaces the inherited Windows ACL with an explicit
+    # private one; a raw os.open here would skip that and the file would be rejected by the input policy.
+    roster = io.StringIO()
+    csv.writer(roster).writerows(rows)
+    private_write(directory / "roster.csv", roster.getvalue())
     # The content is what shared/examdoc compiles from Markdown: HTML with a data-slot placeholder for each answer field.
     exam = {"title": "Manual synthetic exam — no grading", "pin": "demo-only", "duration_seconds": duration,
             "grace_seconds": grace, "content": {

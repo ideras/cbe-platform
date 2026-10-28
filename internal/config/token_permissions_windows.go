@@ -28,25 +28,42 @@ func checkPrivateToken(file *os.File, _ os.FileInfo) error {
 }
 
 func checkTokenDescriptor(sd *windows.SECURITY_DESCRIPTOR, user *windows.SID) error {
-	rejected := errors.New("token ACL must grant access only to the current account, SYSTEM and local Administrators")
+	// SIDs are not secrets, so rejections name the offending entry: a hosted failure then shows exactly which account
+	// or ACE the policy refused instead of a generic verdict.
+	account := "<no account>"
+	if user != nil && user.IsValid() {
+		account = user.String()
+	}
+	rejected := func(format string, args ...any) error {
+		return fmt.Errorf("token ACL must grant access only to the current account, SYSTEM and local Administrators (current account %s: %s)", account, fmt.Sprintf(format, args...))
+	}
 	if sd == nil || user == nil || !user.IsValid() {
-		return rejected
+		return rejected("no security descriptor or account to compare with")
 	}
 	trusted := func(sid *windows.SID) bool {
 		return sid != nil && sid.IsValid() && (sid.Equals(user) || sid.IsWellKnown(windows.WinLocalSystemSid) || sid.IsWellKnown(windows.WinBuiltinAdministratorsSid))
 	}
+	sidName := func(sid *windows.SID) string {
+		if sid == nil || !sid.IsValid() {
+			return "<invalid>"
+		}
+		return sid.String()
+	}
 	owner, _, err := sd.Owner()
-	if err != nil || !trusted(owner) {
-		return rejected
+	if err != nil {
+		return rejected("cannot read the token file's owner: %v", err)
+	}
+	if !trusted(owner) {
+		return rejected("file is owned by %s", sidName(owner))
 	}
 	acl, _, err := sd.DACL()
 	if err != nil || acl == nil {
-		return rejected
+		return rejected("no access list to inspect")
 	}
 	for i := uint32(0); i < uint32(acl.AceCount); i++ {
 		var ace *windows.ACCESS_ALLOWED_ACE
 		if err := windows.GetAce(acl, i, &ace); err != nil || ace == nil {
-			return rejected
+			return rejected("cannot read access entry %d", i)
 		}
 		if ace.Header.AceFlags&windows.INHERIT_ONLY_ACE != 0 {
 			continue
@@ -56,15 +73,15 @@ func checkTokenDescriptor(sd *windows.SECURITY_DESCRIPTOR, user *windows.SID) er
 			continue
 		case windows.ACCESS_ALLOWED_ACE_TYPE:
 			if ace.Header.AceSize < 16 {
-				return rejected
+				return rejected("malformed access entry %d", i)
 			}
 			sid := (*windows.SID)(unsafe.Pointer(&ace.SidStart))
 			if !trusted(sid) {
-				return rejected
+				return rejected("access entry %d grants %s", i, sidName(sid))
 			}
 		default:
 			// Conditional and object-specific ACEs need separate interpretation.
-			return rejected
+			return rejected("access entry %d has unsupported type %d", i, ace.Header.AceType)
 		}
 	}
 	return nil

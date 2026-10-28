@@ -32,6 +32,9 @@ func TestRealServerDownloadedSubmissionsAreTheExamWithAnswers(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "admin-token"), []byte(secret+"\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
+	if err := restrictTokenACL(filepath.Join(dir, "admin-token")); err != nil {
+		t.Fatal(err)
+	}
 	server := "http://127.0.0.1:" + strconv.Itoa(port)
 	cmd := exec.Command(binary, "-bind", "127.0.0.1:"+strconv.Itoa(port), "-database", filepath.Join(dir, "exam.db"), "-screenshots", filepath.Join(dir, "screenshots"), "-admin-token-file", filepath.Join(dir, "admin-token"))
 	if err := cmd.Start(); err != nil {
