@@ -11,6 +11,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"sync"
 	"testing"
@@ -88,7 +89,7 @@ func TestScreenshotsThresholdIdentityCanonicalImageAndHistory(t *testing.T) {
 		t.Fatal("retry replaced image")
 	}
 	info, err := os.Stat(filepath.Join(root, login.SessionID, fmtID(loss)+"-0.jpg"))
-	if err != nil || info.Mode().Perm() != 0600 {
+	if err != nil || !info.Mode().IsRegular() || (runtime.GOOS != "windows" && info.Mode().Perm() != 0600) {
 		t.Fatal("image permissions")
 	}
 	page, err := f.sessions.ProctorTimeline(t.Context(), login.SessionID, 100, "")

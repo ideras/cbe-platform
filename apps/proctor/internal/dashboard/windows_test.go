@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -94,7 +95,7 @@ func TestSaveImageWritesTheOriginalBytesPrivately(t *testing.T) {
 	if err != nil || !bytes.Equal(written, original.Bytes()) {
 		t.Fatal("the saved file is not the server's image")
 	}
-	if info, _ := os.Stat(target); info.Mode().Perm() != 0o600 {
+	if info, _ := os.Stat(target); runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Fatalf("saved with mode %v", info.Mode().Perm())
 	}
 	// The image window shows the same picture as a data URL.

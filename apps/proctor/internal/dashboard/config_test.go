@@ -19,7 +19,7 @@ func TestConfigFileRoundTripIsPrivateAndAtomic(t *testing.T) {
 	if config, err := loadConfig(path); err != nil || config != (Config{}) {
 		t.Fatalf("missing file = %+v, %v", config, err)
 	}
-	want := Config{Server: "http://192.168.1.10:8080", TokenFile: "/keys/admin-token"}
+	want := Config{Server: "http://192.168.1.10:8080", TokenFile: filepath.Join(t.TempDir(), "keys", "admin-token")}
 	if err := saveConfig(path, want); err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,8 @@ func TestASettingsFileThatAlsoKeptARosterStillLoadsAndLosesTheKeyOnTheNextSave(t
 	}
 	wait(t, func() bool { return f.Snapshot().CatalogLoaded }) // it connects by itself, from the remembered server and token file
 	data, err := os.ReadFile(f.config)
-	if err != nil || strings.Contains(string(data), "roster") || !strings.Contains(string(data), token) || !strings.Contains(string(data), f.server.URL) {
+	var saved map[string]any
+	if err != nil || json.Unmarshal(data, &saved) != nil || saved["token_file"] != token || saved["server_url"] != f.server.URL || saved["roster_file"] != nil {
 		t.Fatalf("settings after the next save: %s, %v", data, err)
 	}
 }
@@ -248,7 +249,7 @@ func TestAnUnusableRememberedTokenFileIsReportedNotUsed(t *testing.T) {
 		}
 	})
 	view := f.Snapshot()
-	if view.CredentialFile != "" || !strings.Contains(view.Notice, "gone/admin-token") || !strings.Contains(view.Notice, "Choose it again") {
+	if view.CredentialFile != "" || !strings.Contains(view.Notice, filepath.Join("gone", "admin-token")) || !strings.Contains(view.Notice, "Choose it again") {
 		t.Fatalf("view = %+v", view)
 	}
 	if _, err := f.Connect(f.server.URL); err == nil {

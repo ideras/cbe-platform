@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -188,12 +189,12 @@ func TestDownloadWritesPrivateFilesAndTheIndex(t *testing.T) {
 		t.Fatalf("skipped = %+v, failed = %+v", result.Skipped, result.Failed)
 	}
 	info, err := os.Stat(folder)
-	if err != nil || !info.IsDir() || info.Mode().Perm() != 0o700 {
+	if err != nil || !info.IsDir() || (runtime.GOOS != "windows" && info.Mode().Perm() != 0o700) {
 		t.Fatalf("folder mode = %v, %v", info.Mode().Perm(), err)
 	}
 	path := filepath.Join(folder, "Jose_Nunez_Martinez.md")
 	info, err = os.Stat(path)
-	if err != nil || info.Mode().Perm() != 0o600 {
+	if err != nil || (runtime.GOOS != "windows" && info.Mode().Perm() != 0o600) {
 		t.Fatalf("file mode = %v, %v", info.Mode().Perm(), err)
 	}
 	content, _ := os.ReadFile(path)
@@ -212,7 +213,7 @@ func TestDownloadWritesPrivateFilesAndTheIndex(t *testing.T) {
 		}
 	}
 	index, err := os.Stat(filepath.Join(folder, indexFileName))
-	if err != nil || index.Mode().Perm() != 0o600 {
+	if err != nil || (runtime.GOOS != "windows" && index.Mode().Perm() != 0o600) {
 		t.Fatalf("index mode = %v, %v", index.Mode().Perm(), err)
 	}
 	indexContent, _ := os.ReadFile(filepath.Join(folder, indexFileName))
