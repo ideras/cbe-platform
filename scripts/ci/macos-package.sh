@@ -7,11 +7,11 @@ stage=build/ci/macos-universal
 for app in server student proctor; do
   name="cbe-portal-$app"
   chmod 755 "$x64/$name" "$arm64/$name"
-  lipo -verify_arch x86_64 "$x64/$name"
-  lipo -verify_arch arm64 "$arm64/$name"
+  lipo "$x64/$name" -verify_arch x86_64
+  lipo "$arm64/$name" -verify_arch arm64
   lipo -create "$x64/$name" "$arm64/$name" -output "$stage/$name"
   chmod 755 "$stage/$name"
-  lipo -verify_arch x86_64 arm64 "$stage/$name"
+  lipo "$stage/$name" -verify_arch x86_64 arm64
 done
 python3 - "$stage/manifest.json" <<'PY'
 import json, os, subprocess, sys
@@ -47,7 +47,7 @@ with open(path, "wb") as f: plistlib.dump(plist, f)
 PY
   plutil -lint "$bundle/Contents/Info.plist"
   test -x "$bundle/Contents/MacOS/$binary"
-  lipo -verify_arch x86_64 arm64 "$bundle/Contents/MacOS/$binary"
+  lipo "$bundle/Contents/MacOS/$binary" -verify_arch x86_64 arm64
   codesign --force --deep --sign - "$bundle"
   codesign --verify --deep --strict --verbose=2 "$bundle"
   ditto -c -k --sequesterRsrc --keepParent "$bundle" "$out/$binary-macos-universal.zip"
@@ -56,7 +56,7 @@ PY
   unpacked="$verify_dir/$(basename "$bundle")"
   test -x "$unpacked/Contents/MacOS/$binary"
   plutil -lint "$unpacked/Contents/Info.plist"
-  lipo -verify_arch x86_64 arm64 "$unpacked/Contents/MacOS/$binary"
+  lipo "$unpacked/Contents/MacOS/$binary" -verify_arch x86_64 arm64
   codesign --verify --deep --strict "$unpacked"
 done
 for archive in "$out"/*.zip "$out"/*.tar.gz; do

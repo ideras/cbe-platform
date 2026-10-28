@@ -113,7 +113,7 @@ jobs:
         run: |
           expected='${{ matrix.arch }}'
           if [[ "$expected" == amd64 ]]; then expected=x86_64; fi
-          for app in server student proctor; do lipo -verify_arch "$expected" "build/cbe-portal-$app"; done
+          for app in server student proctor; do lipo "build/cbe-portal-$app" -verify_arch "$expected"; done
       - if: matrix.os == 'darwin'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -234,6 +234,6 @@ jobs:
           shasum -a 256 -c cbe-portal-server-macos-universal.tar.gz.sha256
           tar -xzf cbe-portal-server-macos-universal.tar.gz
           chmod 755 cbe-portal-server
-          lipo -verify_arch x86_64 arm64 cbe-portal-server
+          lipo cbe-portal-server -verify_arch x86_64 arm64
           codesign --verify --strict cbe-portal-server
           python3 ../scripts/ci/smoke.py cbe-portal-server
