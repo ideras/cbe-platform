@@ -3,6 +3,7 @@
 
 import argparse
 import json
+import os
 from pathlib import Path
 import stat
 import sys
@@ -19,9 +20,18 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 def private_file(path):
     info = path.lstat()
-    if not stat.S_ISREG(info.st_mode) or info.st_mode & 0o077:
+    if not stat.S_ISREG(info.st_mode):
         raise ValueError("Input files must be regular, private files (chmod 600).")
-    return path.read_bytes()
+    with path.open("rb") as source:
+        opened = os.fstat(source.fileno())
+        if not stat.S_ISREG(opened.st_mode):
+            raise ValueError("Input files must be regular, private files.")
+        if os.name == "nt":
+            from windows_private import check_private
+            check_private(source)
+        elif opened.st_mode & 0o077:
+            raise ValueError("Input files must be regular, private files (chmod 600).")
+        return source.read()
 
 
 def main():

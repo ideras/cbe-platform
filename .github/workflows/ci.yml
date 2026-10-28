@@ -70,6 +70,17 @@ jobs:
           $versions = @($keys | ForEach-Object { (Get-ItemProperty -Path $_ -Name pv -ErrorAction SilentlyContinue).pv } | Where-Object { $_ -and $_ -ne '0.0.0.0' })
           if ($versions.Count -eq 0) { throw 'WebView2 Runtime was not detected' }
           Write-Host "WebView2 Runtime: $($versions -join ', ')"
+      - name: Create private Windows test directory
+        if: matrix.os == 'windows'
+        shell: pwsh
+        run: |
+          $private = Join-Path $env:RUNNER_TEMP 'cbe-private'
+          New-Item -ItemType Directory -Path $private | Out-Null
+          $sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+          & icacls $private /inheritance:r /grant:r "*${sid}:(OI)(CI)F" '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F'
+          if ($LASTEXITCODE -ne 0) { throw 'Could not restrict the test directory ACL' }
+          "TMP=$private" >> $env:GITHUB_ENV
+          "TEMP=$private" >> $env:GITHUB_ENV
       - name: Report platform tools
         run: |
           go version
@@ -144,6 +155,10 @@ jobs:
           suffix=''
           if [[ '${{ matrix.os }}' == windows ]]; then suffix=.exe; fi
           python scripts/ci/smoke.py "build/cbe-portal-server$suffix"
+      - name: Test Windows private input ACLs
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && matrix.os == 'windows' }}
+        timeout-minutes: 3
+        run: python scripts/ci/test_windows_private.py
       - name: Go tests and vet
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         timeout-minutes: 100

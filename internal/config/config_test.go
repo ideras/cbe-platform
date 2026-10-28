@@ -4,6 +4,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -69,7 +70,7 @@ func TestPreparePathsAndSecret(t *testing.T) {
 	}
 	for _, path := range []string{cfg.Database, cfg.Screenshots, filepath.Dir(cfg.Database)} {
 		info, err := os.Stat(path)
-		if err != nil || info.Mode().Perm()&0077 != 0 {
+		if err != nil || (runtime.GOOS != "windows" && info.Mode().Perm()&0077 != 0) {
 			t.Fatalf("path not private: %s %v", path, err)
 		}
 	}
@@ -83,6 +84,9 @@ func TestPrepareRejectsInvalidPathsAndTokens(t *testing.T) {
 			case "symlink database":
 				cfg.Database = filepath.Join(filepath.Dir(scratch(cfg)), "link.db")
 				if err := os.Symlink(scratch(cfg), cfg.Database); err != nil {
+					if runtime.GOOS == "windows" {
+						t.Skipf("symlink creation unavailable: %v", err)
+					}
 					t.Fatal(err)
 				}
 			case "database directory":
@@ -96,7 +100,7 @@ func TestPrepareRejectsInvalidPathsAndTokens(t *testing.T) {
 					t.Fatal(err)
 				}
 			case "public token":
-				if err := os.Chmod(cfg.AdminTokenFile, 0644); err != nil {
+				if err := makeTokenPublic(cfg.AdminTokenFile); err != nil {
 					t.Fatal(err)
 				}
 			case "screenshots file":

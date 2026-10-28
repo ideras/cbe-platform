@@ -183,7 +183,8 @@ func TestTheApplicationsOwnLockHidesTheExam(t *testing.T) {
 // it, and the next absence is captured again.
 func TestTheServersLockConfirmsTheApplicationsOwnAndItsUnlockEndsIt(t *testing.T) {
 	f := newFixture(t)
-	f.status.Policy = lockPolicy(0, 150)
+	// Leave time for the restored connection on slower native runners before it can relock.
+	f.status.Policy = lockPolicy(0, 1000)
 	var offline atomic.Bool
 	offline.Store(true)
 	f.onTelemetry = func(w http.ResponseWriter, _ *http.Request, record telemetryRecord) bool {
@@ -199,6 +200,7 @@ func TestTheServersLockConfirmsTheApplicationsOwnAndItsUnlockEndsIt(t *testing.T
 	waitMonitor(t, s, func(v MonitoringView) bool { return v.Locked })
 	// The network comes back; the server had locked the session on its own.
 	offline.Store(false)
+	waitMonitor(t, s, func(v MonitoringView) bool { return v.HeartbeatAt != nil && v.HeartbeatError == "" })
 	setServerLock(f, "no_contact")
 	waitView(t, s, func(v View) bool { return v.Locked != nil && v.Phase == "locked" })
 	// The proctor unlocks.

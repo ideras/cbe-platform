@@ -98,14 +98,19 @@ func (c *Config) Prepare() error {
 	if err := checkRegular(c.AdminTokenFile); err != nil {
 		return fmt.Errorf("admin token: %w", err)
 	}
-	info, err := os.Stat(c.AdminTokenFile)
+	file, err := os.Open(c.AdminTokenFile)
 	if err != nil {
-		return err
+		return fmt.Errorf("open admin token: %w", err)
 	}
-	if info.Mode().Perm()&0077 != 0 {
-		return fmt.Errorf("admin token file must not be accessible by group or others (use chmod 600)")
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() {
+		return fmt.Errorf("admin token must be a regular file")
 	}
-	token, err := os.ReadFile(c.AdminTokenFile)
+	if err := checkPrivateToken(file, info); err != nil {
+		return fmt.Errorf("admin token: %w", err)
+	}
+	token, err := io.ReadAll(file)
 	if err != nil {
 		return fmt.Errorf("read admin token: %w", err)
 	}
