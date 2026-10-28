@@ -84,7 +84,9 @@ func TestASettingsFileThatAlsoKeptARosterStillLoadsAndLosesTheKeyOnTheNextSave(t
 	wait(t, func() bool { return f.Snapshot().CatalogLoaded }) // it connects by itself, from the remembered server and token file
 	data, err := os.ReadFile(f.config)
 	var saved map[string]any
-	if err != nil || json.Unmarshal(data, &saved) != nil || saved["token_file"] != token || saved["server_url"] != f.server.URL || saved["roster_file"] != nil {
+	decodeErr := json.Unmarshal(data, &saved)
+	_, hasRoster := saved["roster_file"]
+	if err != nil || decodeErr != nil || saved["token_file"] != token || saved["server_url"] != f.server.URL || hasRoster {
 		t.Fatalf("settings after the next save: %s, %v", data, err)
 	}
 }

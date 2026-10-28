@@ -216,6 +216,7 @@ jobs:
           if-no-files-found: error
   universal-smoke:
     needs: macos-universal
+    if: ${{ always() && !cancelled() && needs.macos-universal.result == 'success' }}
     strategy:
       fail-fast: false
       matrix:
