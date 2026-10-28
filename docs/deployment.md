@@ -109,6 +109,17 @@ For a release build, check out the chosen published tag or commit before buildin
 
 For a native intermediate build, `python3 scripts/ci/build.py --os linux --arch amd64 --output build` runs the server and desktop build sequence after checking the host and tool architectures. Substitute the host OS (`linux`, `darwin`, or `windows`) and Go architecture (`amd64` or `arm64`). Run it from a full checkout with the dependencies above installed; on Windows use `python` if `python3` is unavailable. To run the Go checks against that server, use `python3 scripts/ci/test.py --server build/cbe-portal-server --race --report build/ci/reports` (omit `--race` on Windows ARM64 and use the `.exe` server name on Windows).
 
+Without a CI runner, the same script produces the archives locally. Add `--cross` on a non-Windows host to build the Windows x64 target, then package each platform:
+
+```sh
+python3 scripts/ci/build.py --os linux --arch amd64 --output build
+python3 scripts/ci/build.py --os windows --arch amd64 --output build --cross
+python3 scripts/ci/package.py --os linux --arch amd64 --input build --output build/ci/artifacts
+python3 scripts/ci/package.py --os windows --arch amd64 --input build --output build/ci/artifacts
+```
+
+`--cross` exists only for Windows because the Linux and macOS desktops link their native webview through CGO; it prints a warning, and the resulting binaries are labelled Windows even though they have never run there. `package.py` still verifies the ELF or PE header and machine type of every binary, and both platforms' archives can be staged side by side because the Windows files carry the `.exe` suffix. Validate what you can on the build host before distributing anything: `python3 scripts/ci/smoke.py build/cbe-portal-server` for the server and `python3 scripts/ci/test.py` for the Go suites. Run `python scripts/ci/smoke.py cbe-portal-server.exe` on a real Windows machine before handing those builds to students. Archives built this way are unsigned test builds; the manifest records the commit and the exact Go, Node and npm versions, which may differ from the pinned CI toolchain.
+
 The GitHub Actions workflow builds each component on native x64 and ARM64 hosts. Each successful packaging step uploads a separate archive and `.sha256` file. For each application (`server`, `student`, `proctor`), Linux names are `cbe-portal-<application>-linux-{x64,arm64}.tar.gz` and Windows names are `cbe-portal-<application>-windows-{x64,arm64}.zip`. The macOS server is `cbe-portal-server-macos-universal.tar.gz`; the desktop bundles are `cbe-portal-{student,proctor}-macos-universal.zip`. Verify a checksum from its archive directory with `sha256sum -c <archive>.sha256`, or `shasum -a 256 -c <archive>.sha256` on macOS. The included manifest records the commit and tool versions. Intermediate macOS slices and test logs are separate artifacts.
 
 Artifacts are uploaded before the platform tests finish, so check the complete workflow result before using them. Windows token-file ACL validation and native integration tests must pass before deploying a Windows server. The Linux desktop binaries depend on the Ubuntu 24.04 GTK4 and WebKitGTK 6.0 runtime stack; Windows desktops require WebView2. The universal macOS builds target macOS 12 or later and use CI-only bundle identifiers (`org.cbeportal.ci.student` and `org.cbeportal.ci.proctor`). They are ad-hoc signed and are not Developer ID signed or notarized. These identifiers are not production identifiers; changing them affects macOS permission grants.
