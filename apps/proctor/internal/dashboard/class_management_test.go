@@ -237,7 +237,8 @@ func TestClassManagementNeedsAConnection(t *testing.T) {
 }
 
 func TestDisconnectingEndsTheConnectionAndKeepsTheWayBack(t *testing.T) {
-	f := newConfigFixture(t, nil)
+	// Finish the first refresh before disconnecting; a request already in flight can reach the server after cancellation.
+	f := newConfigFixture(t, func(opts *Options, _ string) { opts.Poll = 30 * time.Second })
 	f.chosen[tokenTitle] = writeToken(t, secret, 0o600)
 	if _, err := f.ChooseCredential(); err != nil {
 		t.Fatal(err)
@@ -245,7 +246,7 @@ func TestDisconnectingEndsTheConnectionAndKeepsTheWayBack(t *testing.T) {
 	if _, err := f.Connect(f.server.URL); err != nil {
 		t.Fatal(err)
 	}
-	wait(t, func() bool { v := f.Snapshot(); return v.Connected && v.ClassesLoaded })
+	wait(t, func() bool { v := f.Snapshot(); return v.Connected && v.ClassesLoaded && v.LastSuccess != nil })
 
 	view, err := f.Disconnect()
 	if err != nil || view.Connected || view.Connecting || len(view.Classes) != 0 || view.ClassesLoaded || view.CatalogLoaded || view.ExamID != examID || view.Server != f.server.URL || !view.CredentialAvailable || view.CredentialFile != tokenLabel {

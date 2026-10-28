@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { relative, resolve } from 'node:path';
+import { relative, resolve, sep } from 'node:path';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const read = path => readFileSync(resolve(root, path), 'utf8');
@@ -189,7 +189,7 @@ export function registerThemeTests() {
     const allowedLogoPaints = new Set(['#FFFFFF', '#F6F3EC', '#DFF0EB', '#1E5E58', '#F1E7D2', '#56656E', '#DCD5C8']);
     for (const directory of [proctor(''), student(''), 'shared/theme']) {
       for (const path of files(resolve(root, directory))) {
-        const name = relative(root, path);
+        const name = relative(root, path).split(sep).join('/');
         if (!/\.(?:css|svelte|js|mjs|svg)$/.test(name) || name === themePath) continue;
         const text = readFileSync(path, 'utf8');
         if (name === logo) {

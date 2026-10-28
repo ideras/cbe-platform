@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
 import struct
 import subprocess
 import tarfile
@@ -15,7 +16,10 @@ APPS = ("server", "student", "proctor")
 
 
 def version(*args):
-    return subprocess.check_output(args, text=True).strip()
+    executable = shutil.which(args[0])
+    if not executable:
+        raise FileNotFoundError(f"missing command: {args[0]}")
+    return subprocess.check_output([executable, *args[1:]], text=True).strip()
 
 
 def check_arch(path, target, arch):

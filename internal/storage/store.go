@@ -33,7 +33,7 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	u := url.URL{Scheme: "file", Path: filepath.ToSlash(absolute)}
+	u := url.URL{Scheme: "file", Path: sqliteURLPath(filepath.ToSlash(absolute))}
 	q := u.Query()
 	q.Add("_pragma", "foreign_keys(1)")
 	q.Add("_pragma", "busy_timeout(5000)")
@@ -66,6 +66,15 @@ func Open(ctx context.Context, path string) (*Store, error) {
 		return nil, err
 	}
 	return s, nil
+}
+
+// A Windows drive path needs a leading slash in a file URL; otherwise the drive
+// is parsed as an authority by SQLite (file://C:/...). Unix paths already have one.
+func sqliteURLPath(path string) string {
+	if !strings.HasPrefix(path, "/") {
+		return "/" + path
+	}
+	return path
 }
 
 // upgradeClock names the copy made before an upgrade; tests fix it to provoke a clash.

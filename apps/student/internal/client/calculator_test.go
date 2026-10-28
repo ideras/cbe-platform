@@ -285,6 +285,7 @@ func TestACalcBurstDoesNotDelayTheFocusLoss(t *testing.T) {
 	f := newFixture(t)
 	f.examTools = &calc.Tools{Version: 1, Calculator: &calc.Calculator{Enabled: true, Modes: []string{calc.ModeScientific}}}
 	release := make(chan struct{})
+	defer close(release) // release handlers even when an assertion fails
 	f.onTelemetry = func(w http.ResponseWriter, r *http.Request, record telemetryRecord) bool {
 		if strings.HasPrefix(record.kind, "calc_") {
 			<-release // hold every calculator event until the focus loss is long since recorded
@@ -298,19 +299,20 @@ func TestACalcBurstDoesNotDelayTheFocusLoss(t *testing.T) {
 		s.tools.enqueue("calc_evaluated", map[string]any{"expression": "1"})
 	}
 	s.mu.Unlock()
-	before := time.Now()
+	f.mu.Lock()
+	before := len(f.telemetry)
+	f.mu.Unlock()
 	ReportNativeFocus(s, false)
 	waitView(t, s, func(v View) bool {
 		f.mu.Lock()
 		defer f.mu.Unlock()
-		for _, record := range f.telemetry {
-			if record.kind == "focus_lost" && record.at.After(before) {
+		for _, record := range f.telemetry[before:] {
+			if record.kind == "focus_lost" {
 				return true
 			}
 		}
 		return false
 	})
-	close(release)
 }
 
 // The end of the exam clears the calculator's ans; a lock does not (D11).
