@@ -30,6 +30,10 @@ def private_write(path, data):
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8", newline="") as output:
         output.write(data)
+    if os.name == "nt":
+        # Windows ignores the 0600 mode; replace the inherited ACL so the strict private-input policy holds.
+        from windows_private import restrict_private
+        restrict_private(path)
 
 
 def server_args(directory, profile):
@@ -163,8 +167,15 @@ def main():
             if args.command == "proctor":
                 command += ["-exam-id", profile["exam_id"], "-admin-token-file", str(directory / "admin-token")]
         os.execv(command[0], command)
-    except (OSError, ValueError, KeyError, TypeError):
-        print("Demo setup/launch failed. Build binaries first, use a fresh private directory for init, and inspect its bootstrap.log. No credentials were logged.", file=sys.stderr)
+    except (OSError, ValueError, KeyError, TypeError) as failure:
+        # The failure itself never carries credentials (they travel only in request headers), so report it
+        # instead of hiding the phase that failed; otherwise hosted failures are undiagnosable.
+        print("Demo setup/launch failed: %s: %s" % (type(failure).__name__, failure), file=sys.stderr)
+        log = directory / "bootstrap.log"
+        if args.command == "init" and log.is_file():
+            print("--- bootstrap.log ---", file=sys.stderr)
+            print(log.read_text(encoding="utf-8", errors="replace")[-4000:], file=sys.stderr)
+        print("Build binaries first, use a fresh private directory for init, and inspect its bootstrap.log. No credentials were logged.", file=sys.stderr)
         return 1
 
 

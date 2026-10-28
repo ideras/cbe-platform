@@ -71,8 +71,19 @@ func TestAnAttemptIsVisibleWhileTheServerThinksAndCannotBeRepeated(t *testing.T)
 	release := make(chan struct{})
 	entered := make(chan struct{}, 8)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		entered <- struct{}{}
-		<-release
+		// Count the request without ever blocking on a full buffer, and hold it only until the test releases it or the
+		// client goes away; a handler parked on a send nobody drains keeps server.Close waiting forever.
+		select {
+		case entered <- struct{}{}:
+		case <-release:
+		case <-r.Context().Done():
+			return
+		}
+		select {
+		case <-release:
+		case <-r.Context().Done():
+			return
+		}
 		serveAdminState(w, r)
 	}))
 	t.Cleanup(server.Close)

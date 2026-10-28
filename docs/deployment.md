@@ -295,7 +295,16 @@ sudo install -m 600 -o cbe-platform -g cbe-platform /dev/null /etc/cbe-platform/
 openssl rand -hex 32 | sudo tee /etc/cbe-platform/admin-token > /dev/null
 ```
 
-The token must be a regular file and contain at least 32 non-whitespace characters. On Linux and macOS it must have no group or other permission bits. On Windows, its owner and all access-granting ACL entries must be limited to the account running the server, local Administrators and SYSTEM; the server rejects a missing ACL and unsupported ACL entries. Configure the ACL before writing the token and restrict the database and screenshot directories as well: Windows ACLs, not Unix mode bits, control access to those paths. A 32-byte hexadecimal token satisfies both the server and dashboard validators. Both applications trim the trailing newline. Symlinks are rejected.
+The token must be a regular file and contain at least 32 non-whitespace characters. On Linux and macOS it must have no group or other permission bits. On Windows, its owner and all access-granting ACL entries must be limited to the account running the server, local Administrators and SYSTEM; the server rejects a missing ACL and unsupported ACL entries. Configure the ACL before writing the token and restrict the database and screenshot directories as well: Windows ACLs, not Unix mode bits, control access to those paths. A token file that merely inherits a user-profile ACL is rejected on Windows 11 because the profile grants application-container SIDs; replace the inherited ACL explicitly, for example in PowerShell:
+
+```powershell
+New-Item -ItemType File -Path 'C:\ProgramData\cbe-platform\admin-token' -Force | Out-Null
+$sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+icacls 'C:\ProgramData\cbe-platform\admin-token' /inheritance:r /grant:r "*${sid}:F"
+[IO.File]::WriteAllText('C:\ProgramData\cbe-platform\admin-token', '<32+ character token>' + [Environment]::NewLine)
+```
+
+A 32-byte hexadecimal token satisfies both the server and dashboard validators. Both applications trim the trailing newline. Symlinks are rejected.
 
 Save the following as `/etc/systemd/system/cbe-platform.service`, replacing the listen address if needed:
 

@@ -1,7 +1,9 @@
 """Conservative Windows DACL check for an already-open private input file."""
 import ctypes
+import os
 from ctypes import wintypes
 import msvcrt
+import subprocess
 
 advapi = ctypes.WinDLL('advapi32', use_last_error=True)
 kernel = ctypes.WinDLL('kernel32', use_last_error=True)
@@ -22,6 +24,7 @@ get_token = api(advapi, 'GetTokenInformation', wintypes.BOOL, wintypes.HANDLE, w
 get_security = api(advapi, 'GetSecurityInfo', wintypes.DWORD, wintypes.HANDLE, wintypes.DWORD, wintypes.DWORD,
                    ctypes.POINTER(ptr), ctypes.POINTER(ptr), ctypes.POINTER(ptr), ctypes.POINTER(ptr), ctypes.POINTER(ptr))
 get_ace = api(advapi, 'GetAce', wintypes.BOOL, ptr, wintypes.DWORD, ctypes.POINTER(ptr))
+convert_sid = api(advapi, 'ConvertSidToStringSidW', wintypes.BOOL, ptr, ctypes.POINTER(wintypes.LPWSTR))
 valid_sid = api(advapi, 'IsValidSid', wintypes.BOOL, ptr)
 equal_sid = api(advapi, 'EqualSid', wintypes.BOOL, ptr, ptr)
 well_known = api(advapi, 'IsWellKnownSid', wintypes.BOOL, ptr, wintypes.DWORD)
@@ -34,6 +37,41 @@ class ACL(ctypes.Structure):
 
 class ACEHeader(ctypes.Structure):
     _fields_ = [('type', ctypes.c_ubyte), ('flags', ctypes.c_ubyte), ('size', wintypes.WORD)]
+
+
+def user_sid():
+    """The current account's SID as text, for explicit ACL grants."""
+    token = wintypes.HANDLE()
+    if not open_token(get_process(), 0x0008, ctypes.byref(token)):
+        raise OSError(ctypes.get_last_error(), 'OpenProcessToken failed')
+    try:
+        size = wintypes.DWORD()
+        get_token(token, 1, None, 0, ctypes.byref(size))
+        if not size.value:
+            raise OSError(ctypes.get_last_error(), 'GetTokenInformation size failed')
+        user_info = ctypes.create_string_buffer(size.value)
+        if not get_token(token, 1, user_info, size, ctypes.byref(size)):
+            raise OSError(ctypes.get_last_error(), 'GetTokenInformation failed')
+        sid = ctypes.cast(user_info, ctypes.POINTER(ptr)).contents
+        text = wintypes.LPWSTR()
+        if not convert_sid(sid, ctypes.byref(text)):
+            raise OSError(ctypes.get_last_error(), 'ConvertSidToStringSid failed')
+        try:
+            return text.value
+        finally:
+            local_free(ctypes.cast(text, ptr))
+    finally:
+        close_handle(token)
+
+
+def restrict_private(path):
+    """Replace a private input's inherited ACL with an explicit one for the current account alone.
+
+    A file that merely inherits a profile or temporary directory's ACL can carry extra access-granting
+    entries (for example application-container SIDs) on Windows 11, which the strict private-input policy
+    rejects. Private inputs are created and then restricted, so policy holds on every Windows image."""
+    subprocess.run(['icacls', os.fspath(path), '/inheritance:r', '/grant:r', '*' + user_sid() + ':F'],
+                   check=True, stdout=subprocess.DEVNULL)
 
 
 def check_private(file):

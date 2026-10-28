@@ -47,6 +47,9 @@ func testConfig(t *testing.T) Config {
 	if err := os.WriteFile(cfg.AdminTokenFile, []byte(strings.Repeat("a", 64)+"\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
+	if err := restrictTokenACL(cfg.AdminTokenFile); err != nil {
+		t.Fatal(err)
+	}
 	return cfg
 }
 

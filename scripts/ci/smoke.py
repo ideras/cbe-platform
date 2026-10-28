@@ -6,9 +6,14 @@ from pathlib import Path
 import secrets
 import socket
 import subprocess
+import sys
 import tempfile
 import time
 import urllib.request
+
+if os.name == "nt":
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from windows_private import restrict_private
 
 
 def main():
@@ -21,6 +26,9 @@ def main():
         token = directory / "token"
         token.write_text(secrets.token_urlsafe(48), encoding="utf-8")
         token.chmod(0o600)
+        if os.name == "nt":
+            # Windows ignores the chmod; replace the inherited ACL so the server accepts the token on every image.
+            restrict_private(token)
         with socket.socket() as listener:
             listener.bind(("127.0.0.1", 0))
             port = listener.getsockname()[1]

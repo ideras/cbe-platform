@@ -41,6 +41,9 @@ func setupRealServer(t *testing.T) *realServer {
 		if err := os.WriteFile(filepath.Join(server.dir, name), []byte(value), 0600); err != nil {
 			t.Fatal(err)
 		}
+		if err := restrictTokenACL(filepath.Join(server.dir, name)); err != nil {
+			t.Fatal(err)
+		}
 	}
 	return server
 }

@@ -282,8 +282,20 @@ func TestDisconnectingWhenNotConnectedIsHarmlessAndAnAttemptOrActionBlocksIt(t *
 	release := make(chan struct{})
 	entered := make(chan struct{}, 4)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		entered <- struct{}{}
-		<-release
+		// Count the request without ever blocking on a full buffer, and hold it only until the test releases it or
+		// the client goes away. A handler parked on a send nobody drains keeps an active connection that makes the
+		// cleanup's server.Close wait forever, which once timed out the package on slow runners.
+		select {
+		case entered <- struct{}{}:
+		case <-release:
+		case <-r.Context().Done():
+			return
+		}
+		select {
+		case <-release:
+		case <-r.Context().Done():
+			return
+		}
 		serveAdminState(w, r)
 	}))
 	t.Cleanup(server.Close)

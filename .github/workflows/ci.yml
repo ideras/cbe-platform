@@ -75,7 +75,7 @@ jobs:
         shell: pwsh
         run: |
           $private = Join-Path $env:RUNNER_TEMP 'cbe-private'
-          New-Item -ItemType Directory -Path $private | Out-Null
+          New-Item -ItemType Directory -Path $private -Force | Out-Null
           $sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
           & icacls $private /inheritance:r /grant:r "*${sid}:(OI)(CI)F" '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F'
           if ($LASTEXITCODE -ne 0) { throw 'Could not restrict the test directory ACL' }
