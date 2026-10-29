@@ -1,7 +1,9 @@
 export GO111MODULE := on
+# Architecture of the Windows cross-build: amd64 or arm64.
+WINDOWS_ARCH ?= amd64
 WAILS := go run github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.29
 
-.PHONY: test vet server examc student proctor desktop desktop-test script-test student-client-test student-ui-test proctor-client-test proctor-ui-test demo-setup demo-server demo-student demo-proctor
+.PHONY: test vet server examc student student-windows proctor desktop desktop-test script-test student-client-test student-ui-test proctor-client-test proctor-ui-test demo-setup demo-server demo-student demo-proctor
 
 test:
 	go test -race ./...
@@ -31,6 +33,16 @@ examc:
 
 student:
 	cd apps/student && $(WAILS) build
+
+# student-windows cross-builds build/cbe-portal-student.exe from a Linux or macOS host (WINDOWS_ARCH=arm64 for ARM64). The
+# Windows desktop links no CGO webview, so no Windows toolchain is needed; the binary is unsigned and has never run on Windows
+# until it is tried there (see docs/deployment.md). The frontend and bindings are platform-neutral and come from the host;
+# the bindings step analyses the host's own webview code, so it needs the host's cgo (GTK/WebKit) packages, like `make student`.
+student-windows:
+	mkdir -p build
+	cd apps/student && $(WAILS) generate bindings -b -f '-tags bindings' ./cmd/student
+	cd apps/student && npm --prefix frontend ci && npm --prefix frontend run build
+	cd apps/student && CGO_ENABLED=0 GOOS=windows GOARCH=$(WINDOWS_ARCH) go build -trimpath -tags production -o ../../build/cbe-portal-student.exe ./cmd/student
 
 proctor:
 	cd apps/proctor && $(WAILS) build
