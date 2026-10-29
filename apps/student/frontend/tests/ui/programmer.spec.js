@@ -4,8 +4,6 @@ import { test, expect } from '@playwright/test';
 // grid, and one input shared by the Keypad, IEEE 754 and Radix Point tabs — all computed in Go, with the panel's
 // settings in the logged details.
 async function login(page) {
-  await page.getByRole('button', { name: 'Test screenshot capture' }).click();
-  await expect(page.getByLabel('Screenshot test result')).toContainText('Screenshot capture succeeded');
   await page.getByLabel('I have read these rules').check();
   await page.getByLabel('Account number').fill('00123');
   await page.getByLabel('Exam PIN').fill('synthetic PIN');

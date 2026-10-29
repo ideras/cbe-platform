@@ -1,8 +1,6 @@
 import { test, expect } from '@playwright/test';
 
 async function login(page) {
-  await page.getByRole('button', { name: 'Test screenshot capture' }).click();
-  await expect(page.getByLabel('Screenshot test result')).toContainText('Screenshot capture succeeded');
   await page.getByLabel('I have read these rules').check();
   await page.getByLabel('Account number').fill('00123');
   await page.getByLabel('Exam PIN').fill('synthetic PIN');

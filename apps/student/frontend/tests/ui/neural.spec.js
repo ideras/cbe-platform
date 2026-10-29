@@ -4,8 +4,6 @@ import { test, expect } from '@playwright/test';
 // row of neural functions when the exam enables neural mode, a matrix shown one row per line with its columns
 // aligned, and the hints that explain bce and the elementwise *. Everything is computed in Go.
 async function login(page) {
-  await page.getByRole('button', { name: 'Test screenshot capture' }).click();
-  await expect(page.getByLabel('Screenshot test result')).toContainText('Screenshot capture succeeded');
   await page.getByLabel('I have read these rules').check();
   await page.getByLabel('Account number').fill('00123');
   await page.getByLabel('Exam PIN').fill('synthetic PIN');

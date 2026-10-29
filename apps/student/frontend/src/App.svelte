@@ -1,6 +1,6 @@
 <script>
   import { remainingTime } from '../../../../shared/exam/timing.js';
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, untrack } from 'svelte';
   import * as api from '$student-api';
   import ExercisePage from './ExercisePage.svelte';
   import Calculator from '../../../../shared/theme/calculator/Calculator.svelte';
@@ -9,12 +9,14 @@
   import CaptureStatus from './CaptureStatus.svelte';
   import LockScreen from './LockScreen.svelte';
   import SoundStatus from './SoundStatus.svelte';
+  import Toasts from './Toasts.svelte';
   import Card from '../../../../shared/theme/Card.svelte';
   import brandLogo from './assets/cbe-portal-logo.svg';
   // Inlined as a data: URL on purpose: WebKitGTK cannot play media loaded through Wails' wails:// scheme (NotSupportedError).
   import alertURL from './assets/unfocus-alert.wav?inline';
   import { UnfocusAlert, describeSoundFailure } from './unfocus-alert.js';
   import { AnswerQueue, saveLabel } from './answer-queue.js';
+  import { Notifier, describeProblem, volumeNotice } from './notifier.js';
   import { answeredCount, exerciseSlots } from './exercises.js';
 
   let view = $state({ phase: 'login', acknowledged_revision: 0, timing_stale: true });
@@ -26,12 +28,10 @@
   let revision = $state(0);
   let selected = $state(0);
   let busy = $state(false);
-  let error = $state('');
   let bridgeError = $state('');
   let answerBridgeError = $state('');
   let observation = 0;
   let accepted = $state(false);
-  let soundError = $state('');
   let sound;
   let closed = false;
   let capturing = $state(false);
@@ -39,8 +39,10 @@
   // The times the rules show: read from the server as soon as its address is known, with a plain fallback.
   let rules = $state(null);
   let pendingCapture = null;
+  let pendingLogin = null;
   let captureBlocked = $derived(Boolean(view.capture?.required && view.capture.blocked));
-  let admissionReady = $derived(view.capture?.ready === true && !captureBlocked);
+  // The login runs the screenshot check first; the native side reports capture ready once it has passed.
+  let checkingCapture = $derived(busy && view.phase === 'login' && Boolean(view.capture?.required) && !view.capture.ready);
   let canSubmit = $derived(view.phase === 'exam' && !view.submitting && !view.advancing && !busy && !capturing);
   let locked = $derived(!canSubmit || captureBlocked);
   // Forward-only exams show the exercise the server has the student on; earlier ones are closed for good.
@@ -54,9 +56,47 @@
   // What the submit confirmation reports: fields with an answer of their own, across every exercise.
   let answeredFields = $derived(exercises.reduce((sum, item) => sum + answeredCount(item, answers), 0));
   let totalFields = $derived(exercises.reduce((sum, item) => sum + exerciseSlots(item).length, 0));
-  // Monitoring problems the student must know about; the routine monitoring details are not shown.
-  let monitoringProblems = $derived(view.monitoring ? [view.monitoring.heartbeat_error, view.monitoring.event_error, view.monitoring.alert_error,
-    view.monitoring.dropped_events ? `Unconfirmed/dropped events: ${view.monitoring.dropped_events}. History may be incomplete.` : ''].filter(Boolean) : []);
+  // Errors and warnings are toasts, fixed to the window so they are seen wherever the page is scrolled. One-off results
+  // (a failed login, a volume correction) are posted when they happen; the conditions that last are listed here and synced
+  // on every snapshot, which shows each once. What the student must do about them stays on the page: the save status, the
+  // retry button, the screenshot retest.
+  let toasts = $state([]);
+  const notifier = new Notifier({ onChange: () => { toasts = notifier.visible().map(toast => ({ ...toast })); } });
+  let conditions = $derived.by(() => {
+    const list = [];
+    const add = (key, text, kind = 'warning', sticky = false) => { if (text) list.push({ key, text, kind, sticky }); };
+    const monitoring = view.monitoring;
+    add('bridge', bridgeError, 'error');
+    add('answer-transfer', answerBridgeError && `Local answer transfer failed. Your visible text is retained here. ${answerBridgeError}`, 'error', true);
+    if (view.phase === 'exam') {
+      add('monitor-heartbeat', monitoring?.heartbeat_error);
+      add('monitor-event', monitoring?.event_error);
+      add('monitor-alert', monitoring?.alert_error);
+      add('monitor-dropped', monitoring?.dropped_events && `Unconfirmed/dropped events: ${monitoring.dropped_events}. History may be incomplete.`);
+      add('timing', (view.timing_stale || bridgeError) && 'Timing stale / disconnected — no local clock is used to infer expiry.');
+      add('status', view.status_error, 'error');
+      add('save', view.save_error && `Save failed — your text remains here. ${view.save_error}`, 'error', true);
+      add('submit', view.submit_error, 'error', true);
+      add('advance', view.advance_error && `Could not move to the next exercise. ${view.advance_error}`, 'error', true);
+      add('capture-blocked', captureBlocked && `${view.capture.block_reason || 'Screenshot retest required: editing is paused until a screenshot test succeeds.'} The server timer continues.`, 'error', true);
+      add('capture-error', view.capture?.error, 'error');
+      add('capture-failures', view.capture?.failures && `Unconfirmed/failed screenshot incidents: ${view.capture.failures}. Instructor follow-up is required.`);
+      add('capture-report', view.capture?.report_error, 'error');
+    }
+    add('capture-reports-complete', view.phase === 'complete' && view.capture?.pending_reports && 'Capture status reports are still awaiting server acknowledgment. Keep this app open; closing loses unconfirmed memory-only reports.');
+    return list;
+  });
+  $effect(() => { const current = conditions; untrack(() => notifier.sync(current)); });
+  // The native side numbers every outcome of a volume correction; each is shown once, however often the snapshot repeats it.
+  let lastVolumeNotice = 0;
+  $effect(() => {
+    const notice = view.sound_notice;
+    if (!notice || !(notice.sequence > lastVolumeNotice)) return;
+    lastVolumeNotice = notice.sequence;
+    const { text, options } = volumeNotice(notice);
+    notifier.post('volume', text, options);
+  });
+  function fail(problem) { notifier.post('action', describeProblem(problem), { kind: 'error', sticky: true }); }
   const queue = new AnswerQueue(async (snapshot, sequence) => { await api.UpdateAnswers(snapshot, sequence); answerBridgeError = ''; }, problem => answerBridgeError = String(problem));
   // The calculator: the button and the modal exist only while the exam itself is shown (D11), and only when the
   // exam enables a mode this build implements. The allowed set and the results come from Go; the history lives
@@ -124,7 +164,7 @@
   }
   onMount(() => {
     sound = new UnfocusAlert(new Audio(alertURL), sequence => {
-      soundError = 'Audible alert could not play. Check sound output; monitoring continues.';
+      notifier.post('alert-sound', 'Audible alert could not play. Check sound output; monitoring continues.');
       api.ReportAlertFailure(sequence).catch(() => {});
     });
     const unsubscribe = api.OnFocusAlert(incident => sound.play(incident));
@@ -133,22 +173,29 @@
     const timer = setInterval(async () => { if (reading) return; reading = true; try { await refresh(); } finally { reading = false; } }, 500);
     return () => { clearInterval(timer); unsubscribe(); sound.close(); };
   });
-  onDestroy(() => { closed = true; queue.close(); pendingCapture?.cancel(); });
+  onDestroy(() => { closed = true; queue.close(); pendingCapture?.cancel(); pendingLogin?.cancel?.(); });
 
   async function login(event) {
-    event.preventDefault(); if (!accepted || busy || capturing || !admissionReady) return;
+    event.preventDefault(); if (!accepted || busy) return;
     // Unlock audible alerts from this click, before anything awaits (see UnfocusAlert.prime).
-    sound.prime().catch(problem => { if (!closed) soundError = `${describeSoundFailure(problem)} Audible alerts may not play; monitoring continues.`; });
-    busy = true; error = '';
+    sound.prime().catch(problem => { if (!closed) notifier.post('alert-sound', `${describeSoundFailure(problem)} Audible alerts may not play; monitoring continues.`); });
+    busy = true; notifier.clear('action');
     const submittedPin = pin; pin = '';
-    try { await api.AcknowledgeRules(); apply(await api.Login(server, account, submittedPin)); }
-    catch (problem) { error = String(problem); await refresh(); }
-    finally { busy = false; }
+    try {
+      // The native login checks screen capture first, with a real screenshot, and only then asks the server for the session.
+      await api.AcknowledgeRules();
+      pendingLogin = api.Login(server, account, submittedPin);
+      apply(await pendingLogin);
+    } catch (problem) {
+      fail(problem); await refresh();
+      // The check failed before the server saw the PIN: keep it, so the student need not type it again.
+      if (view.capture?.required && !view.capture.ready) pin = submittedPin;
+    } finally { pendingLogin = null; busy = false; }
   }
   async function load() {
-    busy = true; error = '';
+    busy = true; notifier.clear('action');
     try { apply(await api.RetryLoad()); }
-    catch (problem) { error = String(problem); await refresh(); }
+    catch (problem) { fail(problem); await refresh(); }
     finally { busy = false; }
   }
   function edit(id, text) {
@@ -159,31 +206,31 @@
   async function submit() {
     if (!canSubmit) return;
     confirmingSubmit = false;
-    busy = true; error = '';
+    busy = true; notifier.clear('action');
     const snapshot = { ...answers }; const sequence = revision;
     try {
       if (sequence > 0) queue.stage(snapshot, sequence);
       await queue.flush();
       apply(await api.Submit(snapshot, sequence));
-    } catch (problem) { error = String(problem); await refresh(); }
+    } catch (problem) { fail(problem); await refresh(); }
     finally { busy = false; }
   }
   function go(index) { selected = index; confirmingAdvance = false; confirmingSubmit = false; window.scrollTo?.({ top: 0 }); }
   async function advance() {
     if (!canSubmit || captureBlocked || !forwardOnly || lastPage) return;
     confirmingAdvance = false;
-    busy = true; error = '';
+    busy = true; notifier.clear('action');
     const snapshot = { ...answers }; const sequence = revision; const from = page;
     try {
       if (sequence > 0) queue.stage(snapshot, sequence);
       await queue.flush();
       apply(await api.Advance(snapshot, sequence, from));
       window.scrollTo?.({ top: 0 });
-    } catch (problem) { error = String(problem); await refresh(); }
+    } catch (problem) { fail(problem); await refresh(); }
     finally { busy = false; }
   }
-  async function closeWindow() { try { await api.CloseCompletedWindow(); } catch (problem) { error = String(problem); } }
-  async function retry() { try { if (revision > 0 && view.phase === 'exam' && !view.submitting && !view.advancing) queue.stage(answers, revision); await api.Retry(); await refresh(); } catch (problem) { error = String(problem); } }
+  async function closeWindow() { try { await api.CloseCompletedWindow(); } catch (problem) { fail(problem); } }
+  async function retry() { try { if (revision > 0 && view.phase === 'exam' && !view.submitting && !view.advancing) queue.stage(answers, revision); await api.Retry(); await refresh(); } catch (problem) { fail(problem); } }
   async function testScreenshot() {
     if (capturing || busy || view.phase === 'complete' || view.submitting) return;
     capturing = true; captureTest = { state: 'running' };
@@ -202,9 +249,6 @@
 </script>
 <h1 class="visually-hidden">CBE Portal</h1>
 <main>
-  {#if error}<p role="alert">{error}</p>{/if}
-  {#if bridgeError}<p role="alert">{bridgeError}</p>{/if}
-  {#if answerBridgeError}<p role="alert">Local answer transfer failed. Your visible text is retained here. {answerBridgeError}</p>{/if}
   {#if view.phase === 'login'}
     <div class="login-layout">
       <section class="rules" aria-label="Participation rules">
@@ -221,9 +265,9 @@
             <li><strong>If you stay away from this window for {lockAway}, or the app cannot reach the server for {lockNoContact}, your exam locks.</strong> Only your instructor can unlock it, and the exam time keeps running.</li>
           </ul>
         </Card>
-        <CaptureStatus capture={view.capture} admission testable {capturing} {captureTest} {busy} onTest={testScreenshot} onCancel={() => pendingCapture?.cancel()} />
+        <CaptureStatus capture={view.capture} admission checking={checkingCapture} />
         <SoundStatus sound={view.sound} />
-        <label class="accept"><input type="checkbox" bind:checked={accepted} disabled={busy || capturing} required form="student-login" />I have read these rules</label>
+        <label class="accept"><input type="checkbox" bind:checked={accepted} disabled={busy} required form="student-login" />I have read these rules</label>
       </section>
       <div class="login-side">
         <div class="brand">
@@ -233,11 +277,15 @@
         <Card label="Login" title="Login" tone="info">
           <form id="student-login" onsubmit={login}>
             <p class="login-intro">Start or resume your exam.</p>
-            <label>Server address <input bind:value={server} required disabled={busy || capturing} autocomplete="off" spellcheck="false" /></label>
-            <label>Account number <input bind:value={account} required disabled={busy || capturing} autocomplete="off" spellcheck="false" placeholder="Your account number" /></label>
-            <label>Exam PIN <input type="password" bind:value={pin} required disabled={busy || capturing} autocomplete="off" placeholder="Provided by your instructor" /></label>
-            <p class="login-hint">Read the rules and pass the screenshot test on the left before continuing.</p>
-            <button class="primary login-button" disabled={busy || capturing || !accepted || !admissionReady}>{busy ? 'Logging in…' : 'Login / resume'}</button>
+            <label>Server address <input bind:value={server} required disabled={busy} autocomplete="off" spellcheck="false" /></label>
+            <label>Account number <input bind:value={account} required disabled={busy} autocomplete="off" spellcheck="false" placeholder="Your account number" /></label>
+            <label>Exam PIN <input type="password" bind:value={pin} required disabled={busy} autocomplete="off" placeholder="Provided by your instructor" /></label>
+            <p class="login-hint">Read the rules first. Logging in also checks that your screen can be captured.</p>
+            <button class="primary login-button" disabled={busy || !accepted}>{checkingCapture ? 'Checking screen capture…' : busy ? 'Logging in…' : 'Login / resume'}</button>
+            {#if checkingCapture}
+              <p class="callout pending" role="status">Checking screen capture… If your system asks for permission to record or share your screen, allow it.</p>
+              <button type="button" class="login-button" onclick={() => pendingLogin?.cancel?.()}>Cancel</button>
+            {/if}
           </form>
         </Card>
       </div>
@@ -280,21 +328,16 @@
       </Card>
     {/if}
     {#if view.phase === 'exam'}
-    {#if view.timing_stale || bridgeError}<p role="alert">Timing stale / disconnected — no local clock is used to infer expiry.</p>{/if}
-    {#if view.status_error}<p role="alert">{view.status_error}</p>{/if}
     <div class="exam-main">
-        {#if view.phase === 'exam'}{#each monitoringProblems as problem}<p role="alert">{problem}</p>{/each}{/if}
         {#if view.phase === 'exam' && captureBlocked}
-          <p role="alert">{view.capture.block_reason || 'Screenshot retest required: editing is paused until a screenshot test succeeds.'} The server timer continues.</p>
+          <p class="callout danger">{view.capture.block_reason || 'Screenshot retest required: editing is paused until a screenshot test succeeds.'} The server timer continues.</p>
           <CaptureStatus capture={view.capture} testable {capturing} {captureTest} {busy} onTest={testScreenshot} onCancel={() => pendingCapture?.cancel()} />
         {/if}
         <p aria-label="Save status" role="status" class="callout" class:danger={!!view.save_error}
           class:pending={!view.save_error && (view.save_state === 'saving' || revision > view.acknowledged_revision)}>{saveLabel(view, revision)}</p>
         {#if view.unlock_note}<p role="status">{view.unlock_note}{view.added_seconds ? ` — ${addedTime(view.added_seconds)}` : ''}.</p>{/if}
         {#if view.submitting}<p role="status" class="callout pending">Submission awaiting server confirmation. Editing is locked; ambiguous failures retry the same snapshot.</p>{/if}
-        {#if view.submit_error}<p role="alert">{view.submit_error}</p>{/if}
         {#if view.advancing}<p role="status" class="callout pending">Moving to the next exercise — waiting for the server to confirm. Editing is locked.</p>{/if}
-        {#if view.advance_error}<p role="alert">Could not move to the next exercise. {view.advance_error}</p>{/if}
         {#if view.save_error || view.submit_error || view.advance_error || view.timing_stale || answerBridgeError}<button onclick={retry}>Retry connection / pending work</button>{/if}
         {#if exam && exercise}
           {#if exam.content.instructions}
@@ -332,9 +375,8 @@
     </div>
     {/if}
   {/if}
-  {#if view.phase === 'complete' && view.capture?.pending_reports}<p role="alert">Capture status reports are still awaiting server acknowledgment. Keep this app open; closing loses unconfirmed memory-only reports.</p>{/if}
-  {#if soundError}<p role="alert">{soundError}</p>{/if}
 </main>
+<Toasts {toasts} onDismiss={id => notifier.dismiss(id)} onTick={ms => notifier.tick(ms)} />
 {#if confirmingAdvance && view.phase === 'exam' && forwardOnly && !lastPage}
   <ConfirmDialog title="Leave exercise {page + 1} for good?" confirmLabel="Continue to exercise {page + 2}" cancelLabel="Stay on exercise {page + 1}"
     disabled={!canSubmit || captureBlocked} onConfirm={advance} onCancel={() => confirmingAdvance = false}>

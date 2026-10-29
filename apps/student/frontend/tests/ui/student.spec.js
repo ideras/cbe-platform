@@ -8,8 +8,6 @@ async function sameRow(first, second) {
 }
 
 async function login(page) {
-  await page.getByRole('button', { name: 'Test screenshot capture' }).click();
-  await expect(page.getByLabel('Screenshot test result')).toContainText('Screenshot capture succeeded');
   await page.getByLabel('I have read these rules').check();
   await page.getByLabel('Account number').fill('00123');
   await page.getByLabel('Exam PIN').fill('synthetic PIN');
@@ -98,13 +96,20 @@ test('Ocean Blue stays light with native-looking controls and editor even with d
   await expect(page.locator('.cm-gutters')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
 });
 
-test('one integrated screenshot test requires a deliberate click and replaces diagnostics', async ({ page }) => {
+test('logging in is the only screenshot step: no separate test, one real check per attempt', async ({ page }) => {
   await page.goto('/'); expect(await page.evaluate(() => window.__studentHarness.captureCalls || 0)).toBe(0);
   await expect(page.getByText('Opt-in native feasibility diagnostics', { exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Capture desktop once (opt-in test)' })).toHaveCount(0);
-  await page.getByRole('button', { name: 'Test screenshot capture' }).click();
-  await expect(page.getByLabel('Screenshot test result')).toContainText('Screenshot capture succeeded (1920 × 1080)');
+  await expect(page.getByRole('button', { name: 'Test screenshot capture' })).toHaveCount(0);
+  await page.getByLabel('I have read these rules').check();
+  await page.waitForTimeout(600); // nothing is captured because the rules were accepted, or just because time passed
+  expect(await page.evaluate(() => window.__studentHarness.captureCalls || 0)).toBe(0);
+  await page.getByLabel('Account number').fill('00123'); await page.getByLabel('Exam PIN').fill('synthetic PIN');
+  await expect(page.getByRole('button', { name: 'Login / resume' })).toBeEnabled();
+  await page.getByRole('button', { name: 'Login / resume' }).click();
+  await expect(page.getByText('Fixture exam')).toBeVisible();
   expect(await page.evaluate(() => window.__studentHarness.captureCalls)).toBe(1);
+  expect(await page.evaluate(() => window.__studentHarness.loginRequests)).toBe(1);
 });
 
 test('terminal login is distinct and initial load failure offers credential-free retry', async ({ page }) => {
@@ -192,7 +197,7 @@ test('submitting asks first, says how much is answered, and keeping working send
   await expect(page.getByRole('region', { name: 'Monitoring status' })).toHaveCount(0);
   await expect(page.getByText('Monitoring limitations')).toHaveCount(0);
   await page.evaluate(() => window.__studentHarness.monitoring({ policy: { heartbeat_interval_ms: 15000, focus_threshold_ms: 5000 }, policy_source: 'server', local_focus: 'focused', heartbeat_error: 'Heartbeat delayed; the proctor may see you as disconnected.' }));
-  await expect(page.getByRole('alert').filter({ hasText: 'Heartbeat delayed' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Notifications' }).getByRole('status').filter({ hasText: 'Heartbeat delayed' })).toBeVisible();
 });
 
 test('the login screen keeps the rules short and drops the server note', async ({ page }) => {

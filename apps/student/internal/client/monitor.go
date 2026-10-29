@@ -95,6 +95,9 @@ type MonitorOptions struct {
 	OnIncident                                    func(Incident)
 	OnLossAcknowledged                            func(Incident)
 	Sound                                         func() SoundReport
+	// SoundCheck, when set, takes the place of Sound for a heartbeat: it asks for a fresh check of the sound and waits for it
+	// a bounded time.
+	SoundCheck func(context.Context) SoundReport
 }
 
 func DefaultMonitorOptions() MonitorOptions {
@@ -348,7 +351,9 @@ func (m *monitor) heartbeatLoop() {
 			ServerTime time.Time `json:"server_time"`
 		}
 		var sound SoundReport
-		if m.options.Sound != nil {
+		if m.options.SoundCheck != nil {
+			sound = m.options.SoundCheck(m.ctx)
+		} else if m.options.Sound != nil {
 			sound = m.options.Sound()
 		}
 		err := requestJSON(m.ctx, m.http, base, token, http.MethodPost, "/heartbeat", struct {

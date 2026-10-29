@@ -4,8 +4,6 @@ import { test, expect } from '@playwright/test';
 // shown and a mode this build implements is enabled, the modal keeps its keys and paste/drop events to itself,
 // and using it calls no native method but the Calc* ones — it must never cause or fake a focus loss.
 async function login(page) {
-  await page.getByRole('button', { name: 'Test screenshot capture' }).click();
-  await expect(page.getByLabel('Screenshot test result')).toContainText('Screenshot capture succeeded');
   await page.getByLabel('I have read these rules').check();
   await page.getByLabel('Account number').fill('00123');
   await page.getByLabel('Exam PIN').fill('synthetic PIN');

@@ -1,8 +1,10 @@
 package client
 
 import (
+	"context"
 	"os"
 	"testing"
+	"time"
 
 	"exam-platform/apps/student/internal/sysvolume"
 )
@@ -61,5 +63,62 @@ func TestRealSystemSoundIsRaisedAndRestoredByTheClient(t *testing.T) {
 	}
 	if got, err := system.Muted(); err != nil || !got {
 		t.Errorf("restored mute = %v, %v; want true", got, err)
+	}
+}
+
+// Measures how fast the platform tells the application that the volume changed, which is what the exam's reaction time
+// to a lowered volume is made of. It moves the volume by one percent and back, so it only runs when asked for
+// (EXAM_REAL_SOUND=1). Only Linux has a subscription; elsewhere it skips.
+func TestRealPlatformVolumeChangeNotificationReactionTime(t *testing.T) {
+	if os.Getenv("EXAM_REAL_SOUND") != "1" {
+		t.Skip("set EXAM_REAL_SOUND=1 to measure the real volume change notification")
+	}
+	system := sysvolume.System{}
+	volume, err := system.Volume()
+	if err != nil {
+		t.Skipf("system volume unavailable: %v", err)
+	}
+	defer func() { _ = system.SetVolume(volume) }()
+	nudged := volume - 1
+	if volume < 1 {
+		nudged = volume + 1
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	changes := make(chan time.Time, 16)
+	ended := make(chan error, 1)
+	go func() { ended <- system.Watch(ctx, func() { changes <- time.Now() }) }()
+	time.Sleep(500 * time.Millisecond) // the subscription is open before anything is written
+	var total time.Duration
+	const writes = 6
+	for write := 0; write < writes; write++ {
+		for len(changes) > 0 {
+			<-changes
+		}
+		target := nudged
+		if write%2 == 1 {
+			target = volume
+		}
+		started := time.Now()
+		if err := system.SetVolume(target); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case at := <-changes:
+			total += at.Sub(started)
+			t.Logf("write %d (%d%%): notified %v after the write began", write+1, target, at.Sub(started))
+		case err := <-ended:
+			t.Skipf("no change notification on this platform: %v", err)
+		case <-time.After(3 * time.Second):
+			t.Fatal("the system never reported the volume write")
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	t.Logf("average: the notification arrived %v after the write began", total/writes)
+	cancel()
+	select {
+	case <-ended:
+	case <-time.After(3 * time.Second):
+		t.Fatal("the subscription was left running")
 	}
 }

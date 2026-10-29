@@ -35,6 +35,7 @@ type View struct {
 	Monitoring           MonitoringView    `json:"monitoring"`
 	Capture              CaptureView       `json:"capture"`
 	Sound                SoundReport       `json:"sound"`
+	SoundNotice          *SoundNotice      `json:"sound_notice,omitempty"`
 	Observation          uint64            `json:"observation"`
 	Phase                string            `json:"phase"`
 	Server               string            `json:"server"`
@@ -153,6 +154,7 @@ func New(options Options) (*Service, error) {
 	s.sound.check()
 	monitoring := options.Monitoring
 	monitoring.Sound = s.sound.report
+	monitoring.SoundCheck = s.sound.refresh
 	ack, captured := monitoring.OnLossAcknowledged, monitoring.OnCapture
 	monitoring.OnCapture = func(i Incident, index int) {
 		s.capture.start(i, index, s.monitor.view())
@@ -196,7 +198,7 @@ func signal(ch chan struct{}) {
 }
 func (s *Service) viewLocked(loaded bool) View {
 	s.observation++
-	v := View{Capture: s.capture.view(), Sound: s.sound.report(), RulesAccepted: s.rulesAccepted, Monitoring: s.monitor.view(), Observation: s.observation, Phase: s.phase, Server: s.server, Account: s.account, Revision: s.revision, AcknowledgedRevision: s.acknowledged, TimingStale: s.stale, SaveError: s.saveError, StatusError: s.statusError, SubmitError: s.submitError, Submitting: s.pendingSubmit != nil, Exercise: s.exercise, Advancing: s.pendingAdvance != nil, AdvanceError: s.advanceError, SaveState: "not_saved", UnlockNote: s.unlockNote, AddedSeconds: s.addedSeconds}
+	v := View{Capture: s.capture.view(), Sound: s.sound.report(), SoundNotice: s.sound.latestNotice(), RulesAccepted: s.rulesAccepted, Monitoring: s.monitor.view(), Observation: s.observation, Phase: s.phase, Server: s.server, Account: s.account, Revision: s.revision, AcknowledgedRevision: s.acknowledged, TimingStale: s.stale, SaveError: s.saveError, StatusError: s.statusError, SubmitError: s.submitError, Submitting: s.pendingSubmit != nil, Exercise: s.exercise, Advancing: s.pendingAdvance != nil, AdvanceError: s.advanceError, SaveState: "not_saved", UnlockNote: s.unlockNote, AddedSeconds: s.addedSeconds}
 	if s.saved != nil {
 		copy := *s.saved
 		v.Saved = &copy
@@ -284,12 +286,15 @@ func (s *Service) Login(ctx context.Context, server, account, pin string) (View,
 		return View{}, errors.New("A session is already open. Retry loading it instead of logging in again.")
 	}
 	s.mu.Unlock()
-	s.capture.permission(false)
-	if capture := s.capture.view(); capture.Required && capture.Blocked {
-		return View{}, errors.New("Pass the screenshot test before starting or resuming an exam.")
-	}
 	request, cancel := s.callContext(ctx)
 	defer cancel()
+	// A real screenshot is taken before the server is asked for a session: no deadline starts while the student is still
+	// answering the system's capture permission dialog. Neither the service lock nor the monitor's is held meanwhile.
+	if s.capture.options.Required {
+		if err := s.capture.admit(request); err != nil {
+			return View{}, err
+		}
+	}
 	var reply loginReply
 	err = requestJSON(request, s.http, base, "", http.MethodPost, "/login", struct {
 		Account string `json:"account_number"`

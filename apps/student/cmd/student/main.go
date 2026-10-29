@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"runtime"
 	"sync/atomic"
 
 	student "exam-platform/apps/student"
@@ -41,6 +42,11 @@ func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
 	defaults.Server, defaults.Debounce, defaults.Periodic, defaults.Poll = *server, *debounce, *periodic, *poll
 	defaults.Sound.Control = sysvolume.System{}
+	if runtime.GOOS == "linux" {
+		// Only Linux (PulseAudio/PipeWire) tells the application at once that the volume changed; Windows and macOS keep to
+		// the heartbeat and periodic checks.
+		defaults.Sound.Watch = sysvolume.System{}.Watch
+	}
 	defaults.Sound.OnError = func(operation string, err error) { logger.Warn("system sound", "operation", operation, "error", err) }
 	var nativeWindow *application.WebviewWindow
 	var nativeApp *application.App

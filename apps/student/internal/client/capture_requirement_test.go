@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"slices"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -45,25 +46,141 @@ func verifyRequired(t *testing.T, s *Service) {
 	waitView(t, s, func(v View) bool { return v.Capture.Ready && !v.Capture.Blocked })
 }
 
-func TestCaptureAdmissionRequiresGoVerificationAndReverificationAfterRestart(t *testing.T) {
+func loginRequests(f *fixture) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.logins
+}
+
+func TestLoginTakesAFreshScreenshotBeforeTheServerIsAsked(t *testing.T) {
 	f := newFixture(t)
 	var failing atomic.Bool
-	s := requiredCaptureClient(t, f, &failing)
-	if _, err := s.Login(t.Context(), f.server.URL, "00123", f.pin); err == nil || s.Snapshot().Phase != "login" {
-		t.Fatal("session started without capture verification")
+	var checks atomic.Int32
+	var requestsAtCheck atomic.Int32
+	s := requiredCaptureClient(t, f, &failing, func(o *Options) {
+		check := o.Screenshots.Test
+		o.Screenshots.Test = func(ctx context.Context) (CaptureTestResult, error) {
+			checks.Add(1)
+			requestsAtCheck.Store(int32(loginRequests(f)))
+			return check(ctx)
+		}
+	})
+	failing.Store(true)
+	if _, err := s.Login(t.Context(), f.server.URL, "00123", f.pin); err == nil || strings.Contains(err.Error(), "private native error") || s.Snapshot().Phase != "login" {
+		t.Fatalf("session started or the native error leaked: %v", err)
 	}
-	verifyRequired(t, s)
+	if loginRequests(f) != 0 || checks.Load() != 1 {
+		t.Fatalf("a failed capture check still reached the server: logins=%d checks=%d", loginRequests(f), checks.Load())
+	}
+	if v := s.Snapshot(); v.Capture.Ready || v.Capture.Failures != 0 || v.Capture.Error != "" {
+		t.Fatalf("a refused admission left capture state behind: %+v", v.Capture)
+	}
+	failing.Store(false)
+	// No separate test: the login itself verifies, and does so before the first /login request.
 	loginClient(t, s, f)
-	waitView(t, s, func(v View) bool { return !v.Capture.Blocked })
+	if checks.Load() != 2 || requestsAtCheck.Load() != 0 {
+		t.Fatalf("the check did not come first: checks=%d logins at check=%d", checks.Load(), requestsAtCheck.Load())
+	}
+	waitView(t, s, func(v View) bool { return v.Capture.Ready && !v.Capture.Blocked })
 	if !slices.Contains(telemetryTypes(f), "capture_ready") {
 		t.Fatal("admission verification was not server logged")
 	}
-	fresh := requiredCaptureClient(t, f, &failing)
-	if _, err := fresh.Login(t.Context(), f.server.URL, "00123", f.pin); err == nil {
-		t.Fatal("new process resumed without a fresh screenshot test")
+}
+
+func TestEveryLoginAttemptAndEveryRestartVerifiesAgain(t *testing.T) {
+	f := newFixture(t)
+	var failing, revoked atomic.Bool
+	var checks atomic.Int32
+	configure := func(o *Options) {
+		o.Screenshots.Permission = func(bool) CapturePermission {
+			return CapturePermission{Supported: true, Granted: !revoked.Load()}
+		}
+		check := o.Screenshots.Test
+		o.Screenshots.Test = func(ctx context.Context) (CaptureTestResult, error) {
+			checks.Add(1)
+			if revoked.Load() {
+				return CaptureTestResult{}, errors.New("permission revoked")
+			}
+			return check(ctx)
+		}
 	}
-	verifyRequired(t, fresh)
+	s := requiredCaptureClient(t, f, &failing, configure)
+	if _, err := s.Login(t.Context(), f.server.URL, "00123", "not the pin"); err == nil {
+		t.Fatal("wrong pin accepted")
+	}
+	if !s.Snapshot().Capture.Ready {
+		t.Fatal("a passed check should leave capture ready until the next one")
+	}
+	revoked.Store(true)
+	if _, err := s.Login(t.Context(), f.server.URL, "00123", f.pin); err == nil || s.Snapshot().Capture.Ready {
+		t.Fatal("a cached success admitted a student whose permission was revoked")
+	}
+	if checks.Load() != 2 {
+		t.Fatalf("expected a fresh check per attempt, got %d", checks.Load())
+	}
+	revoked.Store(false)
+	fresh := requiredCaptureClient(t, f, &failing, configure)
+	if fresh.Snapshot().Capture.Ready {
+		t.Fatal("a new process started with capture already verified")
+	}
 	loginClient(t, fresh, f)
+}
+
+func TestCancelledOrTimedOutAdmissionCheckNeverStartsASession(t *testing.T) {
+	f := newFixture(t)
+	var failing atomic.Bool
+	hold := make(chan struct{})
+	s := requiredCaptureClient(t, f, &failing, func(o *Options) {
+		o.Screenshots.Test = func(ctx context.Context) (CaptureTestResult, error) {
+			select {
+			case <-hold:
+				return CaptureTestResult{Width: 4, Height: 3}, nil
+			case <-ctx.Done():
+				return CaptureTestResult{}, ctx.Err()
+			}
+		}
+	})
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { _, err := s.Login(ctx, f.server.URL, "00123", f.pin); done <- err }()
+	waitView(t, s, func(v View) bool { return v.Capture.Testing })
+	// A second click while the dialog is open starts neither another capture nor another login.
+	if _, err := s.Login(t.Context(), f.server.URL, "00123", f.pin); err == nil {
+		t.Fatal("a second login ran during the capture check")
+	}
+	cancel()
+	err := <-done
+	if err == nil || !strings.Contains(err.Error(), "cancelled") || s.Snapshot().Phase != "login" || loginRequests(f) != 0 {
+		t.Fatalf("cancelled check: err=%v phase=%s logins=%d", err, s.Snapshot().Phase, loginRequests(f))
+	}
+	if v := s.Snapshot(); v.Capture.Testing || v.Capture.Ready {
+		t.Fatalf("cancelled check left state behind: %+v", v.Capture)
+	}
+	close(hold)
+	loginClient(t, s, f)
+}
+
+func TestShutdownCancelsAPendingAdmissionCheck(t *testing.T) {
+	f := newFixture(t)
+	var failing atomic.Bool
+	s := requiredCaptureClient(t, f, &failing, func(o *Options) {
+		o.Screenshots.Test = func(ctx context.Context) (CaptureTestResult, error) {
+			<-ctx.Done()
+			return CaptureTestResult{}, ctx.Err()
+		}
+	})
+	done := make(chan error, 1)
+	go func() { _, err := s.Login(t.Context(), f.server.URL, "00123", f.pin); done <- err }()
+	waitView(t, s, func(v View) bool { return v.Capture.Testing })
+	_ = s.ServiceShutdown()
+	select {
+	case err := <-done:
+		if err == nil || loginRequests(f) != 0 {
+			t.Fatalf("shutdown: err=%v logins=%d", err, loginRequests(f))
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("shutdown left the login waiting on the capture dialog")
+	}
 }
 
 func TestCaptureFailureLocksPreservesAutosaveRetriesLogAndRequiresRetest(t *testing.T) {
