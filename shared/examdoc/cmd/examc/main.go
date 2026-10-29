@@ -4,6 +4,9 @@
 //	examc -json exam.md              print the compiled exam document (without a PIN)
 //	examc -fill answers.json exam.md print the exam filled in with the answers, as a student's file looks
 //
+// The pictures of an exam (![alt](figure.svg)) are read from the folder of the exam file, so examc finds them from any working
+// directory. -json prints them embedded in the exam's HTML, as the proctor application imports them.
+//
 // The PIN is never read from the command line, where other users of the computer could see it; the proctor application
 // asks for it when importing the exam.
 package main
@@ -15,6 +18,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"exam-platform/shared/calc"
@@ -45,7 +49,7 @@ func run(path string, asJSON bool, fillPath string) int {
 	if fillPath != "" {
 		return runFill(source, path, fillPath)
 	}
-	exam, err := examdoc.Compile(source)
+	exam, err := examdoc.CompileDir(source, filepath.Dir(path))
 	var problems examdoc.Problems
 	if errors.As(err, &problems) {
 		fmt.Fprintf(os.Stderr, "%s cannot be imported:\n", path)

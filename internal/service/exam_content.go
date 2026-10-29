@@ -8,15 +8,18 @@ import (
 	"unicode/utf8"
 
 	"exam-platform/internal/domain"
+	"exam-platform/shared/examimage"
 )
 
 // Limits of an exam's content. The HTML is produced by shared/examdoc; the server checks its structure, and the student
-// application only shows it after removing anything but the few elements the compiler writes.
+// application only shows it after removing anything but the few elements the compiler writes. The server does read inside
+// the HTML for one thing: pictures, which must be exactly what shared/examimage writes and pass the same checks the compiler
+// applies, because a client that skipped the compiler could otherwise store anything in an <img>.
 const (
 	maxExercises     = 100
 	maxItems         = 52
 	maxSlots         = 1000
-	maxFragmentBytes = 256 << 10
+	maxFragmentBytes = examimage.MaxFragmentBytes
 	maxStarterBytes  = 64 << 10
 	maxContentBytes  = 1 << 20
 	maxPoints        = 10000
@@ -45,12 +48,22 @@ func validateContent(content domain.ExamContent, problems *ValidationError) {
 	ids := map[string]bool{}
 	slotIDs := map[string]bool{}
 	size := len(content.Instructions)
+	pictureBytes := 0
+	checkPictures := func(label, fragment string) {
+		raw, err := examimage.CheckFragment(fragment)
+		if err != nil {
+			problems.add("%s: %v", label, err)
+		}
+		pictureBytes += raw
+	}
+	checkPictures("instructions", content.Instructions)
 	for i, exercise := range content.Exercises {
 		label := fmt.Sprintf("exercise %d", i+1)
 		if exercise.ID != "" {
 			label += fmt.Sprintf(" (%s)", exercise.ID)
 		}
 		size += validatePart(label, exercise.ID, exercise.Title, exercise.Points, exercise.Body, exercise.Slots, ids, slotIDs, problems)
+		checkPictures(label, exercise.Body)
 		if len(exercise.Items) > maxItems {
 			problems.add("%s: has more than %d items", label, maxItems)
 		}
@@ -61,6 +74,7 @@ func validateContent(content domain.ExamContent, problems *ValidationError) {
 				itemLabel += fmt.Sprintf(" (%s)", item.ID)
 			}
 			size += validatePart(itemLabel, item.ID, item.Title, item.Points, item.Body, item.Slots, ids, slotIDs, problems)
+			checkPictures(itemLabel, item.Body)
 			slots += len(item.Slots)
 		}
 		if slots == 0 {
@@ -69,6 +83,9 @@ func validateContent(content domain.ExamContent, problems *ValidationError) {
 	}
 	if len(slotIDs) > maxSlots {
 		problems.add("content has more than %d answer slots", maxSlots)
+	}
+	if pictureBytes > examimage.MaxTotalBytes {
+		problems.add("the pictures of the exam add up to more than %d KiB", examimage.MaxTotalBytes>>10)
 	}
 	if size > maxContentBytes {
 		problems.add("content is larger than 1 MiB combined")

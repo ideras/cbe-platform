@@ -57,6 +57,7 @@
   .exam-preview :global(pre) { margin: var(--space-2) 0; padding: var(--space-2); overflow: auto; background: var(--transparent); border: 1px solid var(--line); border-radius: var(--radius-sm); font-size: var(--text-sm); }
   .exam-preview :global(table) { border-collapse: collapse; margin: var(--space-2) 0; }
   .exam-preview :global(th), .exam-preview :global(td) { padding: .25rem .55rem; border: 1px solid var(--panel-border); }
+  .exam-preview :global(img) { display: block; max-width: 100%; height: auto; margin: .75rem auto; background: var(--color-figure-bg); -webkit-user-drag: none; user-select: none; }
   .exam-preview :global(.preview-blank) { display: inline-block; min-width: 6ch; padding: 0 .35rem; background: var(--transparent); border: 1px dashed var(--ink-2); border-radius: var(--radius-sm); color: var(--ink-2); font-family: var(--font-mono, monospace); font-size: var(--text-sm); }
   .exam-preview :global(.preview-answer) { margin: var(--space-2) 0; background: var(--transparent); border: 1px dashed var(--ink-2); border-radius: var(--radius-sm); }
   .exam-preview :global(.preview-answer span) { display: block; padding: .15rem .5rem; color: var(--brand-strong); font-size: var(--text-sm); font-weight: 600; }

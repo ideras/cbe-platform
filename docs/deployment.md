@@ -245,7 +245,7 @@ npm --prefix apps/student/frontend test
 npm --prefix apps/proctor/frontend test
 ```
 
-`make test` and `make vet` cover the root server module plus `shared/clientwire` and `shared/examdoc`. `make desktop-test` builds the desktop applications and runs both desktop Go test suites. The Go race detector requires a supported host toolchain with CGO available.
+`make test` and `make vet` cover the root server module plus `shared/clientwire`, `shared/examdoc` and `shared/examimage`. `make desktop-test` builds the desktop applications and runs both desktop Go test suites. The Go race detector requires a supported host toolchain with CGO available.
 
 For explicit client checks against the built server:
 

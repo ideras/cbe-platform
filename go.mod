@@ -4,6 +4,7 @@ go 1.26.8
 
 require (
 	exam-platform/shared/calc v0.0.0-00010101000000-000000000000
+	exam-platform/shared/examimage v0.0.0-00010101000000-000000000000
 	modernc.org/sqlite v1.60.1
 )
 
@@ -20,3 +21,5 @@ require (
 )
 
 replace exam-platform/shared/calc => ./shared/calc
+
+replace exam-platform/shared/examimage => ./shared/examimage

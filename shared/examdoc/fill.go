@@ -38,7 +38,8 @@ func FillChecked(source []byte, answers map[string]string, slots []string, heade
 }
 
 func fill(source []byte, answers map[string]string, expected []string, header string) ([]byte, error) {
-	result, err := analyze(source)
+	// The pictures are left out: the exam's folder may be gone, and they change no answer field.
+	result, err := analyze(source, nil, true)
 	if err != nil {
 		return nil, err
 	}
