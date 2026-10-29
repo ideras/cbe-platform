@@ -2,9 +2,15 @@
 package sysvolume
 
 import (
+	"errors"
 	"runtime"
 
 	volume "github.com/itchyny/volume-go"
+)
+
+var (
+	errWatchUnsupported = errors.New("this platform has no volume change notification")
+	errWatchEnded       = errors.New("the volume change subscription ended")
 )
 
 // System controls the operating system's default output device. Linux and macOS run pactl/amixer or osascript;

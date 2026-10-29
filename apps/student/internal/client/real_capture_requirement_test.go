@@ -41,8 +41,7 @@ func TestRealServerRequiredCaptureFailureRecoveryPreservesAnswersAndDeadline(t *
 	}
 	defer s.ServiceShutdown()
 	s.AcknowledgeRules()
-	verifyRequired(t, s)
-	ReportNativeFocus(s, true)
+	ReportNativeFocus(s, true) // the login below verifies capture itself: there is no separate test before it
 	if _, err := s.Login(t.Context(), server.base, "00123", "synthetic PIN"); err != nil {
 		t.Fatal(err)
 	}

@@ -40,9 +40,8 @@ for (const viewport of [{ width: 1280, height: 800 }, { width: 1000, height: 700
     }
     const submit = page.getByRole('button', { name: 'Login / resume' });
     await expect(submit).toBeDisabled();
-    await access.getByRole('button', { name: 'Test screenshot capture' }).click();
-    await expect(access.getByLabel('Screenshot test result')).toContainText('Screenshot capture succeeded');
-    expect(await page.evaluate(() => window.__studentHarness.captureCalls)).toBe(1);
+    await expect(access.getByRole('button', { name: 'Test screenshot capture' })).toHaveCount(0);
+    expect(await page.evaluate(() => window.__studentHarness.captureCalls || 0)).toBe(0);
     await page.screenshot({ path: info.outputPath('login.png'), fullPage: true });
     await rules.getByRole('checkbox').check();
     await expect(submit).toBeEnabled();

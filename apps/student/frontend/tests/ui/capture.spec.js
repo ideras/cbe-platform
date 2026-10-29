@@ -7,8 +7,6 @@ test('capture failure locks editing for retest without losing answer durability'
   await expect(page.getByRole('region', { name: 'Participation rules' })).toContainText('deleted after grading');
   await expect(page.getByRole('region', { name: 'Participation rules' })).toContainText('including anything else open on them');
   await expect(page.getByRole('region', { name: 'Screenshot monitoring' })).toContainText('Grant Screen Recording permission');
-  await page.getByRole('button', { name: 'Test screenshot capture' }).click();
-  await expect(page.getByLabel('Screenshot test result')).toContainText('Screenshot capture succeeded');
   await expect(page.getByRole('region', { name: 'Screenshot monitoring' }).getByRole('alert')).toHaveCount(0);
   await page.getByLabel('I have read these rules').check();
   await page.getByLabel('Account number').fill('00123'); await page.getByLabel('Exam PIN').fill('synthetic PIN');

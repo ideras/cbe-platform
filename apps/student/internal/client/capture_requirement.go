@@ -76,7 +76,19 @@ func (m *captureManager) reportLoop() {
 	}
 }
 
+// test is the retest of a running exam: a failure blocks editing until a later retest succeeds.
 func (m *captureManager) test(ctx context.Context) (CaptureTestResult, error) {
+	return m.verify(ctx, false)
+}
+
+// admit is the capture check of a login. It always takes a fresh real screenshot, whatever an earlier check found, and a
+// failure only withholds readiness: nothing was admitted yet, so it is not a capture failure of the exam to log or count.
+func (m *captureManager) admit(ctx context.Context) error {
+	_, err := m.verify(ctx, true)
+	return err
+}
+
+func (m *captureManager) verify(ctx context.Context, admission bool) (CaptureTestResult, error) {
 	var result CaptureTestResult
 	m.mu.Lock()
 	if m.closed || m.ctx.Err() != nil || m.options.Test == nil || m.options.Capture == nil {
@@ -88,6 +100,11 @@ func (m *captureManager) test(ctx context.Context) (CaptureTestResult, error) {
 		return result, errors.New("Wait for the current capture or server log acknowledgment before retesting.")
 	}
 	m.state.Testing = true
+	if admission {
+		// A cached success must not stand in for this check: readiness returns only when this screenshot succeeds.
+		m.state.Ready = false
+		m.state.Error = ""
+	}
 	m.wg.Add(1)
 	m.mu.Unlock()
 	defer m.wg.Done()
@@ -117,6 +134,7 @@ func (m *captureManager) test(ctx context.Context) (CaptureTestResult, error) {
 	if m.closed {
 		return CaptureTestResult{}, errors.New("Screenshot test cancelled during shutdown.")
 	}
+	timedOut := errors.Is(request.Err(), context.DeadlineExceeded) && ctx.Err() == nil
 	if err == nil {
 		err = request.Err()
 	}
@@ -126,6 +144,10 @@ func (m *captureManager) test(ctx context.Context) (CaptureTestResult, error) {
 	if err == nil && len(m.reports) > 0 {
 		err = errors.New("capture status changed during verification")
 	}
+	if err != nil && admission {
+		m.state.Permission.Granted = false
+		return CaptureTestResult{}, admissionError(ctx.Err() != nil, timedOut)
+	}
 	if err != nil {
 		m.failLocked("Screenshot verification failed or was cancelled. Editing requires a successful retest; current answers are preserved.")
 		return CaptureTestResult{}, errors.New("Screenshot verification failed or was cancelled. Check permission/display support and retry.")
@@ -133,8 +155,22 @@ func (m *captureManager) test(ctx context.Context) (CaptureTestResult, error) {
 	m.state.Ready = true
 	m.state.Permission = permission
 	m.state.Error = ""
-	m.reportLocked("capture_restored", "successful_screenshot_retest")
+	if !admission {
+		m.reportLocked("capture_restored", "successful_screenshot_retest")
+	}
 	return result, nil
+}
+
+// admissionError says what the student can do about a failed login capture check. The native error is not shown: it names
+// the platform's tools and paths.
+func admissionError(cancelled, timedOut bool) error {
+	switch {
+	case cancelled:
+		return errors.New("The screen capture check was cancelled, so the exam did not start. Click Login / resume to try again.")
+	case timedOut:
+		return errors.New("The screen capture check timed out, so the exam did not start. Approve the screen capture permission dialog when it appears, then click Login / resume again.")
+	}
+	return errors.New("The app could not capture your screen, so the exam did not start. Allow screen recording for this app in your system settings, check that a display is connected, then click Login / resume again.")
 }
 
 func (s *Service) TestScreenshot(ctx context.Context) (CaptureTestResult, error) {

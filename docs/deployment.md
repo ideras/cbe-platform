@@ -118,6 +118,8 @@ python3 scripts/ci/package.py --os linux --arch amd64 --input build --output bui
 python3 scripts/ci/package.py --os windows --arch amd64 --input build --output build/ci/artifacts
 ```
 
+To rebuild only the student for Windows from Linux or macOS, run `make student-windows` (`WINDOWS_ARCH=arm64` for ARM64); it writes `build/cbe-portal-student.exe` with the same caveats as `--cross` below.
+
 `--cross` exists only for Windows because the Linux and macOS desktops link their native webview through CGO; it prints a warning, and the resulting binaries are labelled Windows even though they have never run there. `package.py` still verifies the ELF or PE header and machine type of every binary, and both platforms' archives can be staged side by side because the Windows files carry the `.exe` suffix. Validate what you can on the build host before distributing anything: `python3 scripts/ci/smoke.py build/cbe-portal-server` for the server and `python3 scripts/ci/test.py` for the Go suites. Run `python scripts/ci/smoke.py cbe-portal-server.exe` on a real Windows machine before handing those builds to students. Archives built this way are unsigned test builds; the manifest records the commit and the exact Go, Node and npm versions, which may differ from the pinned CI toolchain.
 
 The GitHub Actions workflow builds each component on native x64 and ARM64 hosts. Each successful packaging step uploads a separate archive and `.sha256` file. For each application (`server`, `student`, `proctor`), Linux names are `cbe-portal-<application>-linux-{x64,arm64}.tar.gz` and Windows names are `cbe-portal-<application>-windows-{x64,arm64}.zip`. The macOS server is `cbe-portal-server-macos-universal.tar.gz`; the desktop bundles are `cbe-portal-{student,proctor}-macos-universal.zip`. Verify a checksum from its archive directory with `sha256sum -c <archive>.sha256`, or `shasum -a 256 -c <archive>.sha256` on macOS. The included manifest records the commit and tool versions. Intermediate macOS slices and test logs are separate artifacts.
@@ -487,9 +489,9 @@ Student startup flags:
 
 Run these checks on every supported lab OS and display setup:
 
-- Complete the built-in screenshot test. During a practice exam, trigger the configured focus-loss capture and inspect the resulting screenshots on the dashboard; the initial test image is discarded. Check all attached monitors and the actual display session, including Wayland where applicable.
+- Log in to a practice exam: the login itself takes a test screenshot first and does not start the exam if capture fails, is cancelled or is refused by the operating system (try each case, and revoke the permission after a first success). During the practice exam, trigger the configured focus-loss capture and inspect the resulting screenshots on the dashboard; the initial test image is discarded. Check all attached monitors and the actual display session, including Wayland where applicable.
 - On macOS, grant Screen Recording permission to the final student application in **System Settings > Privacy & Security**, then fully quit and reopen it if requested. Retest after relaunch.
-- Verify the default sound output can be read and changed. The Linux sound integration uses `pactl` or `amixer`; provide a working command and audio session on student computers.
+- Verify the default sound output can be read and changed. The Linux sound integration uses `pactl` or `amixer`; provide a working command and audio session on student computers. Every heartbeat checks the volume and raises it to the exam's minimum (the student sees a notice); the check also runs every 5 seconds. Only Linux (PulseAudio or PipeWire, through `pactl subscribe`) is told of a change at once — measured about 30 ms until the notification, including the time `pactl` itself takes to run; Windows and macOS rely on the heartbeat and the 5-second check, so a lowered volume can stay low for up to 5 seconds. Lower, mute and switch the output during a practice exam to confirm the notice and the correction.
 - Verify focus loss, return to the app, lock handling and proctor unlocks.
 - Submit a practice exam and confirm the final answers can be reviewed and downloaded.
 
@@ -572,6 +574,6 @@ To rotate the admin token, replace it with a new private token, restart the serv
 | Desktop build cannot embed `frontend/dist` | Run the full desktop build so bindings and frontend assets exist before native compilation. |
 | Native GTK/WebKit dependency error | Run the pinned Wails `doctor`; install the build or runtime packages appropriate to that machine. |
 | Frontend opens without working native actions | Launch the compiled desktop executable. A Vite page or static `dist` directory does not supply the Wails services. |
-| Screenshot test fails or editing is blocked | Check OS permissions, display support and the final installed executable; notify the instructor and retest. |
+| Login reports that screen capture failed, or editing is blocked by a screenshot retest | Check OS permissions, display support and the final installed executable; notify the instructor and log in again (or retest, during the exam). |
 | Sound checks fail on Linux | Verify `pactl` or `amixer` works in the student's graphical/audio session. |
 | Dashboard shows no classes on first start | Add a class and roster through the dashboard, then import and admit an exam. |

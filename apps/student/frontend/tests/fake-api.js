@@ -212,6 +212,10 @@ window.__studentHarness = {
   get permissionChecks() { return permissionChecks; },
   permissionFailure(value) { permissionCheckFailure = value; },
   captureBehavior(value) { captureBehavior = value; },
+  loginCaptureDelay(value) { loginCaptureDelay = value; },
+  releaseLoginCapture() { releaseLoginCapture(); },
+  get loginRequests() { return loginRequests; },
+  soundNotice(value) { state.sound_notice = value; },
   get closeCalls() { return closeCalls; },
   get answers() { return { ...answers }; }, get submitted() { return captured; },
   offline(value) { offline = value; state.timing_stale = value; state.status_error = value ? 'Server unavailable.' : ''; if (!value) { state.save_error = ''; acknowledge(); } },
@@ -232,15 +236,37 @@ function acknowledge() {
   state.save_state = 'saved'; state.saved = { version_seq: state.revision + 1, saved_at: clock };
 }
 export async function Snapshot() { record('Snapshot'); return result(false); }
-export async function Login(server, account, pin) { record('Login');
-  if (!state.rules_accepted) throw Error('Acknowledge monitoring disclosure first.');
-  if (!state.capture.ready || state.capture.blocked) throw Error('Pass the screenshot test first.');
-  if (!server.startsWith('http:') || !account.trim() || !pin.trim()) throw Error('Required fields are invalid.');
-  if (failLogin) throw Error(failLogin === 409 ? 'This session has already been submitted.' : 'Credentials were rejected.');
-  state.server = server; state.account = account; state.phase = 'loading'; state.status = status;
-  if (failLoad) throw Error('Exam loading failed.');
-  state.phase = 'exam'; state.timing_stale = offline; return result(true);
+// Like the native login: it takes a real screenshot first (the behavior is switchable like TestScreenshot's), asks the server
+// for a session only if that worked, and can be cancelled while the capture dialog would be open.
+let loginRequests = 0;
+let releaseLoginCapture = () => {};
+export function Login(server, account, pin) { record('Login');
+  let rejectLogin;
+  const pending = new Promise((resolve, reject) => {
+    rejectLogin = reject;
+    if (!state.rules_accepted) return reject(Error('Acknowledge monitoring disclosure first.'));
+    if (!server.startsWith('http:') || !account.trim() || !pin.trim()) return reject(Error('Required fields are invalid.'));
+    window.__studentHarness.captureCalls = (window.__studentHarness.captureCalls || 0) + 1;
+    state.capture.ready = false; state.capture.blocked = true;
+    const proceed = () => {
+      if (captureBehavior === 'failure') return reject(Error('The app could not capture your screen, so the exam did not start. Allow screen recording for this app in your system settings, then click Login / resume again.'));
+      if (captureBehavior === 'invalid') return reject(Error('The screen capture check did not produce a usable image, so the exam did not start.'));
+      state.capture.ready = true; state.capture.blocked = false;
+      state.capture.permission = { supported: true, granted: true, test_required: true, message: 'Screenshot test passed. Automatic incident capture is armed.' };
+      loginRequests++;
+      if (failLogin) return reject(Error(failLogin === 409 ? 'This session has already been submitted.' : 'Credentials were rejected.'));
+      state.server = server; state.account = account; state.phase = 'loading'; state.status = status;
+      if (failLoad) return reject(Error('Exam loading failed.'));
+      state.phase = 'exam'; state.timing_stale = offline;
+      resolve(result(true));
+    };
+    if (captureBehavior === 'hold') { releaseLoginCapture = proceed; return; }
+    if (loginCaptureDelay) setTimeout(proceed, loginCaptureDelay); else proceed();
+  });
+  pending.cancel = () => { releaseLoginCapture = () => {}; rejectLogin(Object.assign(Error('The screen capture check was cancelled, so the exam did not start. Click Login / resume to try again.'), { name: 'CancelError' })); };
+  return pending;
 }
+let loginCaptureDelay = 0;
 export async function RetryLoad() { record('RetryLoad'); if (failLoad) throw Error('Exam loading failed.'); state.phase = 'exam'; state.timing_stale = offline; return result(true); }
 export async function UpdateAnswers(map, revision) { record('UpdateAnswers');
   if (state.phase !== 'exam' || state.submitting || state.advancing) throw Error('Editing is paused.');

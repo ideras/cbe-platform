@@ -20,8 +20,6 @@ for (const width of [1280, 360]) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto('/');
       await page.evaluate(config => window.__studentHarness.calculatorTools({ calculator: { enabled: true, angle_mode: 'user', modes: config.modes, disabled_functions: config.disabled_functions ?? [] } }), config);
-      await page.getByRole('button', { name: 'Test screenshot capture' }).click();
-      await expect(page.getByLabel('Screenshot test result')).toContainText('Screenshot capture succeeded');
       await page.getByLabel('I have read these rules').check();
       await page.getByLabel('Account number').fill('00123');
       await page.getByLabel('Exam PIN').fill('synthetic PIN');

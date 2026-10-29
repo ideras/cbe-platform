@@ -49,6 +49,7 @@ type fixture struct {
 	writes                          []writeRecord
 	active, maxActive               int
 	loginCode, statusCode, examCode int
+	logins                          int // requests to /login
 	onWrite                         func(http.ResponseWriter, *http.Request, writeRecord, int) bool
 	onStatus                        func(*http.Request)
 	final                           Final
@@ -78,6 +79,7 @@ func respond(w http.ResponseWriter, value any) {
 func (f *fixture) handle(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	if r.URL.Path == "/login" {
+		f.logins++
 		code := f.loginCode
 		login := loginReply{Policy: f.status.Policy, Token: f.token, SessionID: "session", ServerTime: f.status.ServerTime, DeadlineAt: f.status.DeadlineAt, MinVolumePercent: f.minVolume}
 		f.mu.Unlock()

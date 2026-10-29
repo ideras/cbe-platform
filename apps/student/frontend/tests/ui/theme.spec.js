@@ -1,8 +1,6 @@
 import { test, expect } from '@playwright/test';
 
 async function login(page) {
-  await page.getByRole('button', { name: 'Test screenshot capture' }).click();
-  await expect(page.getByLabel('Screenshot test result')).toContainText('Screenshot capture succeeded');
   await page.getByLabel('I have read these rules').check();
   await page.getByLabel('Account number').fill('00123');
   await page.getByLabel('Exam PIN').fill('synthetic PIN');
@@ -19,7 +17,7 @@ async function token(page, name) {
 test('CodeMirror search decorations and calculator modes use the shared semantic palette', async ({ page }) => {
   await page.goto('/');
   await expect(page.locator('button.primary')).toHaveCount(1);
-  await expect(page.getByRole('button', { name: 'Test screenshot capture' })).not.toHaveClass(/primary/);
+  await expect(page.getByRole('button', { name: 'Test screenshot capture' })).toHaveCount(0);
   await page.evaluate(() => window.__studentHarness.calculatorTools({ calculator: { enabled: true, modes: ['scientific', 'programmer'], angle_mode: 'user' } }));
   await login(page);
   const content = page.getByRole('textbox', { name: 'Answer for q1' });

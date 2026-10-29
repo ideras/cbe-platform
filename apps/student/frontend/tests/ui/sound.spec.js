@@ -3,8 +3,6 @@ import { test, expect } from '@playwright/test';
 // Everything else is satisfied, so Login depends only on what the sound card might (wrongly) require.
 async function readyToLogin(page) {
   await page.goto('/');
-  await page.getByRole('button', { name: 'Test screenshot capture' }).click();
-  await expect(page.getByLabel('Screenshot test result')).toContainText('Screenshot capture succeeded');
   await page.getByLabel('I have read these rules').check();
   await page.getByLabel('Account number').fill('00123');
   await page.getByLabel('Exam PIN').fill('synthetic PIN');
@@ -25,7 +23,7 @@ async function instrumentAudio(page) {
   });
 }
 
-test('only the screenshot test gates login; sound only shows the current level', async ({ page }) => {
+test('logging in needs nothing from the sound card, which only shows the current level', async ({ page }) => {
   const { login, card } = await readyToLogin(page);
   await expect(page.getByRole('button', { name: /sound/i })).toHaveCount(0);
   await expect(card).toContainText('Current volume: 35%');
@@ -70,5 +68,5 @@ test('an unsupported audio path is reported but does not block login', async ({ 
   await page.evaluate(() => { window.__mode = 'unsupported'; });
   await login.click();
   await expect(page.getByText('Fixture exam')).toBeVisible();
-  await expect(page.getByRole('alert').filter({ hasText: 'could not open the alert sound (NotSupportedError)' })).toContainText('Audible alerts may not play; monitoring continues.');
+  await expect(page.getByRole('status').filter({ hasText: 'could not open the alert sound (NotSupportedError)' })).toContainText('Audible alerts may not play; monitoring continues.');
 });
