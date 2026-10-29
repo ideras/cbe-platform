@@ -560,19 +560,42 @@ func TestEveryHeartbeatAsksForAFreshCheck(t *testing.T) {
 
 func TestOverlappingHeartbeatsShareChecksAndNeverPileUpRequests(t *testing.T) {
 	control := &fakeSound{volume: 90}
-	m := examSound(control, 80)
+	options := soundOptions(control)
+	options.HeartbeatWait = 10 * time.Second // never the reason a heartbeat gives up while the test sets up
+	m := newSoundManager(options)
+	m.check()
+	m.activate(80)
+	m.check()
+	// Hold the worker inside a check until all 50 heartbeats are waiting. Without the hold, how many checks 50 goroutines cause
+	// depends on how fast the scheduler starts them (a slow, loaded machine spreads them over many checks).
+	control.block = make(chan struct{})
+	release := sync.OnceFunc(func() { close(control.block) })
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	done := make(chan struct{})
 	go func() { m.run(ctx); close(done) }()
 	defer func() { cancel(); <-done }()
+	defer release() // runs first: the worker cannot stop while it is held
 	before := control.readCount()
 	var wg sync.WaitGroup
 	for range 50 {
 		wg.Add(1)
 		go func() { defer wg.Done(); m.refresh(ctx) }()
 	}
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(time.Millisecond) {
+		m.mu.Lock()
+		waiting := len(m.waiting)
+		m.mu.Unlock()
+		if waiting == 50 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("only %d of 50 heartbeats are waiting", waiting)
+		}
+	}
+	release()
 	wg.Wait()
+	// The check that was held, one for everything asked meanwhile, and perhaps the odd periodic one; never one per heartbeat.
 	if checks := control.readCount() - before; checks > 10 {
 		t.Fatalf("50 heartbeats caused %d checks", checks)
 	}
