@@ -1,4 +1,5 @@
 <script>
+  import { remainingTime } from '../../../../shared/exam/timing.js';
   import { onMount } from 'svelte';
   import * as api from '$proctor-api';
   import Panel from './Panel.svelte';
@@ -41,7 +42,7 @@
     {#snippet actions()}<label class="follow"><input type="checkbox" bind:checked={follow} />Refresh while the session runs</label>{/snippet}
     {#if session}
       <dl class="summary">
-        <dt>Status</dt><dd><strong>{session.status}</strong>{#if running} · {session.seconds_remaining}s left{/if}</dd>
+        <dt>Status</dt><dd><strong>{session.status}</strong>{#if running} · {session.status === 'grace' ? 'Grace remaining' : 'Remaining'}: {remainingTime(session, page.server_time)}{/if}</dd>
         <dt>Started</dt><dd>{localDateTime(session.started_at)}</dd>
         <dt>Deadline</dt><dd>{localDateTime(session.deadline_at)} · grace until {localDateTime(session.grace_until)}</dd>
         <dt>Final answer</dt><dd>

@@ -8,6 +8,7 @@
   // default signed) decides how /, % and >> read operands from now on, and how the IEEE 754 and Radix Point tabs
   // read an integer; it never changes the displayed result, whose bits and readings stay put.
   import { tick } from 'svelte';
+  import CopyButton from './CopyButton.svelte';
   import { calcMessage, programmerHint } from './calc-messages.js';
 
   let { allowed = [], disabledNames = [], api, onEvaluated } = $props();
@@ -303,18 +304,18 @@
     </p>
     <p class="readings">
       {#if result?.real}
-        <span><strong>Value</strong> {result.value}</span>
+        <span><strong>Value</strong> {result.value}<CopyButton value={result.value} label="Copy answer" /></span>
         <span><strong>{signedMode ? 'DEC signed' : 'DEC'}</strong> <span class="dash">—</span></span>
         <span><strong>DEC unsigned</strong> <span class="dash">—</span></span>
         <span><strong>HEX</strong> <span class="dash">—</span></span>
         <span><strong>OCT</strong> <span class="dash">—</span></span>
         <span><strong>BIN</strong> <span class="dash">—</span></span>
       {:else if result}
-        <span><strong>{signedMode ? 'DEC signed' : 'DEC'}</strong> {result.signed}</span>
-        <span><strong>DEC unsigned</strong> {result.unsigned}</span>
-        <span><strong>HEX</strong> {result.hex}</span>
-        <span><strong>OCT</strong> {result.octal}</span>
-        <span><strong>BIN</strong> {grouped(result.binary)}</span>
+        <span><strong>{signedMode ? 'DEC signed' : 'DEC'}</strong> {result.signed}<CopyButton value={result.signed} label="Copy signed decimal" /></span>
+        <span><strong>DEC unsigned</strong> {result.unsigned}<CopyButton value={result.unsigned} label="Copy unsigned decimal" /></span>
+        <span><strong>HEX</strong> {result.hex}<CopyButton value={result.hex} label="Copy hexadecimal" /></span>
+        <span><strong>OCT</strong> {result.octal}<CopyButton value={result.octal} label="Copy octal" /></span>
+        <span><strong>BIN</strong> {grouped(result.binary)}<CopyButton value={result.binary} label="Copy binary" /></span>
       {/if}
     </p>
     {#if result?.real}<p class="note">Whole numbers only. The Radix Point and IEEE 754 tabs show this value.</p>{/if}
@@ -381,13 +382,13 @@
           <div class="field man"><span class="label">Mantissa, {fields.widths[1]} bits</span><code>{fields.mantissa}</code></div>
         </div>
         <p class="readings">
-          <span><strong>Bits</strong> {ieeeResult.bits}</span>
+          <span><strong>Bits</strong> {ieeeResult.bits}<CopyButton value={ieeeResult.bits} label="Copy IEEE bits" /></span>
           <span><strong>Sign</strong> {ieeeResult.sign}</span>
           <span><strong>Exponent field</strong> {ieeeResult.exponent_field}</span>
           <span><strong>Unbiased exponent</strong> {ieeeResult.unbiased_exponent}</span>
           <span><strong>Mantissa field</strong> {ieeeResult.mantissa_field}</span>
           <span><strong>Class</strong> {ieeeResult.class}</span>
-          <span><strong>Value</strong> {ieeeResult.value}</span>
+          <span><strong>Value</strong> {ieeeResult.value}<CopyButton value={ieeeResult.value} label="Copy IEEE value" /></span>
         </p>
         {#if ieeeResult.rounded}<p class="note">The input had more precision than {ieeeResult.format}; this is the rounded value.</p>{/if}
       {/if}
@@ -397,9 +398,9 @@
       <div class="row"><span></span><button type="button" class="run" onclick={convertFraction}>Convert</button></div>
       {#if fraction}
         <p class="readings">
-          <span><strong>BIN</strong> {grouped(fraction.binary)}</span>
-          <span><strong>OCT</strong> {fraction.octal}</span>
-          <span><strong>HEX</strong> {fraction.hex}</span>
+          <span><strong>BIN</strong> {grouped(fraction.binary)}<CopyButton value={fraction.binary} label="Copy binary fraction" /></span>
+          <span><strong>OCT</strong> {fraction.octal}<CopyButton value={fraction.octal} label="Copy octal fraction" /></span>
+          <span><strong>HEX</strong> {fraction.hex}<CopyButton value={fraction.hex} label="Copy hexadecimal fraction" /></span>
         </p>
         <p class="note">{fraction.binary.endsWith('...') || fraction.octal.endsWith('...') || fraction.hex.endsWith('...')
           ? 'The expansion goes on: it stops after 32 digits, followed by ...' : 'Exact in all three bases.'}</p>

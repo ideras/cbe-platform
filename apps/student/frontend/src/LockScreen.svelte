@@ -1,9 +1,10 @@
 <script>
+  import { remainingTime } from '../../../../shared/exam/timing.js';
   import Card from '../../../../shared/theme/Card.svelte';
 
   // The lock of the exam, in place of the questions. lock.reason is "away", "no_contact" or empty while the server has not
   // said why yet; policy holds the lock times the exam was published with.
-  let { lock, policy = {}, remainingSeconds = 0 } = $props();
+  let { lock, policy = {}, status = null, timingStale = true } = $props();
 
   // A lock time in the words the screen uses.
   function minutes(millis) {
@@ -19,15 +20,12 @@
     }
     return '';
   });
-  let remaining = $derived.by(() => {
-    const whole = Math.max(0, remainingSeconds);
-    return `${Math.floor(whole / 60)} minutes ${String(whole % 60).padStart(2, '0')} seconds`;
-  });
 </script>
 
 <Card label="Exam locked" title="Your exam is locked" level={2} tone="warning">
   {#if reason}<p>{reason}</p>{/if}
   <p><strong>Call your instructor. The exam time keeps running.</strong></p>
-  <p>Remaining time: <strong>{remaining}</strong>.</p>
+  <p>{status?.status === 'grace' ? 'Grace time remaining' : 'Remaining time'} (last server report): <strong>{remainingTime(status)}</strong>.</p>
+  {#if timingStale}<p role="alert">Timing stale / disconnected — waiting for a current server report.</p>{/if}
   <p>No questions are shown while the exam is locked. Your unsaved answers are kept and sent once your instructor unlocks the exam.</p>
 </Card>

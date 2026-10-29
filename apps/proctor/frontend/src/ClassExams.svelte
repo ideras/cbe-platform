@@ -1,4 +1,5 @@
 <script>
+  import { formatTime } from '../../../../shared/exam/timing.js';
   import { onDestroy } from 'svelte';
   import * as api from '$proctor-api';
   import Panel from './Panel.svelte';
@@ -37,11 +38,6 @@
   const locked = $derived(disabled || working || view.busy);
 
   function plural(n, noun) { return `${n} ${noun}${n === 1 ? '' : 's'}`; }
-  function minutes(seconds) {
-    if (seconds % 3600 === 0) return `${seconds / 3600} h`;
-    if (seconds % 60 === 0) return `${seconds / 60} min`;
-    return `${seconds} s`;
-  }
   function when(value) { return parseTime(value)?.toLocaleString() ?? null; }
   // What an exam's calculator is, for the import preview and the exam row; null when the exam has none. It
   // takes both wire shapes: the preview's summary (angle, disabled count) and the catalog's tools object
@@ -165,7 +161,7 @@
 
   {#if examPreview}
     <ExamImport preview={examPreview} className={klass.name}
-      contents={contents(examPreview)} duration={minutes(examPreview.duration_seconds)} grace={minutes(examPreview.grace_seconds)}
+      contents={contents(examPreview)} duration={formatTime(examPreview.duration_seconds)} grace={formatTime(examPreview.grace_seconds)}
       calculator={calculatorText(examPreview.calculator)} logins={span(examPreview)}
       bind:pin bind:showPin bind:forwardOnly {locked} {working}
       onImport={importExam} onCancel={cancelExam} onChoose={chooseExam} />
@@ -187,7 +183,7 @@
               {#if calculatorText(entry.tools?.calculator)}<span class="badge calc" title={calculatorText(entry.tools.calculator)}>{calculatorText(entry.tools.calculator)}</span>{/if}
               <small>{entry.exam_id}</small></td>
             <td>{entry.exercise_count}</td>
-            <td>{minutes(entry.duration_seconds)} + {minutes(entry.grace_seconds)} grace</td>
+            <td>{formatTime(entry.duration_seconds)} + {formatTime(entry.grace_seconds)} grace</td>
             <td>{span(entry)}{#if admission(entry) !== 'open'}<small class="late">Logins are {admission(entry)} now</small>{/if}</td>
             <td>{entry.active_sessions} working · {entry.total_sessions} total</td>
             <td class="row-cell"><div class="row-actions">

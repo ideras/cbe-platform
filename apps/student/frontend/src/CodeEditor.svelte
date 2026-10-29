@@ -2,7 +2,8 @@
   import { onMount } from 'svelte';
   import { basicSetup } from 'codemirror';
   import { Compartment, EditorState } from '@codemirror/state';
-  import { EditorView } from '@codemirror/view';
+  import { indentWithTab } from '@codemirror/commands';
+  import { EditorView, keymap } from '@codemirror/view';
 
   // rows sets the visible height; language only names the language for screen readers, without highlighting.
   let { slotId, language = '', rows = 0, value, locked, onChange } = $props();
@@ -18,6 +19,7 @@
       parent: host,
       state: EditorState.create({ doc: value, extensions: [
         basicSetup,
+        keymap.of([indentWithTab]),
         EditorView.lineWrapping,
         EditorView.contentAttributes.of({ 'aria-label': label }),
         access.of([EditorState.readOnly.of(locked), EditorView.editable.of(!locked)]),

@@ -105,17 +105,26 @@ test('a user-selectable angle mode shows the toggle and the choice reaches the e
   expect(evaluations.at(-1)).toMatchObject({ angleMode: 'rad' });
 });
 
-test('pasting and dropping into the calculator do nothing', async ({ page }) => {
+test('paste replaces selected input, respects the length limit, and evaluates; drops stay blocked', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   await page.goto('/');
   await page.evaluate(value => window.__studentHarness.calculatorTools(value), calculatorOn);
   await login(page);
   const dialog = await openCalculator(page);
   const input = dialog.getByLabel('Expression');
-  await page.evaluate(() => {
-    const target = document.querySelector('.calc-input');
-    const event = new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: new DataTransfer() });
-    event.clipboardData.setData('text/plain', '999');
-    target.dispatchEvent(event);
+  await input.fill('999');
+  await input.selectText();
+  await page.evaluate(() => navigator.clipboard.writeText('2+3*4'));
+  await input.press('Control+V');
+  await expect(input).toHaveValue('2+3*4');
+  await input.press('Enter');
+  await expect(dialog.locator('.calc-result')).toContainText('= 14');
+  await input.selectText();
+  await page.evaluate(() => navigator.clipboard.writeText('1'.repeat(220)));
+  await input.press('Control+V');
+  await expect(input).toHaveValue('1'.repeat(200));
+  await input.fill('');
+  await input.evaluate(target => {
     const drop = new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: new DataTransfer() });
     drop.dataTransfer.setData('text/plain', '999');
     target.dispatchEvent(drop);
@@ -212,4 +221,78 @@ test('every evaluation is queued with the expression as typed, and a full log qu
   await expect(page.getByRole('button', { name: 'Calculator' })).toHaveCount(0);
   await expect(page.getByRole('dialog')).toHaveCount(0);
   expect(await page.evaluate(() => localStorage.length)).toBe(0);
+});
+
+
+test('copying a result pastes only the answer into the exam, with a WebView fallback', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await page.goto('/');
+  await page.evaluate(value => window.__studentHarness.calculatorTools(value), calculatorOn);
+  await login(page);
+  let dialog = await openCalculator(page);
+  await dialog.getByLabel('Expression').fill('2+3*4');
+  await dialog.getByLabel('Expression').press('Enter');
+  const copyButton = dialog.getByRole('button', { name: 'Copy answer', exact: true });
+  await expect(dialog.getByRole('status')).toHaveCount(0);
+  const center = box => box.y + box.height / 2;
+  const resultBox = await dialog.locator('.calc-result').boundingBox();
+  const buttonBefore = await copyButton.boundingBox();
+  expect(Math.abs(center(resultBox) - center(buttonBefore))).toBeLessThan(1);
+  await copyButton.click();
+  await expect(dialog.getByRole('status')).toHaveText('Copied');
+  for (const width of [1280, 360]) {
+    await page.setViewportSize({ width, height: 900 });
+    const button = await copyButton.boundingBox();
+    const feedback = await dialog.getByRole('status').boundingBox();
+    const result = await dialog.locator('.calc-result').boundingBox();
+    expect(Math.abs(center(button) - center(result))).toBeLessThan(1);
+    expect(Math.abs(center(feedback) - center(button))).toBeLessThan(1);
+  }
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('14');
+  await page.keyboard.press('Escape');
+  const answer = page.getByRole('textbox', { name: 'Answer for q1' });
+  await answer.fill('');
+  await answer.press('Control+V');
+  await expect(answer).toHaveText('14');
+  dialog = await openCalculator(page);
+  await dialog.getByLabel('Expression').fill('sin(30)');
+  await dialog.getByLabel('Expression').press('Enter');
+  await page.evaluate(() => { navigator.clipboard.writeText = () => Promise.reject(Error('WebView clipboard unavailable')); });
+  const copy = dialog.getByRole('button', { name: 'Copy answer', exact: true });
+  await copy.click();
+  await expect(dialog.getByRole('status')).toHaveText('Copied');
+  await expect(copy).toBeFocused();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('0.5');
+  await page.evaluate(() => { document.execCommand = () => false; });
+  await copy.click();
+  await expect(dialog.getByRole('status')).toContainText('Could not copy');
+});
+
+test('calculator moves by dragging and keyboard, stays in the viewport after resize, and still evaluates', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(value => window.__studentHarness.calculatorTools(value), calculatorOn);
+  await login(page);
+  const dialog = await openCalculator(page);
+  const move = dialog.getByRole('button', { name: 'Move calculator' });
+  const before = await dialog.boundingBox();
+  const handle = await move.boundingBox();
+  await page.mouse.move(handle.x + 20, handle.y + 10);
+  await page.mouse.down();
+  await page.mouse.move(handle.x + 120, handle.y + 40, { steps: 5 });
+  await page.mouse.up();
+  const after = await dialog.boundingBox();
+  expect(after.x).toBeGreaterThan(before.x + 90);
+  await move.focus();
+  await move.press('ArrowLeft');
+  expect((await dialog.boundingBox()).x).toBeCloseTo(after.x - 10, 0);
+  await page.setViewportSize({ width: 390, height: 720 });
+  await expect.poll(async () => {
+    const box = await dialog.boundingBox();
+    return box.x >= 0 && box.x + box.width <= 391 && box.y >= 0 && box.y + box.height <= 721;
+  }).toBe(true);
+  await dialog.getByLabel('Expression').fill('2+3*4');
+  await dialog.getByLabel('Expression').press('Enter');
+  await expect(dialog.locator('.calc-result')).toContainText('= 14');
+  await dialog.getByRole('button', { name: 'Close the calculator' }).click();
+  await expect(dialog).toHaveCount(0);
 });

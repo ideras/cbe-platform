@@ -4,7 +4,7 @@ const DRAFT = '77777777-7777-4777-8777-777777777777';
 const SESSION = '22222222-2222-4222-8222-222222222222';
 const MATH = '44444444-4444-4444-8444-444444444444';
 const HISTORY = '55555555-5555-4555-8555-555555555555';
-const AT = '2035-01-01T00:00:00Z';
+let AT = '2035-01-01T00:00:00Z';
 const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aI0sAAAAASUVORK5CYII=';
 let observation = 0;
 let connected = false;
@@ -329,7 +329,9 @@ export async function PurgeScreenshots(exam, confirmed) { calls.purge.push({ exa
 // The monitoring, review and image windows open only once the main window is connected; a page loaded as one of them
 // starts connected and monitoring the published exam.
 if (/^#\/(monitoring|review|image)/.test(location.hash)) { connected = true; selectedExam = publishedExam; }
-window.ProctorHarness = { marker: 'PROCTOR_UI_FIXTURE', calls, nativeCalls,
+window.ProctorHarness = {
+  marker: 'PROCTOR_UI_FIXTURE', calls, nativeCalls,
+  timing(index, value, serverTime) { Object.assign(rows[index], value); AT = serverTime; },
   launchCredential(value) { launchCredential = value; }, rejected(value) { rejected = value; }, notice(value) { notice = value; }, tokenFile(value) { nextTokenFile = value; }, tokenFileFails(value) { tokenFileFails = value; },
   connectFails(value) { connectFails = value; }, holdConnect() { heldConnect = true; }, releaseConnect() { heldConnect = null; releaseConnect?.(); }, unreachable(value) { unreachable = value; }, knownServers(value) { knownServers = value; },
   // The application started with a server and a token known: it is connected (or still connecting, or failed) before anyone clicks.

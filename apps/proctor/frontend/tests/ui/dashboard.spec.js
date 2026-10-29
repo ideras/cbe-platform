@@ -14,7 +14,7 @@ test('full classroom remains visible with independent warnings and readable fiel
   await expect(sessionRows(page)).toHaveCount(90);
   await expect(page.getByRole('list', { name: 'Students without a session' }).getByRole('listitem')).toHaveCount(30);
   const row = sessionRows(page).first();
-  for (const value of ['Student 000', '0001', 'desk-0', '10.0.0.1', 'Network overdue', 'Sustained focus loss', 'Current focus: unknown', 'Heartbeat age: 35.0s', 'Sound: muted (35%)', 'Remaining: 89s']) await expect(row).toContainText(value);
+  for (const value of ['Student 000', '0001', 'desk-0', '10.0.0.1', 'Network overdue', 'Sustained focus loss', 'Current focus: unknown', 'Heartbeat age: 35.0s', 'Sound: muted (35%)', 'Remaining: 00:01:29']) await expect(row).toContainText(value);
   // The network warning is a sand pill, never a filled row (color budget); the focus pill stays white.
   expect(await row.evaluate(el => getComputedStyle(el).backgroundColor)).toBe('rgba(0, 0, 0, 0)');
   expect(await row.locator('.network').evaluate(el => getComputedStyle(el).backgroundColor)).toBe('rgb(241, 231, 210)');
@@ -50,7 +50,7 @@ test('the dashboard theme applies to the roster, warning fields and confirmation
 test('stale data remains visibly historical without invented countdown or focus', async ({ page }) => {
   await connect(page); await page.evaluate(() => window.ProctorHarness.stale(true));
   await expect(page.getByRole('alert')).toContainText('STALE / UNCONFIRMED'); await expect(sessionRows(page).first()).toContainText('Current focus: unknown');
-  await page.waitForTimeout(1100); await expect(sessionRows(page).first()).toContainText('Remaining: 89s');
+  await page.waitForTimeout(1100); await expect(sessionRows(page).first()).toContainText('Remaining: 00:01:29');
   await page.evaluate(() => window.ProctorHarness.stale(false)); await expect(page.getByText('STALE / UNCONFIRMED', { exact: false })).toHaveCount(0);
 });
 
@@ -237,4 +237,23 @@ test('the review window lists the calculator rows and filters them', async ({ pa
   await expect(table.getByRole('row').filter({ hasText: 'Network gap' })).toBeVisible();
   await calculator.check();
   await expect(table.getByRole('row').filter({ hasText: 'sin(30)' })).toBeVisible();
+});
+
+
+test('the roster shows grace remaining from the server report and retains it when stale', async ({ page }) => {
+  await connect(page);
+  await page.evaluate(() => window.ProctorHarness.timing(0, { status: 'grace', seconds_remaining: 0, grace_until: '2035-01-01T00:00:30Z' }, '2035-01-01T00:00:00Z'));
+  await expect(sessionRows(page).first()).toContainText('Grace remaining: 00:00:30');
+  await page.evaluate(() => window.ProctorHarness.timing(0, {}, '2035-01-01T00:00:11Z'));
+  await expect(sessionRows(page).first()).toContainText('Grace remaining: 00:00:19');
+  await page.evaluate(() => window.ProctorHarness.stale(true));
+  await expect(page.getByRole('alert').filter({ hasText: 'STALE / UNCONFIRMED' })).toBeVisible();
+  await expect(sessionRows(page).first()).toContainText('Grace remaining: 00:00:19');
+});
+
+test('the review window shows the grace clock', async ({ page }) => {
+  await page.goto(`/#/review/${SESSION}`);
+  await page.evaluate(() => window.ProctorHarness.timing(0, { status: 'grace', seconds_remaining: 0, grace_until: '2035-01-01T00:00:30Z' }, '2035-01-01T00:00:11Z'));
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'Session review' })).toContainText('Grace remaining: 00:00:19');
 });

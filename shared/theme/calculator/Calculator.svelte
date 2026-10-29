@@ -9,12 +9,15 @@
   // notice, or the preview's nothing-is-recorded line.
   import { tick, untrack } from 'svelte';
   import { calcMessage, calcHint } from './calc-messages.js';
+  import CopyButton from './CopyButton.svelte';
   import Programmer from './Programmer.svelte';
 
   let { open = false, angleSetting = 'user', modes = ['scientific'], allowed = [], disabledNames = [], history = [], note = '', floating = false, api, onEvaluated, onClose } = $props();
   // floating renders the calculator as a non-modal dialog of the host window (owner decision 2026-10-23): its
   // own close button and Escape work, but nothing else of the host is blocked.
 
+  let position = $state(null);
+  let drag = null;
   let input = $state('');
   let result = $state(null); // { display } on success, { message, hint } on failure, { error } when Go refused
   let angle = $state('deg');
@@ -77,6 +80,8 @@
 
   $effect(() => {
     if (!open) return;
+    position = null;
+    drag = null;
     opener = document.activeElement;
     document.addEventListener('keydown', trap, true);
     tick().then(() => dialog?.querySelector('input')?.focus());
@@ -114,7 +119,7 @@
     }
     if (event.key === 'Tab') {
       event.stopPropagation();
-      const focusable = [...dialog.querySelectorAll('button, input')];
+      const focusable = [...dialog.querySelectorAll('button:not(:disabled), input, [tabindex="0"]')].filter(node => node.getClientRects().length);
       if (!focusable.length) return;
       const index = focusable.indexOf(document.activeElement);
       event.preventDefault();
@@ -170,22 +175,61 @@
     opener?.focus?.();
   }
 
+  function moveTo(x, y) {
+    if (!dialog) return;
+    const rect = dialog.getBoundingClientRect();
+    position = {
+      x: Math.max(0, Math.min(x, window.innerWidth - rect.width)),
+      y: Math.max(0, Math.min(y, window.innerHeight - rect.height)),
+    };
+  }
+  function startDrag(event) {
+    if (event.button !== 0) return;
+    const rect = dialog.getBoundingClientRect();
+    drag = { id: event.pointerId, x: event.clientX - rect.left, y: event.clientY - rect.top };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    event.currentTarget.focus();
+    event.preventDefault();
+  }
+  function moveDrag(event) {
+    if (drag?.id === event.pointerId) moveTo(event.clientX - drag.x, event.clientY - drag.y);
+  }
+  function moveKey(event) {
+    const delta = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[event.key];
+    if (!delta) return;
+    event.preventDefault();
+    const rect = dialog.getBoundingClientRect();
+    const step = event.shiftKey ? 40 : 10;
+    moveTo(rect.left + delta[0] * step, rect.top + delta[1] * step);
+  }
+  $effect(() => {
+    if (!dialog) return;
+    const clamp = () => untrack(() => { if (position) moveTo(position.x, position.y); });
+    const observer = new ResizeObserver(clamp);
+    observer.observe(dialog);
+    window.addEventListener('resize', clamp);
+    return () => { observer.disconnect(); window.removeEventListener('resize', clamp); };
+  });
+
   const stop = event => event.preventDefault();
 </script>
 
 {#snippet calcBody()}
       <div class="calc-head">
-        {#if panels.length > 1}
+        <button type="button" class="calc-move" aria-label="Move calculator" title="Drag to move, or use the arrow keys when focused"
+          onpointerdown={startDrag} onpointermove={moveDrag} onpointerup={() => drag = null}
+          onpointercancel={() => drag = null} onlostpointercapture={() => drag = null} onkeydown={moveKey}>⠿ Calculator</button>
+        <button type="button" class="calc-close" aria-label="Close the calculator" onclick={close}>✕</button>
+      </div>
+      {#if panels.length > 1}
+      <div class="calc-head">
           <span class="calc-tabs" role="tablist" aria-label="Calculator mode">
             {#each panels as mode (mode)}
               <button type="button" role="tab" aria-selected={activeMode === mode} onclick={() => switchMode(mode)}>{modeLabels[mode] ?? mode}</button>
             {/each}
           </span>
-        {:else}
-          <span></span>
-        {/if}
-        <button type="button" class="calc-close" aria-label="Close the calculator" onclick={close}>✕</button>
       </div>
+      {/if}
       {#if scientificPanel}
         {#if activeMode === 'scientific'}
           <!-- The angle mode matters only to the trigonometric functions, which neural mode alone does not have. -->
@@ -200,6 +244,7 @@
         {/if}
         <input class="calc-input" bind:value={input} maxlength={MAX_INPUT} spellcheck="false" autocomplete="off"
           aria-label="Expression" placeholder="Type an expression" onkeydown={event => { if (event.key === 'Enter') { event.preventDefault(); evaluate(); } }} />
+        <div class="calc-output">
         <p class="calc-result" aria-live="polite">
           {#if result?.error}<span class="error">{result.error}</span>
           {:else if result?.message}<span class="error">{result.message}</span>
@@ -215,6 +260,8 @@
           {:else if result?.display}<span class="display">= {result.display}</span>
           {/if}
         </p>
+        {#if result?.display != null}<CopyButton value={result.display} />{/if}
+        </div>
         <div class="calc-pad">
           {#each pad as button, index (button.label)}
             {#if (!button.name || allowed.includes(button.name)) && (!button.neural || neural)}
@@ -262,14 +309,16 @@
 
 {#if open}
   {#if floating}
-    <div class="calc-modal calc-floating" bind:this={dialog} role="dialog" aria-label="Calculator" tabindex="-1"
-      onkeydown={stopAll} onpaste={stop} ondrop={stop} ondragover={stop}>
+    <div class="calc-modal calc-floating" bind:this={dialog} style:position={position ? 'fixed' : undefined} style:left={position ? `${position.x}px` : undefined}
+      style:top={position ? `${position.y}px` : undefined} style:right={position ? 'auto' : undefined} role="dialog" aria-label="Calculator" tabindex="-1"
+      onkeydown={stopAll} onpaste={stopAll} ondrop={stop} ondragover={stop}>
       {@render calcBody()}
     </div>
   {:else}
     <div class="calc-backdrop">
-      <div class="calc-modal" bind:this={dialog} role="dialog" aria-modal="true" aria-label="Calculator" tabindex="-1"
-        onkeydown={stopAll} onpaste={stop} ondrop={stop} ondragover={stop}>
+      <div class="calc-modal" bind:this={dialog} style:position={position ? 'fixed' : undefined} style:left={position ? `${position.x}px` : undefined}
+      style:top={position ? `${position.y}px` : undefined} style:right={position ? 'auto' : undefined} role="dialog" aria-modal="true" aria-label="Calculator" tabindex="-1"
+        onkeydown={stopAll} onpaste={stopAll} ondrop={stop} ondragover={stop}>
         {@render calcBody()}
       </div>
     </div>
@@ -280,6 +329,8 @@
   .calc-floating { position: fixed; top: 1rem; right: 1rem; width: min(30rem, 44vw); z-index: 60; box-shadow: var(--shadow-dialog); }
   .calc-backdrop { position: fixed; inset: 0; background: var(--backdrop-calculator); display: grid; place-items: center; z-index: 40; }
   .calc-modal { width: min(34rem, 94vw); max-height: 90vh; overflow-y: auto; padding: var(--space-3) var(--space-4); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-card); display: grid; gap: var(--space-2); }
+  .calc-move { flex: 1; margin: 0 var(--space-2) 0 0; padding: .15rem .4rem; text-align: left; cursor: grab; touch-action: none; user-select: none; }
+  .calc-move:active { cursor: grabbing; }
   .calc-head { display: flex; align-items: center; justify-content: space-between; }
   .calc-tabs { display: inline-flex; gap: var(--space-1); }
   .calc-tabs button { margin: 0; padding: .1rem .55rem; font-size: var(--text-sm); }
@@ -288,7 +339,8 @@
   .calc-angle button { margin: 0; padding: .1rem .5rem; font-size: var(--text-sm); }
   .calc-close { margin: 0; padding: .1rem .55rem; }
   .calc-input { background: var(--page); font-family: var(--font-mono, monospace); font-size: 1.05rem; }
-  .calc-result { background: var(--page); min-height: 1.6rem; margin: 0; overflow-wrap: anywhere; }
+  .calc-output { display: flex; align-items: center; }
+  .calc-result { flex: 1; min-width: 0; background: var(--page); min-height: 1.6rem; margin: 0; overflow-wrap: anywhere; }
   .calc-result .display { font-family: var(--font-mono, monospace); font-weight: 600; color: var(--color-heading); }
   .calc-result .matrix-line { display: inline-flex; align-items: center; gap: var(--space-2); font-family: var(--font-mono, monospace); font-weight: 600; color: var(--color-heading); }
   .calc-result .matrix { display: inline-grid; column-gap: 1.5ch; padding: 0 .4rem; border-inline: 2px solid currentColor; border-radius: 4px; }

@@ -312,3 +312,17 @@ test('with the inspector disabled the IEEE 754 tab does not exist', async ({ pag
   await expect(panel.locator('.calc-result')).toContainText('Exponents are not accepted. Write the number in full.');
   await expect(panel.locator('.calc-result')).not.toContainText('Decode');
 });
+
+
+test('programmer input accepts paste and each displayed base has its own copy control', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  const panel = await programmerPanel(page, onlyProgrammer);
+  await page.evaluate(() => navigator.clipboard.writeText('127'));
+  await expression(panel).press('Control+V');
+  await expect(expression(panel)).toHaveValue('127');
+  await expression(panel).press('Enter');
+  await panel.getByRole('button', { name: 'Copy signed decimal', exact: true }).click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('127');
+  await panel.getByRole('button', { name: 'Copy hexadecimal', exact: true }).click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toMatch(/^0x0*7F$/);
+});

@@ -22,7 +22,7 @@ test('the exams of the class are listed with which one students are admitted to'
   const published = exams.locator('tbody tr', { hasText: 'Databases midterm' });
   await expect(published).toContainText('Published'); await expect(published).toContainText('Monitoring');
   await expect(published).toContainText('12');
-  await expect(exams.locator('tbody tr', { hasText: 'Practice exam' })).toContainText('Forward only'); await expect(published).toContainText('90 min + 30 s grace'); await expect(published).toContainText('1 working · 90 total');
+  await expect(exams.locator('tbody tr', { hasText: 'Practice exam' })).toContainText('Forward only'); await expect(published).toContainText('01:30:00 + 00:00:30 grace'); await expect(published).toContainText('1 working · 90 total');
   const practice = exams.locator('tbody tr', { hasText: 'Practice exam' });
   await expect(practice).not.toContainText('Published'); await expect(practice).toContainText('Logins are closed now');
   // The class is the page's own heading; the table does not repeat it, and the bar above says what is admitted.
@@ -65,8 +65,8 @@ test('an exam file is previewed as students see it, imported into the class with
   await expect(preview.getByRole('region', { name: 'Exam file', exact: true })).toBeVisible();
   await expect(preview.getByTitle('midterm-b.md')).toBeVisible();
   await expect(preview).toContainText('Midterm B'); await expect(preview).toContainText('2 exercises, 2 answer fields, 10 points');
-  await expect(preview.locator('.duration')).toHaveText('1 h');
-  await expect(preview.getByRole('definition').filter({ hasText: 'grace' }).locator('small')).toHaveText('plus 30 s grace, counted from each student’s first login');
+  await expect(preview.locator('.duration')).toHaveText('01:00:00');
+  await expect(preview.getByRole('definition').filter({ hasText: 'grace' }).locator('small')).toHaveText('plus 00:00:30 grace, counted from each student’s first login');
   await expect(preview).toContainText('kept at 70% or louder'); await expect(preview).toContainText('any time');
   await expect(preview).toContainText('Importing stores the exam in Mathematics 10A');
   await preview.getByRole('button', { name: 'Preview the exam', exact: true }).click();
@@ -588,7 +588,8 @@ test('the import preview and the exam row say which calculator the exam gives it
   await expect(published.getByText('Calculator:')).toHaveCount(0);
 });
 
-test("the exam row preview action opens the exam; its calculator waits for the tools button and floats", async ({ page }) => {
+test("the exam row preview action opens the exam; its calculator waits for the tools button and floats", async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   const exams = await connect(page);
   const row = exams.locator('tbody tr', { hasText: 'Draft quiz' });
   // The action sits after the monitor action; the Draft quiz declares the calculator.
@@ -607,6 +608,11 @@ test("the exam row preview action opens the exam; its calculator waits for the t
   await calculator.getByLabel('Expression').fill('2+3*4');
   await calculator.getByRole('button', { name: 'Evaluate' }).click();
   await expect(calculator.locator('.calc-result')).toContainText('= 14');
+  await calculator.getByRole('button', { name: 'Copy answer', exact: true }).click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('14');
+  const before = await calculator.boundingBox();
+  await calculator.getByRole('button', { name: 'Move calculator' }).press('ArrowLeft');
+  expect((await calculator.boundingBox()).x).toBeCloseTo(before.x - 10, 0);
   // Non-modal: the exam content stays visible and usable behind the floating panel.
   await expect(dialog.getByText('The exam as students see it')).toBeVisible();
   // The tools button reflects the state, and the panel's own close button closes just the calculator.

@@ -1,4 +1,5 @@
 <script>
+  import { remainingTime } from '../../../../shared/exam/timing.js';
   import { onMount, onDestroy } from 'svelte';
   import * as api from '$student-api';
   import ExercisePage from './ExercisePage.svelte';
@@ -251,7 +252,7 @@
   {:else if examLocked}
     <h2 class="exam-title">{exam?.title || 'Exam'}</h2>
     <div class="exam-main">
-      <LockScreen lock={view.locked} policy={view.monitoring?.policy} remainingSeconds={view.status?.seconds_remaining ?? 0} />
+      <LockScreen lock={view.locked} policy={view.monitoring?.policy} status={view.status} timingStale={view.timing_stale || !!bridgeError} />
       <p class="muted">Unacknowledged text is retained only while this process stays open. Closing or crashing can lose it. Only server-acknowledged work is durable.</p>
     </div>
   {:else}
@@ -260,10 +261,10 @@
       {#if calcAvailable}<button class="calc-open" bind:this={calcButton} onclick={openCalculator}>Calculator</button>{/if}
     </div>
     {#if view.phase === 'complete'}
-      <Card label="Submission closed — read-only" title="Submission closed — read-only" level={3} tone="success">
+      <Card label="Submission closed" title="Submission closed" level={3} tone="success">
         <p>Server state: {view.final?.status || view.status?.status || 'submitted'}.</p>
         {#if view.final}<p>Selected final version: {view.final.version_seq}.</p>{/if}
-        <p>Displayed text is the local view, not a retrieval of the selected final answer. It may include unsaved work; expiry or proctor submission can select an earlier server version.</p>
+        <p>Your exam is finished. Questions and answers are no longer shown.</p>
         {#if view.capture?.pending}<p role="status" class="callout pending">A screenshot is still being uploaded ({view.capture.pending} pending). Keep this window open until it finishes; closing cancels it.</p>{/if}
         <p>Fullscreen and always-on-top have been released. You can close this window; closing cancels any pending screenshot upload.</p>
         <button class="primary" onclick={closeWindow}>Close exam window</button>
@@ -271,13 +272,14 @@
     {:else if view.status}
       <Card label="Server timing" title="Server timing" level={3} tone="info">
         <div class="timing">
-          <p>Remaining time (last server report): <strong>{view.status.seconds_remaining} seconds</strong>.</p>
+          <p>{view.status.status === 'grace' ? 'Grace time remaining' : 'Remaining time'} (last server report): <strong>{remainingTime(view.status)}</strong>.</p>
           <p>State: {view.status.status}. Server report: {view.status.server_time}.</p>
           <p>Deadline: {view.status.deadline_at}. Grace ends: {view.status.grace_until}.</p>
         </div>
-        {#if view.status.status === 'grace'}<p role="alert">Grace period — continue editing and saving, or submit now. Remaining exam time is zero.</p>{/if}
+        {#if view.status.status === 'grace'}<p role="alert">Grace period — continue editing and saving, or submit now. The grace timer shows how long you have left.</p>{/if}
       </Card>
     {/if}
+    {#if view.phase === 'exam'}
     {#if view.timing_stale || bridgeError}<p role="alert">Timing stale / disconnected — no local clock is used to infer expiry.</p>{/if}
     {#if view.status_error}<p role="alert">{view.status_error}</p>{/if}
     <div class="exam-main">
@@ -328,6 +330,7 @@
         {#if view.phase === 'exam'}<button class="submit" class:primary={!forwardOnly || lastPage} onclick={() => { confirmingAdvance = false; confirmingSubmit = true; }} disabled={!canSubmit}>Submit current answers — final</button>{/if}
         <p class="muted">Unacknowledged text is retained only while this process stays open. Closing or crashing can lose it. Only server-acknowledged work is durable.</p>
     </div>
+    {/if}
   {/if}
   {#if view.phase === 'complete' && view.capture?.pending_reports}<p role="alert">Capture status reports are still awaiting server acknowledgment. Keep this app open; closing loses unconfirmed memory-only reports.</p>{/if}
   {#if soundError}<p role="alert">{soundError}</p>{/if}

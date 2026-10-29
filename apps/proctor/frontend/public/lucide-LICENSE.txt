@@ -1,4 +1,4 @@
-The eight action SVGs are Lucide icons, retrieved from Iconify's Lucide collection:
+The action SVGs and calculator copy icon are Lucide icons, retrieved from Iconify's Lucide collection:
 https://icon-sets.iconify.design/lucide/
 https://api.iconify.design/lucide.json
 
@@ -10,6 +10,7 @@ download-submissions.svg: download
 purge-screenshots.svg: image-off
 delete-exam.svg: trash
 tools.svg: calculator
+Calculator copy button: copy
 
 Upstream license: https://github.com/lucide-icons/lucide/blob/main/LICENSE
 

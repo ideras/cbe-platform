@@ -78,7 +78,7 @@ test('capture failure locks current work, preserves autosave and timer, and requ
   await expect(editor).toContainText('preserved through capture failure');
   await expect(page.getByLabel('Save status')).toContainText('Saved');
   await expect(page.getByRole('button', { name: 'Test screenshot capture' })).toBeDisabled();
-  await expect(page.getByRole('region', { name: 'Server timing' })).toContainText('60 seconds');
+  await expect(page.getByRole('region', { name: 'Server timing' })).toContainText('00:01:00');
   await page.evaluate(value => window.__studentHarness.capture(value), { pending_reports: 0 });
   await page.getByRole('button', { name: 'Test screenshot capture' }).click();
   await expect(editor).toHaveAttribute('contenteditable', 'true');

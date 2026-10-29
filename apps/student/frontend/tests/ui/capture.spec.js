@@ -21,7 +21,7 @@ test('capture failure locks editing for retest without losing answer durability'
   await page.getByRole('textbox', { name: 'Answer for q1' }).fill('saved after capture retest');
   await expect(page.getByLabel('Save status')).toContainText('Saved');
   await page.evaluate(value => { window.__studentHarness.capture(value); window.__studentHarness.status({ status: 'force_submitted', seconds_remaining: 0 }); }, { ...capture, state: 'uploading', pending: 1, local_incident: 1, event_log_id: 7 });
-  await expect(page.getByText('Submission closed — read-only')).toBeVisible();
+  await expect(page.getByText('Submission closed')).toBeVisible();
   await expect(page.getByRole('status').filter({ hasText: 'A screenshot is still being uploaded (1 pending)' })).toBeVisible();
-  await expect(page.getByRole('textbox', { name: 'Answer for q1' })).not.toHaveAttribute('contenteditable', 'true');
+  await expect(page.getByRole('textbox', { name: 'Answer for q1' })).toHaveCount(0);
 });

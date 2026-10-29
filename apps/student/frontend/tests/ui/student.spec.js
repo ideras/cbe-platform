@@ -43,9 +43,10 @@ test('local editor assets, safe exam text, rapid exercise switches, and latest v
   await first.fill('latest visible — no debounce wait');
   await page.getByRole('button', { name: 'Submit current answers — final' }).click();
   await page.getByRole('button', { name: 'Submit my exam' }).click();
-  await expect(page.getByRole('heading', { name: 'Submission closed — read-only' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Submission closed' })).toBeVisible();
   expect(await page.evaluate(() => window.__studentHarness.submitted)).toEqual({ q1: 'latest visible — no debounce wait', q2: '18', q3: 'second answer', q4: '' });
-  await expect(first).not.toHaveAttribute('contenteditable', 'true');
+  await expect(first).toHaveCount(0);
+  await expect(page.getByRole('navigation', { name: 'Exercises' })).toHaveCount(0);
   await page.getByRole('button', { name: 'Close exam window' }).click();
   expect(await page.evaluate(() => window.__studentHarness.closeCalls)).toBe(1);
   expect(external).toEqual([]); expect(errors).toEqual([]);
@@ -70,8 +71,9 @@ test('grace keeps editing and force submission locks the loaded view without fet
   await expect(page.getByText('Grace period — continue editing', { exact: false })).toBeVisible();
   const editor = page.getByRole('textbox', { name: 'Answer for q1' }); await editor.fill('local grace work');
   await page.evaluate(() => window.__studentHarness.status({ status: 'force_submitted', seconds_remaining: 0 }));
-  await expect(page.getByRole('heading', { name: 'Submission closed — read-only' })).toBeVisible();
-  await expect(editor).toContainText('local grace work'); await expect(editor).not.toHaveAttribute('contenteditable', 'true');
+  await expect(page.getByRole('heading', { name: 'Submission closed' })).toBeVisible();
+  await expect(editor).toHaveCount(0);
+  await expect(page.getByText('local grace work', { exact: true })).toHaveCount(0);
   await expect(page.getByText('Server state: force_submitted.')).toBeVisible();
 });
 
@@ -84,7 +86,7 @@ test('lost submission response disables repeat action and retry preserves captur
   await expect(page.getByRole('button', { name: 'Close exam window' })).toHaveCount(0);
   await expect(page.getByText('Submission awaiting server confirmation.', { exact: false })).toBeVisible();
   await page.getByRole('button', { name: 'Retry connection / pending work' }).click();
-  await expect(page.getByRole('heading', { name: 'Submission closed — read-only' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Submission closed' })).toBeVisible();
   expect((await page.evaluate(() => window.__studentHarness.submitted)).q1).toBe('immutable pending submit');
 });
 
@@ -148,7 +150,7 @@ test('forward-only exams confirm before leaving an exercise and never go back', 
   await expect(page.getByRole('button', { name: /Continue to exercise/ })).toHaveCount(0);
   await page.getByRole('button', { name: 'Submit current answers — final' }).click();
   await page.getByRole('button', { name: 'Submit my exam' }).click();
-  await expect(page.getByRole('heading', { name: 'Submission closed — read-only' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Submission closed' })).toBeVisible();
 });
 
 test('the compiled sample exam shows every answer field where its text puts it', async ({ page }, info) => {
@@ -203,4 +205,38 @@ test('the login screen keeps the rules short and drops the server note', async (
   await expect(rules.getByText('your exam locks', { exact: false })).toBeVisible();
   await expect(page.getByText('isolated-LAN', { exact: false })).toHaveCount(0);
   await expect(page.getByText('never resets the deadline', { exact: false })).toHaveCount(0);
+});
+
+
+test('Tab indents code, Shift+Tab unindents, and submission preserves the edit', async ({ page }) => {
+  await page.goto('/'); await login(page);
+  const editor = page.getByRole('textbox', { name: 'Answer for q1' });
+  await editor.fill('int main() {}');
+  await editor.press('Home');
+  await editor.press('Tab');
+  await expect(editor).toBeFocused();
+  await expect(editor).toHaveText('  int main() {}');
+  await editor.press('Shift+Tab');
+  await expect(editor).toHaveText('int main() {}');
+  await editor.press('Tab');
+  await page.getByRole('button', { name: 'Submit current answers — final' }).click();
+  await page.getByRole('button', { name: 'Submit my exam' }).click();
+  await expect(page.getByRole('heading', { name: 'Submission closed' })).toBeVisible();
+  expect((await page.evaluate(() => window.__studentHarness.submitted)).q1).toBe('  int main() {}');
+  await expect(editor).toHaveCount(0);
+});
+
+test('exam and grace clocks use server observations, including while locked and stale', async ({ page }) => {
+  await page.goto('/'); await login(page);
+  await expect(page.getByRole('region', { name: 'Server timing' })).toContainText('00:01:00');
+  await page.evaluate(() => window.__studentHarness.status({ status: 'grace', seconds_remaining: 0, server_time: '2035-01-02T03:05:05Z' }));
+  await expect(page.getByRole('region', { name: 'Server timing' })).toContainText('Grace time remaining (last server report): 00:00:30');
+  await page.evaluate(() => window.__studentHarness.status({ status: 'grace', seconds_remaining: 0, server_time: '2035-01-02T03:05:16Z' }));
+  await expect(page.getByRole('region', { name: 'Server timing' })).toContainText('00:00:19');
+  await page.evaluate(() => window.__studentHarness.lock('away'));
+  const lock = page.getByRole('region', { name: 'Exam locked' });
+  await expect(lock).toContainText('Grace time remaining (last server report): 00:00:19');
+  await page.evaluate(() => window.__studentHarness.offline(true));
+  await expect(lock).toContainText('Timing stale / disconnected');
+  await expect(lock).toContainText('00:00:19');
 });
