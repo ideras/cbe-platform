@@ -134,7 +134,7 @@ func TestProblemsNameTheirLines(t *testing.T) {
 		"title heading":        {header + "# Exam\n## A\n{{x}}\n", "line 5: use ## for an exercise"},
 		"link":                 {header + "## A\n[site](http://example.com) {{x}}\n", "line 6: links are not allowed"},
 		"autolink":             {header + "## A\n<http://example.com> {{x}}\n", "links are not allowed"},
-		"image":                {header + "## A\n![d](d.png) {{x}}\n", "images are not supported"},
+		"image":                {header + "## A\n![d](d.png) {{x}}\n", `line 6: image "d.png": this exam has pictures, so it must be compiled from its file`},
 		"html":                 {header + "## A\n<b>bold</b> {{x}}\n", "line 6: HTML is not allowed"},
 		"html block":           {header + "## A\n{{x}}\n\n<div>\nx\n</div>\n", "line 8: HTML is not allowed"},
 		"slot in instructions": {header + "Name: {{name}}\n## A\n{{x}}\n", "line 5: answer fields cannot be in the general instructions"},

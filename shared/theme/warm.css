@@ -71,6 +71,8 @@
   --color-focus: var(--coral);
   --color-focus-bg: var(--coral-tint);
   --color-focus-border: var(--coral);
+  /* Pictures in an exam keep a white ground in any theme: a figure drawn in black on transparent is unreadable otherwise. */
+  --color-figure-bg: #FFFFFF;
   --color-disabled-bg: var(--transparent);
   --color-disabled-border: var(--ink-2);
   --color-disabled-text: var(--ink-2);

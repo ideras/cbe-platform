@@ -14,10 +14,10 @@ The Markdown is only the authoring format. The proctor dashboard compiles the fi
 3. Text before the first `##` is the **general instructions**. It cannot contain answer fields.
 4. **Every exercise or item must contain at least one answer field**, otherwise the file is rejected. Answer fields are `{{name}}` (one-line blank) or a fenced block with the language `answer` (text or code box).
 5. Points go in **heading attributes** (`## Exercise 1 {points=20}`), never in the title text. Sums must match at every level.
-6. **No links, no images, no raw HTML.** Tables, lists, quotes, code blocks, bold, italics, inline code and strikethrough are fine.
+6. **No links and no raw HTML.** Pictures are allowed only as `![alt text](file.svg)` with a PNG, JPEG, GIF or SVG file next to the exam and meaningful alt text (see [Images](#images)). Tables, lists, quotes, code blocks, bold, italics, inline code and strikethrough are fine.
 7. **No secrets in the file:** no PIN, no solutions, no grading rubric. The PIN is typed by the proctor on import; solutions live in separate files.
 8. Names and IDs use only letters, digits, `_` and `-` (at most 64 characters) and must be unique where stated below.
-9. Validate with `build/examc exam.md` before delivering. Deliver only a file that passes.
+9. Validate with `build/examc exam.md` before delivering. Deliver only a file that passes, together with the picture files it names.
 
 ## A minimal exam
 
@@ -173,23 +173,49 @@ A normal fenced block (```` ```c ````, ```` ```mips ````, or no language) shows 
 
 ## Writing the content
 
-Supported Markdown (CommonMark plus GFM tables and strikethrough): paragraphs, `**bold**`, `*italics*`, `~~strikethrough~~`, `` `inline code` ``, lists (bulleted and numbered), block quotes, tables, horizontal rules and fenced code blocks.
+Supported Markdown (CommonMark plus GFM tables and strikethrough): paragraphs, `**bold**`, `*italics*`, `~~strikethrough~~`, `` `inline code` ``, lists (bulleted and numbered), block quotes, tables, horizontal rules, fenced code blocks and [images](#images).
 
 **Not allowed** (each is reported with its line):
 
 - **Links** (`[text](url)`, `<http://…>`): following one would leave the exam window. Plain URLs stay plain text.
-- **Images**: not supported yet. Describe a figure in text, a table or a code block (ASCII diagrams in a code block work well).
+- **Pictures from anywhere but a file next to the exam**: web addresses, `data:` URLs, absolute paths and `..` are errors. See [Images](#images).
 - **Raw HTML**: use Markdown.
 - **`#` headings**, and `##`/`###` headings inside lists or quotes.
 
 Practical advice:
 
 - **No math typesetting.** LaTeX is not rendered. Write formulas with Unicode and inline code: `` `CPI = ciclos / instrucciones` ``, `x²`, `√2`, `π`.
-- **Use a code block for anything the student should read as code, a trace or a layout** (alignment is preserved).
+- **Use a code block for anything the student should read as code, a trace or a layout** (alignment is preserved). A small ASCII diagram in a code block is often enough and needs no file.
 - **Tables** are good for "fill the cells" questions: put a `{{name}}` in each cell to fill.
 - **State what the student should enter in the field**, and in what format (units, decimals, base), because blanks are compared by humans or scripts against a solution file.
 - **Keep one idea per item** so each answer field maps to a clear grading criterion.
 - **Dollar signs and braces** are ordinary characters (`$s0`, `{ ... }`), except `{{` which opens a blank. To show `{{` literally, put it in inline code.
+
+## Images
+
+A picture is written as standard Markdown, and the file sits **next to the exam file**:
+
+```markdown
+![Autómata del Lexer: estados S0 a S11](Prueba_I-DFA.svg)
+![Pipeline de cinco etapas](img/pipeline.png)
+```
+
+The compiler reads each file, checks it and embeds it in the exam, so students and the proctor's preview see the picture and nothing is ever fetched from anywhere during the exam.
+
+- **The path is relative to the folder of the exam file.** Subfolders are fine (`img/dfa.svg`). Spaces are written `my%20figure.png` or `<my figure.png>`. Web addresses (`https:`, `data:`, `file:`…), absolute paths, `..` and backslashes are errors, and a symbolic link cannot lead out of the exam's folder.
+- **Alt text is required**, the text between the brackets: at most 500 characters. It is the accessible description and what the student sees if the picture fails, so say what the figure shows ("Automaton with states S0 to S11…"), not just "diagram". A Markdown title (`"title"`) after the path is accepted and ignored.
+- **Formats:** PNG, JPEG, GIF and SVG. The compiler decides the type from the file's *content*, and the extension must agree with it (`.png`, `.jpg`/`.jpeg`, `.gif`, `.svg`, in any case). WebP is not supported.
+- **Where:** in the general instructions, an exercise, an item, and inside tables, lists and quotes. **Not in a heading**: titles are plain text. An image is a block of its own on screen, scaled down to the width of the window.
+- **Size:** each file at most **128 KiB**, all the pictures of an exam at most **512 KiB** (a file used twice counts twice). A PNG, JPEG or GIF is at most 4000 × 4000 pixels and 12 million pixels in all. Pictures take a third more space inside the exam (base64), and one exercise or item may hold at most 256 KiB of text and pictures together, so put large figures in different items.
+- **SVG** must be a plain, well-formed drawing with the `http://www.w3.org/2000/svg` namespace. Output from Graphviz and Inkscape is fine, including their XML declaration, comments and extra namespaces. These are refused: `<script>`, `<foreignObject>`, `<iframe>`, `<object>`, `<embed>`, `<audio>`, `<video>`, animation elements (`<animate>`, `<set>`…), event attributes (`onload`…), `<style>` with `@import` or a `url()` that is not `#id`, entity declarations, and any `href` that is not a `#id` of the same file. A raster picture embedded inside an SVG (`<image href="data:…">`) is therefore refused: export it as a PNG and use that.
+- **The exam must be compiled from its file.** `build/examc` and **Import exam…** find the pictures next to the exam file, wherever you run them from. The compiled exam carries the pictures, so the folder is not needed after importing; changing a picture means importing the exam again.
+
+Advice:
+
+- **Prefer SVG for diagrams** (they stay sharp and are small) and PNG for screenshots; use JPEG only for photographs.
+- **Give the figure a white background.** The exam shows pictures on white, but a drawing in black lines with a transparent background is only readable that way, so a visible white background in the file itself is safest.
+- **Keep a text or table description of anything essential.** If the picture cannot be shown, the student must still be able to answer; the alt text and a transition table, for example, serve that purpose.
+- **Leave answer fields outside the picture:** a figure cannot be an answer field, and `{{name}}` is not allowed in the alt text. Put the question below it.
 
 ## The calculator
 
@@ -250,7 +276,18 @@ Under forward-only navigation, put everything an exercise needs inside that exer
 | `id "…" is already used` | Make exercise and item `#id`s unique. |
 | `the items of exercise … add up to X points` | Fix the item points or the exercise points. |
 | `the exercises add up to X points but the front matter says Y` | Fix the exercise points or the front matter `points`. |
-| `links are not allowed` / `images are not supported` / `HTML is not allowed` | Rewrite as plain text or Markdown. |
+| `links are not allowed` / `HTML is not allowed` | Rewrite as plain text or Markdown. |
+| `the image needs alternative text` / `the alternative text is longer than 500 characters` | Describe the figure between the brackets: `![what it shows](file.svg)`, up to 500 characters. |
+| `image "…": the file does not exist next to the exam` | Put the file in the exam's folder (or the subfolder in the path) and check the spelling and capitals. |
+| `only files next to the exam can be used` / `absolute paths are not allowed` / `".." is not allowed` | Copy the file next to the exam and write its path relative to the exam file, with `/`. |
+| `this exam has pictures, so it must be compiled from its file` | Compile with `build/examc exam.md` or **Import exam…**, which find the pictures next to the file. |
+| `the file is png but its name says otherwise` | Rename the file with the extension of its real type, or export it again in the format its name says. |
+| `the content is not a PNG, JPEG, GIF or SVG image` / `the … image is damaged` | Export the picture again as PNG, JPEG, GIF or SVG. |
+| `the file is larger than 128 KiB` / `the pictures of the exam add up to more than 512 KiB` | Make the pictures smaller (SVG, fewer colours, less resolution) or use fewer. |
+| `each side must be between 1 and 4000` / `at most 12 million pixels` | Scale the picture down. |
+| `the text and pictures of … take N KiB` | Move a picture to another item, or make it smaller. |
+| `the SVG has a <…> element` / `an event handler` / `a reference to something outside itself` / `declares entities` | Export a plain SVG again (no scripts, animation, external links or embedded files). |
+| `images cannot be in headings` | Put the image in the text below the heading. |
 | `the attributes at the end of the heading could not be read` | Write `{#id points=10}`: braces, no commas, nothing after them. |
 | `unknown answer option` | Only `#name`, `kind`, `lang` and `lines` exist. |
 | `{{ opens an answer field that is not closed` | Close with `}}` on the same line, or put a literal `{{` in inline code. |
@@ -264,8 +301,12 @@ Under forward-only navigation, put everything an exercise needs inside that exer
 | Items per exercise | 52 |
 | Answer fields per exam | 1000 |
 | Points per exercise, item or exam | 10000 |
-| Text of one part (instructions, an exercise body, an item body) | 256 KiB |
-| Compiled exam content | 1 MiB |
+| Text and pictures of one part (instructions, an exercise body, an item body) | 256 KiB |
+| Compiled exam content (pictures included) | 1 MiB |
+| One picture file | 128 KiB |
+| All the picture files of an exam | 512 KiB |
+| Size of a PNG, JPEG or GIF | 4000 × 4000 pixels, 12 million in all |
+| Alt text of a picture | 500 characters |
 | Starter text of one answer field | 64 KiB |
 | `lines` of an answer field | 1–100 |
 | Exam file | 4 MiB |
@@ -274,7 +315,8 @@ Under forward-only navigation, put everything an exercise needs inside that exer
 ## Delivery checklist
 
 - [ ] The file starts with `---`, has `title` and `duration`, and no `pin`.
-- [ ] No `#` headings, no links, no images, no HTML.
+- [ ] No `#` headings, no links, no HTML.
+- [ ] Every image has meaningful alt text, its file is next to the exam, and the exam still makes sense without the picture.
 - [ ] Every `##` and `###` has at least one answer field below it.
 - [ ] Field names are unique within their exercise or item; IDs are unique across the exam.
 - [ ] Points are attributes, and sums match at every level (and the front matter `points`, when set).
@@ -283,6 +325,7 @@ Under forward-only navigation, put everything an exercise needs inside that exer
 - [ ] The calculator is configured as intended (or absent).
 - [ ] No solutions or grading notes in the file.
 - [ ] `build/examc exam.md` reports no problems and lists the answer fields you expect.
+- [ ] The picture files travel with the exam file (the proctor needs them next to it when importing).
 
 ## Complete example
 
@@ -362,6 +405,7 @@ Its answer fields are `conv.bin`, `conv.hex`, `conv.hex2`, `1b.cpi`, `1b.work`, 
 Understanding this helps you avoid changes that break grading.
 
 - **Compile:** the proctor dashboard compiles the file locally and sends the result to `POST /admin/class/{id}/exam`. Bodies become HTML fragments; each answer field becomes an element with a `data-slot` attribute that the student application replaces with an input. Before showing any HTML, the student and proctor applications reduce it to the elements the compiler writes (`shared/exam/sanitize.js`).
+- **Pictures are embedded in the compiled HTML** as `<img src="data:image/…;base64,…" alt="…">`, and the server checks each one again (`shared/examimage`). The Markdown that `source_markdown` keeps still holds the reference, `![alt](file.svg)`, not the bytes; a downloaded student file therefore shows that line where the picture was, which graders can ignore. The stored exam does not depend on the folder it was imported from.
 - **The source is kept.** The proctor also sends the file's Markdown as `source_markdown` (stored as opaque text, at most 4 MiB, never returned to students). **Download submissions…** uses it to give the instructor the exam itself with each student's answers filled in: blanks become inline code, text and code answers become fenced blocks titled with the field ID, and empty answers read `*(no answer)*`. An exam imported without a source still works: downloads then list the answers under their field IDs without the questions.
 - **Do not rename or remove answer fields after students have started.** The field ID is the key of every saved answer, and a downloaded file cannot be rebuilt from a source whose fields no longer match the stored exam. To change an exam in use, import a new one.
 - **Compiled shape** (for reference):
@@ -387,9 +431,9 @@ Understanding this helps you avoid changes that break grading.
 
 ```bash
 make examc
-build/examc exam.md          # summary: exercises, items, answer fields and points, or every problem with its line
+build/examc exam.md          # summary: exercises, items, answer fields and points, or every problem with its line; reads pictures next to exam.md
 build/examc -json exam.md    # the compiled document (without a PIN)
 build/examc -fill answers.json exam.md   # the exam with those answers filled in, as a downloaded student file looks
 ```
 
-`answers.json` is one JSON object of answer field ID to the answer text, such as `{"1a.alu": "16", "2a.code": "mult $s0, $s1"}`. The original front matter is kept in the output; the dashboard replaces it with the submission's.
+The pictures named in the exam are read from the exam file's folder, so `examc` can run from any directory. `answers.json` is one JSON object of answer field ID to the answer text, such as `{"1a.alu": "16", "2a.code": "mult $s0, $s1"}`. The original front matter is kept in the output; the dashboard replaces it with the submission's.

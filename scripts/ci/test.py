@@ -7,7 +7,7 @@ import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parents[2]
-MODULES = (".", "shared/calc", "shared/clientwire", "shared/examdoc", "apps/student", "apps/proctor")
+MODULES = (".", "shared/calc", "shared/clientwire", "shared/examdoc", "shared/examimage", "apps/student", "apps/proctor")
 
 
 def main():

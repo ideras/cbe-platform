@@ -30,7 +30,7 @@ grants. The workflow needs no repository secrets.
 
 ## Test coverage
 
-- `go vet` and `go test` in all six modules; the race detector everywhere except Windows ARM64, which has no
+- `go vet` and `go test` in all seven modules; the race detector everywhere except Windows ARM64, which has no
   supported race detector. `scripts/ci/test.py` selects the flags per target because the root Makefile always
   passes `-race`.
 - Desktop integration: `EXAM_SERVER_BINARY` points at that job's freshly built server, so the student and proctor

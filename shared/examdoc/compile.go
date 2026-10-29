@@ -3,12 +3,15 @@ package examdoc
 import (
 	"bytes"
 	"fmt"
+	"io/fs"
 	"math"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
 	"unicode/utf8"
 
+	"exam-platform/shared/examimage"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
@@ -37,9 +40,27 @@ var (
 )
 
 // Compile turns an exam written in Markdown into the exam document the server takes. It returns Problems when the file
-// cannot be compiled.
+// cannot be compiled. An exam with pictures cannot be compiled this way, because nothing says where to find them: use
+// CompileDir or CompileFS.
 func Compile(source []byte) (Exam, error) {
-	result, err := analyze(source)
+	return CompileFS(source, nil)
+}
+
+// CompileDir is Compile for an exam file that sits in dir: its pictures are the files next to it, in dir and the folders under
+// it. A picture cannot reach outside dir, not even through a symbolic link.
+func CompileDir(source []byte, dir string) (Exam, error) {
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return Exam{}, Problems{"the folder of the exam file cannot be opened, so its pictures cannot be read: " + err.Error()}
+	}
+	defer root.Close()
+	return CompileFS(source, root.FS())
+}
+
+// CompileFS is Compile with the pictures of the exam taken from assets, whose root is the folder of the exam file. A nil assets
+// means the exam may not have pictures.
+func CompileFS(source []byte, assets fs.FS) (Exam, error) {
+	result, err := analyze(source, assets, false)
 	return result.exam, err
 }
 
@@ -50,7 +71,10 @@ type analyzed struct {
 	body   []byte
 }
 
-func analyze(source []byte) (analyzed, error) {
+// analyze compiles source. skipImages leaves the pictures alone: they are not read or checked and the HTML has none of them.
+// Fill needs that, because it runs on the Markdown the server stored, long after the exam's folder may be gone, and wants only
+// the positions of the answer fields.
+func analyze(source []byte, assets fs.FS, skipImages bool) (analyzed, error) {
 	var problems Problems
 	report := func(line int, format string, args ...any) {
 		if len(problems) == maxProblems {
@@ -69,7 +93,8 @@ func analyze(source []byte) (analyzed, error) {
 		return analyzed{}, Problems{err.Error()}
 	}
 	settings := parseFrontMatter(front, report)
-	c := &compiler{body: body, frontLines: frontLines, report: report, slotIDs: map[string]bool{}, ids: map[string]bool{}}
+	c := &compiler{body: body, frontLines: frontLines, report: report, slotIDs: map[string]bool{}, ids: map[string]bool{},
+		assets: assets, skipImages: skipImages, pictures: map[*ast.Image]string{}}
 	settings.exam.Content = c.content()
 	if total, ok := settings.exam.Content.Points(); ok && settings.points != nil && !samePoints(total, *settings.points) {
 		report(1, "the exercises add up to %s points but the front matter says %s", formatPoints(total), formatPoints(*settings.points))
@@ -89,6 +114,14 @@ type compiler struct {
 	ids, slotIDs map[string]bool
 	// ranges records where every answer field sits in the body, so Fill can replace it.
 	ranges []answerRange
+	// assets holds the files the exam's pictures name; skipImages says to ignore the pictures.
+	assets     fs.FS
+	skipImages bool
+	// pictures holds the <img> element written for each picture met so far, which the renderer puts in place of the node.
+	// pictureBytes is how much the files add up to; overTotal says that was already reported.
+	pictures     map[*ast.Image]string
+	pictureBytes int
+	overTotal    bool
 }
 
 // section is the run of top-level blocks under one heading, or before the first exercise heading.
@@ -101,7 +134,7 @@ func (c *compiler) content() Content {
 	c.markdown = goldmark.New(
 		goldmark.WithExtensions(extension.NewTable(extension.WithTableCellAlignMethod(extension.TableCellAlignAttribute)), extension.Strikethrough),
 		goldmark.WithParserOptions(parser.WithHeadingAttribute(), parser.WithInlineParsers(util.Prioritized(blankParser{}, 50))),
-		goldmark.WithRendererOptions(renderer.WithNodeRenderers(util.Prioritized(slotRenderer{}, 50))),
+		goldmark.WithRendererOptions(renderer.WithNodeRenderers(util.Prioritized(slotRenderer{}, 50), util.Prioritized(pictureRenderer{c.pictures}, 50))),
 	)
 	document := c.markdown.Parser().Parse(text.NewReader(c.body))
 	instructions := section{}
@@ -226,7 +259,7 @@ func (c *compiler) collect(s section, prefix string) []found {
 					answers = append(answers, n)
 				}
 			case *ast.Image:
-				c.report(c.line(n), "images are not supported in exams yet")
+				c.picture(n)
 			case *ast.Link, *ast.AutoLink:
 				c.report(c.line(n), "links are not allowed: following one would leave the exam window")
 			case *ast.RawHTML, *ast.HTMLBlock:
@@ -280,6 +313,9 @@ func (c *compiler) collect(s section, prefix string) []found {
 		ast.Walk(s.heading, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
 			if blank, ok := n.(*blankNode); ok && entering {
 				c.report(c.line(s.heading), "answer fields cannot be in headings; put {{%s}} in the text below", blank.name)
+			}
+			if _, ok := n.(*ast.Image); ok && entering && !c.skipImages {
+				c.report(c.line(s.heading), "images cannot be in headings: a title is plain text; put the image in the text below")
 			}
 			return ast.WalkContinue, nil
 		})
@@ -383,11 +419,20 @@ func (c *compiler) render(s section) string {
 	for _, node := range s.nodes {
 		document.AppendChild(document, node)
 	}
-	var html bytes.Buffer
-	if err := c.markdown.Renderer().Render(&html, c.body, document); err != nil {
+	var out bytes.Buffer
+	if err := c.markdown.Renderer().Render(&out, c.body, document); err != nil {
 		c.report(c.frontLines+1, "the exam could not be rendered: %v", err)
 	}
-	return strings.TrimSpace(html.String())
+	fragment := strings.TrimSpace(out.String())
+	if len(fragment) > examimage.MaxFragmentBytes {
+		line, name := c.frontLines+1, "the general instructions"
+		if s.heading != nil {
+			line, name = c.line(s.heading), fmt.Sprintf("%q", strings.TrimSpace(plainText(s.heading, c.body)))
+		}
+		c.report(line, "the text and pictures of %s take %d KiB, more than the %d KiB one part may hold (a picture takes a third more than its file); move pictures to another item or make them smaller",
+			name, (len(fragment)+1023)>>10, examimage.MaxFragmentBytes>>10)
+	}
+	return fragment
 }
 
 // line is the file line a node starts on, found through the nearest node that knows its position.

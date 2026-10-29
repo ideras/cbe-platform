@@ -51,4 +51,5 @@
   .rich :global(blockquote) { margin: var(--space-3) 0; padding-left: var(--space-3); border-left: 3px solid var(--color-border); color: var(--color-text-muted); }
   .rich :global(li + li) { margin-top: var(--space-1); }
   .rich :global(div.slot) { display: block; }
+  .rich :global(img) { display: block; max-width: 100%; height: auto; margin: .75rem auto; background: var(--color-figure-bg); -webkit-user-drag: none; user-select: none; }
 </style>

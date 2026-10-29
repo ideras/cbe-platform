@@ -2,7 +2,10 @@ package dashboard
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
+	"image"
+	"image/png"
 	"net"
 	"net/http"
 	"os"
@@ -118,7 +121,16 @@ func TestRealServerDownloadedSubmissionsAreTheExamWithAnswers(t *testing.T) {
 	}
 	wait(t, func() bool { return len(s.Snapshot().Classes) == 1 && !s.Snapshot().Busy })
 
-	source := "---\ntitle: Examen I Parcial – Organización de Computadoras\nduration: 10m\ngrace: 30s\nmin_volume: 0\n---\n\n## Ejercicio 1 — Tabla {points=10}\n\n| Cantidad |\n|----------|\n| {{q1}}   |\n\n```answer {#code lang=mips}\n```\n"
+	// The exam has a figure next to it. It is embedded when the exam is imported, so deleting the file afterwards (as when the
+	// proctor tidies the folder) changes nothing for the students or for the download.
+	figure := bytes.Buffer{}
+	if err := png.Encode(&figure, image.NewGray(image.Rect(0, 0, 8, 8))); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "figura.png"), figure.Bytes(), 0600); err != nil {
+		t.Fatal(err)
+	}
+	source := "---\ntitle: Examen I Parcial – Organización de Computadoras\nduration: 10m\ngrace: 30s\nmin_volume: 0\n---\n\n## Ejercicio 1 — Tabla {points=10}\n\n![Cuadrado gris de la tabla](figura.png)\n\n| Cantidad |\n|----------|\n| {{q1}}   |\n\n```answer {#code lang=mips}\n```\n"
 	chosen = filepath.Join(dir, "exam.md")
 	if err := os.WriteFile(chosen, []byte(source), 0600); err != nil {
 		t.Fatal(err)
@@ -130,6 +142,9 @@ func TestRealServerDownloadedSubmissionsAreTheExamWithAnswers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := os.Remove(filepath.Join(dir, "figura.png")); err != nil {
+		t.Fatal(err)
+	}
 	wait(t, func() bool { return catalogHas(s.Snapshot().Catalog, imported.ExamID) && !s.Snapshot().Busy })
 	if _, err := s.Publish(imported.ExamID, "", false, true); err != nil {
 		t.Fatal(err)
@@ -139,6 +154,26 @@ func TestRealServerDownloadedSubmissionsAreTheExamWithAnswers(t *testing.T) {
 	status, jose := login("0001", "download-pin")
 	if status != http.StatusOK {
 		t.Fatalf("login = %d", status)
+	}
+	// The student receives the figure inside the exercise text.
+	req, _ := http.NewRequest("GET", server+"/exam", nil)
+	req.Header.Set("Authorization", "Bearer "+jose)
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var served struct {
+		Content struct {
+			Exercises []struct {
+				Body string `json:"body"`
+			} `json:"exercises"`
+		} `json:"content"`
+	}
+	err = json.NewDecoder(resp.Body).Decode(&served)
+	resp.Body.Close()
+	embedded := `<img src="data:image/png;base64,` + base64.StdEncoding.EncodeToString(figure.Bytes()) + `" alt="Cuadrado gris de la tabla">`
+	if err != nil || resp.StatusCode != http.StatusOK || len(served.Content.Exercises) != 1 || !strings.Contains(served.Content.Exercises[0].Body, embedded) {
+		t.Fatalf("GET /exam = %d, %v, without the embedded figure: %+v", resp.StatusCode, err, served)
 	}
 	const answers = `{"answers":{"1.q1":"16","1.code":"mult $s0, $s1"}}`
 	if status := save("/autosave", jose, answers); status != http.StatusOK {
@@ -174,7 +209,7 @@ func TestRealServerDownloadedSubmissionsAreTheExamWithAnswers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`student: "José Ñúñez Martínez"`, "| `16`   |", "```mips title=\"1.code\"\nmult $s0, $s1\n```", "## Ejercicio 1 — Tabla {points=10}"} {
+	for _, want := range []string{`student: "José Ñúñez Martínez"`, "![Cuadrado gris de la tabla](figura.png)", "| `16`   |", "```mips title=\"1.code\"\nmult $s0, $s1\n```", "## Ejercicio 1 — Tabla {points=10}"} {
 		if !strings.Contains(string(content), want) {
 			t.Errorf("downloaded file does not contain %q:\n%s", want, content)
 		}
@@ -182,6 +217,9 @@ func TestRealServerDownloadedSubmissionsAreTheExamWithAnswers(t *testing.T) {
 	index, err := os.ReadFile(filepath.Join(result.Folder, indexFileName))
 	if err != nil {
 		t.Fatal(err)
+	}
+	if strings.Contains(string(content), "base64") {
+		t.Errorf("the downloaded file carries the picture's bytes:\n%.600s", content)
 	}
 	for _, want := range []string{"| Bruno | 0002 | still working |", "| Carla | 0003 | never logged in |", "[Jose_Nunez_Martinez.md](Jose_Nunez_Martinez.md)"} {
 		if !strings.Contains(string(index), want) {

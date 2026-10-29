@@ -51,6 +51,7 @@ apps/proctor/        Proctor Go module, native application and Svelte frontend
 shared/calc/         Calculator engine
 shared/clientwire/   Shared desktop HTTP transport and wire contracts
 shared/examdoc/      Markdown exam compiler and examc command
+shared/examimage/    Checks and writes the pictures embedded in exams
 shared/exam/         Shared exam rendering helpers
 shared/theme/        Shared styles and Svelte components
 docs/                Deployment documentation
@@ -165,7 +166,7 @@ make test
 make vet
 ```
 
-These targets cover the server, `shared/clientwire` and `shared/examdoc`. Desktop modules and the calculator module have separate checks:
+These targets cover the server, `shared/clientwire`, `shared/examdoc` and `shared/examimage`. Desktop modules and the calculator module have separate checks:
 
 ```sh
 make desktop-test

@@ -256,7 +256,9 @@ func (s *Service) ChooseExam(classID string) (ImportPreview, error) {
 	s.mu.Lock()
 	s.pendingExam, s.pendingExamClass, s.pendingExamSource = nil, "", nil
 	s.mu.Unlock()
-	exam, err := examdoc.Compile(data)
+	// The pictures of the exam are the files next to it. They are embedded in the compiled exam, so nothing depends on the
+	// folder once the exam is imported.
+	exam, err := examdoc.CompileDir(data, filepath.Dir(path))
 	var compileProblems examdoc.Problems
 	if errors.As(err, &compileProblems) {
 		preview.Problems = compileProblems
