@@ -3,7 +3,13 @@ on:
   pull_request:
   push:
     branches: [main]
+    tags: ['v*']
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (created at the selected commit if missing, e.g. v1.0)'
+        required: true
+        type: string
 permissions:
   contents: read
 concurrency:
@@ -253,3 +259,29 @@ jobs:
           lipo cbe-portal-server -verify_arch x86_64 arm64
           codesign --verify --strict cbe-portal-server
           python3 ../scripts/ci/smoke.py cbe-portal-server
+  release:
+    name: Publish GitHub Release
+    needs: [native, macos-universal, universal-smoke]
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Download release archives and checksums
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: cbe-portal-*
+          path: release-assets
+          merge-multiple: true
+      - name: Publish release assets
+        if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag || github.ref_name }}
+          target_commitish: ${{ github.sha }}
+          files: release-assets/cbe-portal-*
+          fail_on_unmatched_files: true
+          draft: false
+          prerelease: false
+          generate_release_notes: true
