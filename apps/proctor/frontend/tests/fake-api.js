@@ -116,10 +116,12 @@ function catalog() {
     exams: exams.map(entry => ({ ...entry, class_name: className(entry.class_id), published: entry.exam_id === publishedExam, active_sessions: entry.exam_id === publishedExam ? workingStudents : 0, locked_sessions: entry.exam_id === publishedExam ? rows.filter(row => row.locked).length : 0 })) };
 }
 function snapshot() {
-  const loaded = connected && !rejected && selectedExam !== '';
+  // The server has not delivered this exam's first roster yet (the window is told so by `loading`).
+  const waiting = rosterLoading && connected && !rejected && selectedExam !== '';
+  const loaded = connected && !rejected && selectedExam !== '' && !waiting;
   const ok = connected && !rejected;
   return { observation: ++observation, server: 'http://127.0.0.1:8080', known_servers: knownServers, exam_id: selectedExam, credential_available: launchCredential || credentialFile !== '', credential_file: credentialFile, notice,
-    connected, connecting, connect_error: connectError, unreachable: connected && unreachable, loaded, loading: false, busy: false, stale: stale || (connected && rejected) || (connected && unreachable),
+    connected, connecting, connect_error: connectError, unreachable: connected && unreachable, loaded, loading: waiting, busy: false, stale: stale || waiting || (connected && rejected) || (connected && unreachable),
     error: rejected ? 'Proctor authorization was rejected. Reconnect with the correct credential.' : catalogDown ? 'Invalid exam catalog; previous observations retained.' : stale ? 'Server unreachable. Previous observations retained.' : '', last_success: connected ? AT : null,
     catalog: ok && !catalogDown ? catalog() : { server_time: AT, current_exam_id: '', current_class_id: '', current_class_name: '', exams: [] }, catalog_loaded: ok && !catalogDown,
     classes: ok ? classList() : [], classes_loaded: ok,
@@ -152,7 +154,21 @@ export async function ExtendExamGrace(id, minutes, reason, confirmed) {
   for (const row of rows) { const result = await ExtendGrace(row.session_id, minutes, reason, confirmed); changed += result.changed; skipped += result.skipped; }
   return { changed, skipped, capped: false };
 }
-export async function Snapshot() { return snapshot(); }
+// A page asks for its first snapshot the moment it mounts, so a test that must see the window before the native side has answered
+// (or while it cannot, or while the roster is still coming from the server) sets `window.__proctorFake = { holdSnapshot: true }`,
+// `{ snapshotFails: true }` or `{ rosterLoading: true }` with page.addInitScript.
+const early = window.__proctorFake ?? {};
+let releaseSnapshotGate;
+let snapshotGate = early.holdSnapshot ? new Promise(resolve => { releaseSnapshotGate = resolve; }) : null;
+let snapshotFails = !!early.snapshotFails;
+let rosterLoading = !!early.rosterLoading;
+let firstAnswerAfter = early.snapshotDelay ?? 0; // ms: a short wait, as a real native call has, for the first answer only
+export async function Snapshot() {
+  if (firstAnswerAfter) { const wait = firstAnswerAfter; firstAnswerAfter = 0; await new Promise(resolve => setTimeout(resolve, wait)); }
+  if (snapshotGate) await snapshotGate;
+  if (snapshotFails) throw new Error('The native side did not answer.');
+  return snapshot();
+}
 export async function Connect(server) {
   calls.connect.push({ server });
   if (!launchCredential && credentialFile === '') throw new Error('Choose the proctor token file first, or launch with an admin-token file.');
@@ -361,6 +377,10 @@ export async function PurgeScreenshots(exam, confirmed) { calls.purge.push({ exa
 if (/^#\/(monitoring|review|image)/.test(location.hash)) { connected = true; selectedExam = publishedExam; }
 window.ProctorHarness = {
   marker: 'PROCTOR_UI_FIXTURE', calls, nativeCalls,
+  // The native side answers the snapshot it was held on, or starts (or stops) failing to answer.
+  releaseSnapshot() { snapshotGate = null; releaseSnapshotGate?.(); }, snapshotFails(value) { snapshotFails = value; }, rosterLoading(value) { rosterLoading = value; },
+  // The connection ends while a monitoring window is open.
+  disconnected() { connected = false; selectedExam = ''; },
   timing(index, value, serverTime) { Object.assign(rows[index], value); AT = serverTime; },
   monitoringRoster(sessions, students, serverTime = AT) { rows = sessions; missing = students; AT = serverTime; },
   endTimePreviewFailure(value) { endTimePreviewFailure = value; },

@@ -31,6 +31,10 @@
   const missing = $derived(view.roster?.students_without_session ?? []);
   const policy = $derived(view.roster?.policy ?? {});
   const stale = $derived(Boolean(view.stale || bridgeError));
+  // The exam's first roster is still on its way from the server. Nothing is displayed yet, so nothing is out of date: the proctor is
+  // told it is loading, and the stale warning waits for a failure (view.error, or a native side that does not answer) to report.
+  const waiting = $derived(Boolean(view.loading && !view.loaded));
+  const quietStale = $derived(waiting && !view.error && !bridgeError);
   const graceText = $derived(monitored ? `${spoken(monitored.grace_seconds * 1000)}${monitored.extra_grace_seconds ? ` + ${spoken(monitored.extra_grace_seconds * 1000)} added` : ''}` : 'unknown');
   const title = $derived(monitored ? `${monitored.title} (${monitored.class_name})` : view.exam_id);
 
@@ -98,8 +102,8 @@
       <div class="live" class:historical={stale} title="Server observation: {localTime(view.roster?.server_time, 'unavailable')}"><span class="pulse" class:running={!stale && view.loaded} aria-hidden="true"></span>{stale ? 'Last confirmed' : 'Updated'} <strong>{localTime(view.last_success, 'not yet')}</strong></div>
     </header>
     <div class="panel-body">
-      {#if stale}<p role="alert" class="callout warning stale">STALE / UNCONFIRMED — displayed values are historical observations, not current status. {view.error} {bridgeError}</p>{/if}
-      {#if view.loading}<p>Loading roster…</p>{/if}
+      {#if stale && !quietStale}<p role="alert" class="callout warning stale">STALE / UNCONFIRMED — displayed values are historical observations, not current status. {view.error} {bridgeError}</p>{/if}
+      {#if waiting}<p class="callout pending" role="status">Loading the roster from the server…</p>{/if}
       {#if reviewError}<p role="alert">{reviewError}</p>{/if}
       {#if outcome}<p role="status">{outcome}</p>{/if}
       {#if view.loaded}
