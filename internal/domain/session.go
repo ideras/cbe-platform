@@ -16,6 +16,7 @@ type Session struct {
 	StartedAt      time.Time
 	DeadlineAt     time.Time
 	GraceUntil     time.Time
+	EndsAt         *time.Time
 	LastSeen       *time.Time
 	SubmittedAt    *time.Time
 	Status         SessionStatus
@@ -70,20 +71,40 @@ type Lifecycle struct {
 	Status              SessionStatus
 	SecondsRemaining    int64
 	FinalizationPending bool
+	EndedByEndTime      bool
+}
+
+// EffectiveTimes caps the stored times without destroying them: clearing or moving
+// the exam end restores the student's original entitlement.
+func (s Session) EffectiveTimes() (deadline, grace time.Time) {
+	deadline, grace = s.DeadlineAt, s.GraceUntil
+	if s.EndsAt != nil {
+		if s.EndsAt.Before(deadline) {
+			deadline = *s.EndsAt
+		}
+		if s.EndsAt.Before(grace) {
+			grace = *s.EndsAt
+		}
+	}
+	return
 }
 
 func EvaluateSession(session Session, now time.Time) Lifecycle {
 	if session.Status == Submitted || session.Status == ForceSubmitted {
 		return Lifecycle{Status: session.Status}
 	}
-	if !now.Before(session.GraceUntil) {
+	deadline, grace := session.EffectiveTimes()
+	if session.EndsAt != nil && !now.Before(*session.EndsAt) && !session.EndsAt.After(session.GraceUntil) {
+		return Lifecycle{Status: Submitted, FinalizationPending: true, EndedByEndTime: true}
+	}
+	if !now.Before(grace) {
 		// Student operations finalize before returning; observational admin views expose pending expiry.
 		return Lifecycle{Status: Submitted, FinalizationPending: true}
 	}
-	if !now.Before(session.DeadlineAt) {
+	if !now.Before(deadline) {
 		return Lifecycle{Status: Grace}
 	}
-	remaining := session.DeadlineAt.Sub(now)
+	remaining := deadline.Sub(now)
 	seconds := int64(remaining / time.Second)
 	if remaining%time.Second != 0 {
 		seconds++

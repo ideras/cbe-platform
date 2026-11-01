@@ -50,6 +50,7 @@ type statusResponse struct {
 	ServerTime          time.Time            `json:"server_time"`
 	DeadlineAt          time.Time            `json:"deadline_at"`
 	GraceUntil          time.Time            `json:"grace_until"`
+	EndsAt              *time.Time           `json:"ends_at"`
 	SecondsRemaining    int64                `json:"seconds_remaining"`
 	FinalizationPending bool                 `json:"finalization_pending,omitempty"`
 	// CurrentExercise is the exercise a forward-only student is on; earlier ones are closed to them.
@@ -79,10 +80,11 @@ func statusHandler(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
+	deadline, grace := principal.Session.EffectiveTimes()
 	writeJSON(w, http.StatusOK, statusResponse{
 		Policy: principal.Policy,
-		Status: principal.Lifecycle.Status, ServerTime: principal.ServerTime, DeadlineAt: principal.Session.DeadlineAt,
-		GraceUntil: principal.Session.GraceUntil, SecondsRemaining: principal.Lifecycle.SecondsRemaining,
+		Status: principal.Lifecycle.Status, ServerTime: principal.ServerTime, DeadlineAt: deadline,
+		GraceUntil: grace, EndsAt: principal.Session.EndsAt, SecondsRemaining: principal.Lifecycle.SecondsRemaining,
 		FinalizationPending: principal.Lifecycle.FinalizationPending, CurrentExercise: principal.Session.CurrentExercise,
 		Locked: principal.Locked,
 	})
@@ -181,6 +183,8 @@ func serviceError(w http.ResponseWriter, logger *slog.Logger, operation string, 
 	case errors.Is(err, service.ErrInvalidToken):
 		w.Header().Set("WWW-Authenticate", `Bearer realm="student"`)
 		writeError(w, http.StatusUnauthorized, "unauthorized")
+	case errors.Is(err, service.ErrExamEnded):
+		writeError(w, http.StatusForbidden, "This exam has ended")
 	case errors.Is(err, service.ErrAdmissionClosed):
 		writeError(w, http.StatusForbidden, "exam admission is closed")
 	case errors.Is(err, service.ErrAlreadySubmitted):

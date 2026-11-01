@@ -59,17 +59,17 @@ func (t *publishTransaction) ClearCurrentExam(ctx context.Context) error {
 
 func (t *publishTransaction) ActiveSessions(ctx context.Context, examID string, now time.Time) (int, error) {
 	var count int
-	err := t.tx.QueryRowContext(ctx, `SELECT count(*) FROM sessions WHERE exam_id = ? AND status IN ('active', 'grace') AND grace_until > ?`, examID, timestamp(now)).Scan(&count)
+	err := t.tx.QueryRowContext(ctx, `SELECT count(*) FROM sessions WHERE exam_id = ? AND status IN ('active', 'grace') AND grace_until > ? AND (ends_at IS NULL OR ends_at > ?)`, examID, timestamp(now), timestamp(now)).Scan(&count)
 	return count, err
 }
 
 func (t *publishTransaction) ListExams(ctx context.Context, now time.Time, limit int) ([]domain.ExamSummary, error) {
 	rows, err := t.tx.QueryContext(ctx, `SELECT e.exam_id, e.class_id, c.name, e.title, COALESCE(json_array_length(e.content_json, '$.exercises'), 0), e.navigation, e.duration_seconds, e.grace_seconds,
-			e.min_volume_percent, e.created_at, e.opens_at, e.closes_at, e.tools_json,
-			(SELECT count(*) FROM sessions s WHERE s.exam_id = e.exam_id AND s.status IN ('active', 'grace') AND s.grace_until > ?),
+			e.min_volume_percent, e.created_at, e.opens_at, e.closes_at, e.tools_json, e.ends_at, e.extra_grace_seconds,
+			(SELECT count(*) FROM sessions s WHERE s.exam_id = e.exam_id AND s.status IN ('active', 'grace') AND s.grace_until > ? AND (s.ends_at IS NULL OR s.ends_at > ?)),
 			(SELECT count(*) FROM sessions s WHERE s.exam_id = e.exam_id),
-			(SELECT count(*) FROM sessions s WHERE s.exam_id = e.exam_id AND s.locked_at IS NOT NULL AND s.status IN ('active', 'grace') AND s.grace_until > ?)
-		FROM exams e JOIN classes c ON c.class_id = e.class_id ORDER BY e.created_at DESC, e.exam_id LIMIT ?`, timestamp(now), timestamp(now), limit)
+			(SELECT count(*) FROM sessions s WHERE s.exam_id = e.exam_id AND s.locked_at IS NOT NULL AND s.status IN ('active', 'grace') AND s.grace_until > ? AND (s.ends_at IS NULL OR s.ends_at > ?))
+		FROM exams e JOIN classes c ON c.class_id = e.class_id ORDER BY e.created_at DESC, e.exam_id LIMIT ?`, timestamp(now), timestamp(now), timestamp(now), timestamp(now), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -78,8 +78,8 @@ func (t *publishTransaction) ListExams(ctx context.Context, now time.Time, limit
 	for rows.Next() {
 		var exam domain.ExamSummary
 		var created string
-		var opens, closes, tools sql.NullString
-		if err := rows.Scan(&exam.ID, &exam.ClassID, &exam.ClassName, &exam.Title, &exam.ExerciseCount, &exam.Navigation, &exam.DurationSeconds, &exam.GraceSeconds, &exam.MinVolumePercent, &created, &opens, &closes, &tools, &exam.ActiveSessions, &exam.TotalSessions, &exam.LockedSessions); err != nil {
+		var opens, closes, tools, ends sql.NullString
+		if err := rows.Scan(&exam.ID, &exam.ClassID, &exam.ClassName, &exam.Title, &exam.ExerciseCount, &exam.Navigation, &exam.DurationSeconds, &exam.GraceSeconds, &exam.MinVolumePercent, &created, &opens, &closes, &tools, &ends, &exam.ExtraGraceSeconds, &exam.ActiveSessions, &exam.TotalSessions, &exam.LockedSessions); err != nil {
 			return nil, err
 		}
 		if tools.Valid && tools.String != "" {
@@ -94,7 +94,7 @@ func (t *publishTransaction) ListExams(ctx context.Context, now time.Time, limit
 		for _, field := range []struct {
 			src sql.NullString
 			dst **time.Time
-		}{{opens, &exam.OpensAt}, {closes, &exam.ClosesAt}} {
+		}{{opens, &exam.OpensAt}, {closes, &exam.ClosesAt}, {ends, &exam.EndsAt}} {
 			if field.src.Valid {
 				t, err := time.Parse(time.RFC3339Nano, field.src.String)
 				if err != nil {

@@ -59,6 +59,7 @@ type ProctorSession struct {
 	PersistedStatus          domain.SessionStatus `json:"persisted_status"`
 	FinalizationPending      bool                 `json:"finalization_pending"`
 	StartedAt                time.Time            `json:"started_at"`
+	EndsAt                   *time.Time           `json:"ends_at"`
 	DeadlineAt               time.Time            `json:"deadline_at"`
 	GraceUntil               time.Time            `json:"grace_until"`
 	SecondsRemaining         int64                `json:"seconds_remaining"`
@@ -162,7 +163,8 @@ func (s *Sessions) proctorSession(ctx context.Context, tx SessionTransaction, re
 	if err != nil {
 		return ProctorSession{}, err
 	}
-	view := ProctorSession{ID: session.ID, ExamID: session.ExamID, ProctorStudent: ProctorStudent{session.AccountNumber, record.StudentName}, RosterActive: record.RosterActive, Status: lifecycle.Status, PersistedStatus: session.Status, FinalizationPending: lifecycle.FinalizationPending, StartedAt: session.StartedAt, DeadlineAt: session.DeadlineAt, GraceUntil: session.GraceUntil, SecondsRemaining: lifecycle.SecondsRemaining, Presence: presence, NetworkWarning: presence.Overdue, Locked: lockInfo(session), Locks: locks}
+	deadline, grace := session.EffectiveTimes()
+	view := ProctorSession{ID: session.ID, ExamID: session.ExamID, ProctorStudent: ProctorStudent{session.AccountNumber, record.StudentName}, RosterActive: record.RosterActive, Status: lifecycle.Status, PersistedStatus: session.Status, FinalizationPending: lifecycle.FinalizationPending, StartedAt: session.StartedAt, DeadlineAt: deadline, GraceUntil: grace, EndsAt: session.EndsAt, SecondsRemaining: lifecycle.SecondsRemaining, Presence: presence, NetworkWarning: presence.Overdue, Locked: lockInfo(session), Locks: locks}
 	if view.Locks == nil {
 		view.Locks = []domain.LockRecord{}
 	}
@@ -255,7 +257,7 @@ func finalizationEnding(ctx context.Context, tx SessionTransaction, session doma
 	if err := json.Unmarshal(event.Detail, &detail); err != nil {
 		return finalizationInfo{}, err
 	}
-	if detail.VersionID != *session.FinalVersionID || event.Type != string(session.Status) || (session.Status == domain.ForceSubmitted && detail.Reason != "force_submit") || (session.Status == domain.Submitted && detail.Reason != "explicit_submit" && detail.Reason != "grace_expired") {
+	if detail.VersionID != *session.FinalVersionID || event.Type != string(session.Status) || (session.Status == domain.ForceSubmitted && detail.Reason != "force_submit") || (session.Status == domain.Submitted && detail.Reason != "explicit_submit" && detail.Reason != "grace_expired" && detail.Reason != "end_time_reached") {
 		return finalizationInfo{}, fmt.Errorf("inconsistent finalization event")
 	}
 	return finalizationInfo{detail.Reason, detail.OperatorReason}, nil

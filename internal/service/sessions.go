@@ -21,12 +21,16 @@ var (
 	ErrInvalidCredentials = errors.New("invalid credentials")
 	ErrInvalidToken       = errors.New("invalid session token")
 	ErrAdmissionClosed    = errors.New("exam admission is closed")
+	ErrExamEnded          = errors.New("this exam has ended")
 	ErrAlreadySubmitted   = errors.New("session already submitted")
 	ErrNoCurrentExam      = errors.New("no current exam is available")
 )
 
 type SessionTransaction interface {
 	Exam(context.Context, string) (domain.Exam, error)
+	SetExamEndTime(context.Context, string, *time.Time) error
+	SetGraceUntil(context.Context, string, time.Time) error
+	AddExamGrace(context.Context, string, int64) error
 	// CurrentExam is the exam the proctor published and the class admitted to it, or "" for both when admission is closed.
 	CurrentExam(context.Context) (string, string, error)
 	// StudentInClass says whether the account belongs to the class.
@@ -171,6 +175,9 @@ func (s *Sessions) Login(ctx context.Context, accountNumber, pin string) (LoginR
 			return err
 		}
 		if !resumed {
+			if exam.EndsAt != nil && !now.Before(*exam.EndsAt) {
+				return ErrExamEnded
+			}
 			if (exam.OpensAt != nil && now.Before(*exam.OpensAt)) || (exam.ClosesAt != nil && !now.Before(*exam.ClosesAt)) {
 				return ErrAdmissionClosed
 			}
@@ -184,7 +191,7 @@ func (s *Sessions) Login(ctx context.Context, accountNumber, pin string) (LoginR
 			}
 			// The session copies the settings the exam was published with: everything about it follows that copy.
 			session = domain.Session{ID: id, AccountNumber: accountNumber, ExamID: exam.ID, Token: token,
-				StartedAt: now, DeadlineAt: now.Add(duration), GraceUntil: now.Add(duration).Add(grace), Status: domain.Active, Policy: exam.Policy}
+				StartedAt: now, DeadlineAt: now.Add(duration), GraceUntil: now.Add(duration).Add(grace), Status: domain.Active, Policy: exam.Policy, EndsAt: exam.EndsAt}
 			if err := tx.InsertSession(ctx, session); err != nil {
 				return err
 			}
@@ -207,7 +214,8 @@ func (s *Sessions) Login(ctx context.Context, accountNumber, pin string) (LoginR
 		if err := tx.AddEvent(ctx, domain.Event{SessionID: session.ID, Type: "login", OccurredAt: now, Detail: detail}); err != nil {
 			return err
 		}
-		result = LoginResult{Policy: principal.Policy, Token: session.Token, SessionID: session.ID, DeadlineAt: session.DeadlineAt, ServerTime: now, MinVolumePercent: exam.MinVolumePercent, Locked: lockInfo(principal.Session)}
+		deadline, _ := principal.Session.EffectiveTimes()
+		result = LoginResult{Policy: principal.Policy, Token: session.Token, SessionID: session.ID, DeadlineAt: deadline, ServerTime: now, MinVolumePercent: exam.MinVolumePercent, Locked: lockInfo(principal.Session)}
 		return nil
 	})
 	if err != nil {
@@ -245,7 +253,7 @@ func (s *Sessions) Authenticate(ctx context.Context, token string) (Principal, e
 func (s *Sessions) reconcileSession(ctx context.Context, tx SessionTransaction, session domain.Session, now time.Time) (Principal, bool, error) {
 	lifecycle := domain.EvaluateSession(session, now)
 	changed := false
-	if session.Status == domain.Active && lifecycle.Status != domain.Active {
+	if session.Status == domain.Active && lifecycle.Status != domain.Active && !lifecycle.EndedByEndTime {
 		var err error
 		changed, err = tx.EnterGrace(ctx, session.ID)
 		if err != nil {
@@ -266,7 +274,11 @@ func (s *Sessions) reconcileSession(ctx context.Context, tx SessionTransaction, 
 	}
 	if lifecycle.FinalizationPending {
 		var err error
-		session, err = s.finalize(ctx, tx, session, now, nil, finalization{Status: domain.Submitted, Reason: "grace_expired"})
+		reason := "grace_expired"
+		if lifecycle.EndedByEndTime {
+			reason = "end_time_reached"
+		}
+		session, err = s.finalize(ctx, tx, session, now, nil, finalization{Status: domain.Submitted, Reason: reason})
 		if err != nil {
 			return Principal{}, false, err
 		}
@@ -277,10 +289,10 @@ func (s *Sessions) reconcileSession(ctx context.Context, tx SessionTransaction, 
 
 func examTiming(exam domain.Exam) (time.Duration, time.Duration, error) {
 	const maxSeconds = math.MaxInt64 / int64(time.Second)
-	if exam.DurationSeconds <= 0 || exam.GraceSeconds <= 0 || exam.DurationSeconds > maxSeconds || exam.GraceSeconds > maxSeconds-exam.DurationSeconds {
+	if exam.DurationSeconds <= 0 || exam.GraceSeconds <= 0 || exam.ExtraGraceSeconds < 0 || exam.DurationSeconds > maxSeconds || exam.GraceSeconds > maxSeconds-exam.DurationSeconds || exam.ExtraGraceSeconds > maxSeconds-exam.DurationSeconds-exam.GraceSeconds {
 		return 0, 0, fmt.Errorf("invalid exam timing")
 	}
-	return time.Duration(exam.DurationSeconds) * time.Second, time.Duration(exam.GraceSeconds) * time.Second, nil
+	return time.Duration(exam.DurationSeconds) * time.Second, time.Duration(exam.GraceSeconds+exam.ExtraGraceSeconds) * time.Second, nil
 }
 
 func randomUUID() (string, error) {

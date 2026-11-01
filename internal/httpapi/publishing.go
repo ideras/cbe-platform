@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"exam-platform/internal/service"
 )
@@ -16,8 +17,9 @@ type PublishAPI interface {
 
 // publishRequest names the exam the caller saw published, so a stale decision cannot overwrite a newer one.
 type publishRequest struct {
-	ExpectedCurrent string `json:"expected_current"`
-	AllowActive     bool   `json:"allow_active"`
+	ExpectedCurrent string     `json:"expected_current"`
+	AllowActive     bool       `json:"allow_active"`
+	EndsAt          *time.Time `json:"ends_at,omitempty"`
 }
 
 func examCatalogHandler(publisher PublishAPI, logger *slog.Logger) http.HandlerFunc {
@@ -40,7 +42,20 @@ func publishHandler(publisher PublishAPI, logger *slog.Logger) http.HandlerFunc 
 		if !ok {
 			return
 		}
-		result, err := publisher.Publish(r.Context(), r.PathValue("id"), input.ExpectedCurrent, input.AllowActive)
+		var result service.PublishResult
+		var err error
+		if input.EndsAt != nil {
+			api, ok := publisher.(interface {
+				PublishWithEndTime(context.Context, string, string, bool, *time.Time) (service.PublishResult, error)
+			})
+			if !ok {
+				writeError(w, http.StatusBadRequest, "end time is not supported")
+				return
+			}
+			result, err = api.PublishWithEndTime(r.Context(), r.PathValue("id"), input.ExpectedCurrent, input.AllowActive, input.EndsAt)
+		} else {
+			result, err = publisher.Publish(r.Context(), r.PathValue("id"), input.ExpectedCurrent, input.AllowActive)
+		}
 		if err != nil {
 			serviceError(w, logger, "publish exam", err)
 			return

@@ -42,6 +42,7 @@ type PublishTransaction interface {
 	Settings(context.Context) (domain.Policy, time.Time, error)
 	// SetExamPolicy freezes the monitoring settings in an exam, at its publish.
 	SetExamPolicy(ctx context.Context, examID string, policy domain.Policy) error
+	SetExamEndTime(context.Context, string, *time.Time) error
 }
 
 // Publisher chooses which stored exam new students are admitted to. Only the students of the exam's class can log in.
@@ -55,21 +56,23 @@ func NewPublisher(repository PublishRepository, clock clock.Clock) *Publisher {
 }
 
 type ExamEntry struct {
-	ID               string            `json:"exam_id"`
-	ClassID          string            `json:"class_id"`
-	ClassName        string            `json:"class_name"`
-	Title            string            `json:"title"`
-	ExerciseCount    int               `json:"exercise_count"`
-	Navigation       domain.Navigation `json:"navigation"`
-	DurationSeconds  int64             `json:"duration_seconds"`
-	GraceSeconds     int64             `json:"grace_seconds"`
-	MinVolumePercent int               `json:"min_volume_percent"`
-	CreatedAt        time.Time         `json:"created_at"`
-	OpensAt          *time.Time        `json:"opens_at"`
-	ClosesAt         *time.Time        `json:"closes_at"`
-	Published        bool              `json:"published"`
-	ActiveSessions   int               `json:"active_sessions"`
-	TotalSessions    int               `json:"total_sessions"`
+	ID                string            `json:"exam_id"`
+	ClassID           string            `json:"class_id"`
+	ClassName         string            `json:"class_name"`
+	Title             string            `json:"title"`
+	ExerciseCount     int               `json:"exercise_count"`
+	Navigation        domain.Navigation `json:"navigation"`
+	DurationSeconds   int64             `json:"duration_seconds"`
+	GraceSeconds      int64             `json:"grace_seconds"`
+	ExtraGraceSeconds int64             `json:"extra_grace_seconds"`
+	EndsAt            *time.Time        `json:"ends_at"`
+	MinVolumePercent  int               `json:"min_volume_percent"`
+	CreatedAt         time.Time         `json:"created_at"`
+	OpensAt           *time.Time        `json:"opens_at"`
+	ClosesAt          *time.Time        `json:"closes_at"`
+	Published         bool              `json:"published"`
+	ActiveSessions    int               `json:"active_sessions"`
+	TotalSessions     int               `json:"total_sessions"`
 	// LockedSessions are the running sessions a proctor has to unlock.
 	LockedSessions int `json:"locked_sessions"`
 	// Tools is the exam's effective tools configuration; omitted when the exam has no calculator.
@@ -107,7 +110,7 @@ func (p *Publisher) Catalog(ctx context.Context) (ExamCatalog, error) {
 		catalog = ExamCatalog{ServerTime: now, CurrentExamID: current, CurrentClassID: currentClass, CurrentClassName: className, Exams: make([]ExamEntry, 0, len(summaries))}
 		for _, e := range summaries {
 			entry := ExamEntry{ID: e.ID, ClassID: e.ClassID, ClassName: e.ClassName, Title: e.Title, ExerciseCount: e.ExerciseCount, Navigation: e.Navigation, DurationSeconds: e.DurationSeconds,
-				GraceSeconds: e.GraceSeconds, MinVolumePercent: e.MinVolumePercent, CreatedAt: e.CreatedAt, OpensAt: e.OpensAt, ClosesAt: e.ClosesAt,
+				GraceSeconds: e.GraceSeconds, ExtraGraceSeconds: e.ExtraGraceSeconds, EndsAt: e.EndsAt, MinVolumePercent: e.MinVolumePercent, CreatedAt: e.CreatedAt, OpensAt: e.OpensAt, ClosesAt: e.ClosesAt,
 				Published: e.ID == current, ActiveSessions: e.ActiveSessions, TotalSessions: e.TotalSessions, LockedSessions: e.LockedSessions}
 			if e.Tools != nil && e.Tools.On() {
 				effective := e.Tools.Effective()
@@ -148,10 +151,21 @@ func (p *Publisher) Unpublish(ctx context.Context, expected string, allowActive 
 	return p.change(ctx, "", expected, allowActive)
 }
 
-func (p *Publisher) change(ctx context.Context, target, expected string, allowActive bool) (PublishResult, error) {
+// PublishWithEndTime stores the end time atomically with admission.
+func (p *Publisher) PublishWithEndTime(ctx context.Context, examID, expected string, allowActive bool, end *time.Time) (PublishResult, error) {
+	if !validProctorID(examID) || !validExpected(expected) {
+		return PublishResult{}, ErrInvalidInput
+	}
+	return p.change(ctx, examID, expected, allowActive, end)
+}
+
+func (p *Publisher) change(ctx context.Context, target, expected string, allowActive bool, end ...*time.Time) (PublishResult, error) {
 	var result PublishResult
 	err := p.repository.WithPublishTransaction(ctx, func(tx PublishTransaction) error {
 		now := p.clock.Now().UTC()
+		if len(end) > 0 && !validEndTime(end[0], now) {
+			return ErrInvalidInput
+		}
 		var targetClass string
 		if target != "" {
 			exam, err := tx.Exam(ctx, target)
@@ -166,6 +180,11 @@ func (p *Publisher) change(ctx context.Context, target, expected string, allowAc
 		}
 		if stored != expected {
 			return ErrSelectionChanged
+		}
+		if len(end) > 0 {
+			if err := tx.SetExamEndTime(ctx, target, end[0]); err != nil {
+				return err
+			}
 		}
 		result = PublishResult{CurrentExamID: target, CurrentClassID: targetClass}
 		if stored == target {

@@ -142,11 +142,13 @@ func (c ExamContent) SlotExercises() map[string]int {
 type Exam struct {
 	ID string
 	// ClassID is the class the exam was imported into; only its students can log in to it.
-	ClassID         string
-	Title           string
-	PIN             string
-	DurationSeconds int64
-	GraceSeconds    int64
+	ClassID           string
+	Title             string
+	PIN               string
+	DurationSeconds   int64
+	GraceSeconds      int64
+	ExtraGraceSeconds int64
+	EndsAt            *time.Time
 	// MinVolumePercent is the lowest system volume the student application keeps during the exam; 0 leaves it alone.
 	MinVolumePercent int
 	Navigation       Navigation
@@ -179,15 +181,17 @@ type ExamDetail struct {
 
 // ExamSummary is what administrators see when listing exams: never the PIN or the exam's text.
 type ExamSummary struct {
-	ID               string
-	ClassID          string
-	ClassName        string
-	Title            string
-	ExerciseCount    int
-	Navigation       Navigation
-	DurationSeconds  int64
-	GraceSeconds     int64
-	MinVolumePercent int
+	ID                string
+	ClassID           string
+	ClassName         string
+	Title             string
+	ExerciseCount     int
+	Navigation        Navigation
+	DurationSeconds   int64
+	GraceSeconds      int64
+	ExtraGraceSeconds int64
+	EndsAt            *time.Time
+	MinVolumePercent  int
 	// Tools is what the exam file declared for the calculator, as stored; nil when the file names none.
 	Tools     *calc.Tools
 	CreatedAt time.Time

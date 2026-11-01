@@ -108,7 +108,7 @@ func (s *Store) DeleteExam(ctx context.Context, id string) (domain.DeletedExam, 
 	return deleted, nil
 }
 
-const examColumns = `exam_id, class_id, title, pin, duration_seconds, grace_seconds, json(content_json), created_at, opens_at, closes_at, min_volume_percent, navigation, policy_json, tools_json`
+const examColumns = `exam_id, class_id, title, pin, duration_seconds, grace_seconds, json(content_json), created_at, opens_at, closes_at, min_volume_percent, navigation, policy_json, tools_json, ends_at, extra_grace_seconds`
 
 func (s *Store) Exam(ctx context.Context, id string) (domain.Exam, error) {
 	return scanExam(s.db.QueryRowContext(ctx, `SELECT `+examColumns+` FROM exams WHERE exam_id = ?`, id))
@@ -148,8 +148,8 @@ func scanExam(row scanner) (domain.Exam, error) {
 	var exam domain.Exam
 	var content, created string
 	var policy, tools sql.NullString
-	var opens, closes sql.NullString
-	err := row.Scan(&exam.ID, &exam.ClassID, &exam.Title, &exam.PIN, &exam.DurationSeconds, &exam.GraceSeconds, &content, &created, &opens, &closes, &exam.MinVolumePercent, &exam.Navigation, &policy, &tools)
+	var opens, closes, ends sql.NullString
+	err := row.Scan(&exam.ID, &exam.ClassID, &exam.Title, &exam.PIN, &exam.DurationSeconds, &exam.GraceSeconds, &content, &created, &opens, &closes, &exam.MinVolumePercent, &exam.Navigation, &policy, &tools, &ends, &exam.ExtraGraceSeconds)
 	if errors.Is(err, sql.ErrNoRows) {
 		return exam, domain.ErrNotFound
 	}
@@ -176,7 +176,7 @@ func scanExam(row scanner) (domain.Exam, error) {
 	for _, field := range []struct {
 		src sql.NullString
 		dst **time.Time
-	}{{opens, &exam.OpensAt}, {closes, &exam.ClosesAt}} {
+	}{{opens, &exam.OpensAt}, {closes, &exam.ClosesAt}, {ends, &exam.EndsAt}} {
 		if field.src.Valid {
 			t, err := time.Parse(time.RFC3339Nano, field.src.String)
 			if err != nil {

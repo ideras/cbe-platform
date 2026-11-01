@@ -57,7 +57,7 @@ func (t *sessionTransaction) Finalize(ctx context.Context, id string, versionID 
 	return nil
 }
 
-const sessionColumns = `session_id, account_number, exam_id, token, started_at, deadline_at, grace_until, last_seen, submitted_at, status, final_version_id, hostname, remote_addr, network_gap_since, volume_percent, volume_muted, current_exercise, policy_json, locked_at, lock_reason, unlocked_at`
+const sessionColumns = `session_id, account_number, exam_id, token, started_at, deadline_at, grace_until, last_seen, submitted_at, status, final_version_id, hostname, remote_addr, network_gap_since, volume_percent, volume_muted, current_exercise, policy_json, locked_at, lock_reason, unlocked_at, ends_at`
 
 type scanner interface{ Scan(...any) error }
 
@@ -66,8 +66,8 @@ func scanSession(row scanner) (domain.Session, error) {
 	var started, deadline, grace string
 	var lastSeen, submitted, networkGap sql.NullString
 	var final, volume, muted sql.NullInt64
-	var policy, lockedAt, lockReason, unlockedAt sql.NullString
-	err := row.Scan(&session.ID, &session.AccountNumber, &session.ExamID, &session.Token, &started, &deadline, &grace, &lastSeen, &submitted, &session.Status, &final, &session.Hostname, &session.RemoteAddr, &networkGap, &volume, &muted, &session.CurrentExercise, &policy, &lockedAt, &lockReason, &unlockedAt)
+	var policy, lockedAt, lockReason, unlockedAt, endsAt sql.NullString
+	err := row.Scan(&session.ID, &session.AccountNumber, &session.ExamID, &session.Token, &started, &deadline, &grace, &lastSeen, &submitted, &session.Status, &final, &session.Hostname, &session.RemoteAddr, &networkGap, &volume, &muted, &session.CurrentExercise, &policy, &lockedAt, &lockReason, &unlockedAt, &endsAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return session, domain.ErrNotFound
 	}
@@ -81,6 +81,9 @@ func scanSession(row scanner) (domain.Session, error) {
 		if *field.dst, err = time.Parse(time.RFC3339Nano, field.src); err != nil {
 			return session, err
 		}
+	}
+	if session.EndsAt, err = nullableTime(endsAt); err != nil {
+		return session, err
 	}
 	if session.LastSeen, err = nullableTime(lastSeen); err != nil {
 		return session, err
@@ -139,8 +142,8 @@ func (t *sessionTransaction) InsertSession(ctx context.Context, session domain.S
 		return err
 	}
 	_, err = t.tx.ExecContext(ctx, `INSERT INTO sessions
-		(session_id, account_number, exam_id, token, started_at, deadline_at, grace_until, status, policy_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		session.ID, session.AccountNumber, session.ExamID, session.Token, timestamp(session.StartedAt), timestamp(session.DeadlineAt), timestamp(session.GraceUntil), session.Status, string(policy))
+		(session_id, account_number, exam_id, token, started_at, deadline_at, grace_until, status, policy_json, ends_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		session.ID, session.AccountNumber, session.ExamID, session.Token, timestamp(session.StartedAt), timestamp(session.DeadlineAt), timestamp(session.GraceUntil), session.Status, string(policy), optionalTimestamp(session.EndsAt))
 	return err
 }
 
