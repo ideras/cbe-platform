@@ -160,18 +160,19 @@
   code { overflow-wrap: anywhere; word-break: break-word; }
   .counts { margin: var(--space-3) 0; border-collapse: collapse; max-width: 100%; }
   .counts td { padding: .2rem .6rem .2rem 0; vertical-align: baseline; overflow-wrap: anywhere; }
-  .counts .number { min-width: 3.5rem; color: var(--title-ink); font-size: 1.25rem; font-weight: 750; text-align: right; }
-  .counts .what { color: var(--color-text-muted); font-size: var(--text-sm); }
+  .counts .number { min-width: 3.5rem; color: var(--action-hover); font-size: 1.25rem; font-weight: 750; text-align: right; }
+  .counts .what { color: var(--text-muted); font-size: var(--text-sm); }
   fieldset { display: grid; gap: var(--space-2); margin: var(--space-3) 0 0; padding: 0; border: 0; }
   label { display: grid; gap: var(--space-1); font-weight: 600; }
   .folder-row { display: flex; gap: var(--space-2); }
   .folder-row .grow { flex: 1; min-width: 0; }
   .folder-row button { margin: 0; white-space: nowrap; }
-  .folder { color: var(--color-text-muted); font-size: var(--text-sm); overflow-wrap: anywhere; }
-  .progress { height: .7rem; margin: var(--space-3) 0 var(--space-1); background: var(--line); border-radius: 999px; overflow: hidden; }
-  .progress .bar { height: 100%; background: var(--sea-ink); border-radius: inherit; transition: width .2s ease; }
+  .folder { color: var(--text-muted); font-size: var(--text-sm); overflow-wrap: anywhere; }
+  .folder-row .grow { font-family: var(--font-mono); font-size: var(--text-sm); }
+  .progress { height: .5rem; margin: var(--space-3) 0 var(--space-1); background: var(--bg-secondary); border-radius: 999px; overflow: hidden; }
+  .progress .bar { height: 100%; background: var(--bar-fill); border-radius: inherit; transition: width .2s ease; }
   .progress-text { margin-top: 0; }
-  .result, .replace { margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--panel-border); }
+  .result, .replace { margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--border-subtle); }
   .result p:first-child { margin-top: 0; }
   .replace p:first-child { margin-top: 0; }
   .actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-4); }

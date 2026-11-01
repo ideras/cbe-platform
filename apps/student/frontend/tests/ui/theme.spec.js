@@ -26,18 +26,18 @@ test('CodeMirror search decorations and calculator modes use the shared semantic
   await expect(content).toContainText('restored work');
   await page.locator('.cm-search input[name="search"]').pressSequentially('restored');
   const match = page.locator('.cm-searchMatch').first();
-  await expect(match).toHaveCSS('background-color', await token(page, 'selected'));
-  await expect(match).toHaveCSS('color', await token(page, 'ink'));
+  await expect(match).toHaveCSS('background-color', await token(page, 'selection-fill'));
+  await expect(match).toHaveCSS('color', await token(page, 'text-main'));
   await page.keyboard.press('Escape');
-  await expect(page.locator('.editor').first()).toHaveCSS('border-top-color', await token(page, 'ocean'));
+  await expect(page.locator('.editor').first()).toHaveCSS('border-top-color', await token(page, 'action-primary'));
   await page.getByRole('button', { name: 'Calculator', exact: true }).click();
   const calculator = page.getByRole('dialog', { name: 'Calculator' });
-  const ocean = await token(page, 'ocean');
+  const ocean = await token(page, 'action-primary');
   await expect(calculator.getByRole('tab', { name: 'Scientific' })).toHaveCSS('background-color', ocean);
   await expect(calculator.getByRole('button', { name: 'Evaluate' })).toHaveCSS('background-color', ocean);
-  await expect(calculator.getByRole('button', { name: 'sin', exact: true })).toHaveCSS('background-color', await token(page, 'sea'));
+  await expect(calculator.getByRole('button', { name: 'sin', exact: true })).toHaveCSS('background-color', await token(page, 'hover-fill'));
   await calculator.getByRole('tab', { name: 'Programmer' }).click();
-  await expect(calculator.locator('.seg button[aria-pressed="true"]').first()).toHaveCSS('background-color', await token(page, 'ink'));
+  await expect(calculator.locator('.seg button[aria-pressed="true"]').first()).toHaveCSS('background-color', await token(page, 'action-hover'));
   await expect(calculator.locator('.key.sym').first()).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
 });
 

@@ -11,6 +11,7 @@
   import SoundStatus from './SoundStatus.svelte';
   import Toasts from './Toasts.svelte';
   import Card from '../../../../shared/theme/Card.svelte';
+  import Icon from '../../../../shared/theme/Icon.svelte';
   import brandLogo from './assets/cbe-portal-logo.svg';
   // Inlined as a data: URL on purpose: WebKitGTK cannot play media loaded through Wails' wails:// scheme (NotSupportedError).
   import alertURL from './assets/unfocus-alert.wav?inline';
@@ -256,13 +257,13 @@
           <span class="eyebrow">Before you start</span>
           <h2>Exam rules</h2>
         </div>
-        <Card title="During the exam" level={3}>
+        <Card title="During the exam" icon="clock" level={3}>
           <ul class="rule-list">
             <li><strong>Stay in this window until you submit.</strong> If you leave it for {alarmTime}, an alarm sounds until you come back.</li>
             <li><strong>While you are away, screenshots of all your screens are taken</strong>, including anything else open on them. Only your instructor sees them, and they are deleted after grading.</li>
             <li><strong>Keep your sound on.</strong> The app turns it up during the exam and restores it afterwards.</li>
             <li>Your instructor sees whether you are connected, your computer's name and when you leave this window.</li>
-            <li><strong>If you stay away from this window for {lockAway}, or the app cannot reach the server for {lockNoContact}, your exam locks.</strong> Only your instructor can unlock it, and the exam time keeps running.</li>
+            <li class="critical"><strong>If you stay away from this window for {lockAway}, or the app cannot reach the server for {lockNoContact}, your exam locks.</strong> Only your instructor can unlock it, and the exam time keeps running.</li>
           </ul>
         </Card>
         <CaptureStatus capture={view.capture} admission checking={checkingCapture} />
@@ -274,12 +275,12 @@
           <img src={brandLogo} alt="Computer Based Evaluation desktop logo" width="310" height="295" />
           <span>CBE Portal</span>
         </div>
-        <Card label="Login" title="Login" tone="info">
+        <Card label="Login" title="Login" icon="login" tone="deep">
           <form id="student-login" onsubmit={login}>
             <p class="login-intro">Start or resume your exam.</p>
-            <label>Server address <input bind:value={server} required disabled={busy} autocomplete="off" spellcheck="false" /></label>
+            <label>Server address <input class="mono" bind:value={server} required disabled={busy} autocomplete="off" spellcheck="false" /></label>
             <label>Account number <input bind:value={account} required disabled={busy} autocomplete="off" spellcheck="false" placeholder="Your account number" /></label>
-            <label>Exam PIN <input type="password" bind:value={pin} required disabled={busy} autocomplete="off" placeholder="Provided by your instructor" /></label>
+            <label>Exam PIN <input class="mono" type="password" bind:value={pin} required disabled={busy} autocomplete="off" placeholder="Provided by your instructor" /></label>
             <p class="login-hint">Read the rules first. Logging in also checks that your screen can be captured.</p>
             <button class="primary login-button" disabled={busy || !accepted}>{checkingCapture ? 'Checking screen capture…' : busy ? 'Logging in…' : 'Login / resume'}</button>
             {#if checkingCapture}
@@ -292,7 +293,7 @@
     </div>
   {:else if view.phase === 'loading'}
     <div class="exam-main">
-      <Card title="Session started — exam not fully loaded" tone="warning">
+      <Card title="Session started — exam not fully loaded" icon="warning" tone="warning">
         <p>The server’s timer is running. Editing remains disabled until questions, saved answers and authoritative status are loaded.</p>
         <button class="primary" onclick={load} disabled={busy}>Retry loading exam</button>
       </Card>
@@ -306,10 +307,10 @@
   {:else}
     <div class="title-row">
       <h2 class="exam-title">{exam?.title || 'Exam finished'}</h2>
-      {#if calcAvailable}<button class="calc-open" bind:this={calcButton} onclick={openCalculator}>Calculator</button>{/if}
+      {#if calcAvailable}<button class="calc-open" bind:this={calcButton} onclick={openCalculator}><Icon name="calculator" size={18} />Calculator</button>{/if}
     </div>
     {#if view.phase === 'complete'}
-      <Card label="Submission closed" title="Submission closed" level={3} tone="success">
+      <Card label="Submission closed" title="Submission closed" icon="done" level={3} tone="success">
         <p>Server state: {view.final?.status || view.status?.status || 'submitted'}.</p>
         {#if view.final}<p>Selected final version: {view.final.version_seq}.</p>{/if}
         <p>Your exam is finished. Questions and answers are no longer shown.</p>
@@ -318,7 +319,7 @@
         <button class="primary" onclick={closeWindow}>Close exam window</button>
       </Card>
     {:else if view.status}
-      <Card label="Server timing" title="Server timing" level={3} tone="info">
+      <Card label="Server timing" title="Server timing" icon="clock" level={3} tone="info">
         <div class="timing">
           <p>{view.status.status === 'grace' ? 'Grace time remaining' : 'Remaining time'} (last server report): <strong>{remainingTime(view.status)}</strong>.</p>
           <p>State: {view.status.status}. Server report: {view.status.server_time}.</p>
@@ -338,7 +339,7 @@
         {#if view.unlock_note}<p role="status">{view.unlock_note}{view.added_seconds ? ` — ${addedTime(view.added_seconds)}` : ''}.</p>{/if}
         {#if view.submitting}<p role="status" class="callout pending">Submission awaiting server confirmation. Editing is locked; ambiguous failures retry the same snapshot.</p>{/if}
         {#if view.advancing}<p role="status" class="callout pending">Moving to the next exercise — waiting for the server to confirm. Editing is locked.</p>{/if}
-        {#if view.save_error || view.submit_error || view.advance_error || view.timing_stale || answerBridgeError}<button onclick={retry}>Retry connection / pending work</button>{/if}
+        {#if view.save_error || view.submit_error || view.advance_error || view.timing_stale || answerBridgeError}<button onclick={retry}><Icon name="refresh" size={18} />Retry connection / pending work</button>{/if}
         {#if exam && exercise}
           {#if exam.content.instructions}
             <details class="instructions" open>
@@ -402,46 +403,57 @@
   main { max-width: 78rem; margin: 0 auto; padding: var(--space-4) clamp(var(--space-3), 3vw, var(--space-5)) var(--space-5); }
   label { display: grid; gap: var(--space-1); margin: var(--space-3) 0; }
   input { width: 100%; min-width: 0; font-weight: 400; }
+  /* Addresses and PINs are monospace. */
+  input.mono { font-family: var(--font-mono); }
   button { margin: var(--space-1) var(--space-1) var(--space-1) 0; }
   .exam-title { margin: 0 0 var(--space-3); }
-  .title-row { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
-  .title-row .exam-title { margin: 0; }
-  .title-row .calc-open { margin: 0; }
+  /* The exam's title bar is the mockups' navy header; the calculator button sits in it like the timer chip. */
+  .title-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; margin-bottom: var(--space-3); padding: .65rem 1.1rem; background: var(--header-strong); border-radius: var(--radius-ctl); box-shadow: var(--shadow-raised); }
+  .title-row .exam-title { margin: 0; color: var(--accent-cyan-soft); font-size: 1.25rem; font-weight: 700; overflow-wrap: anywhere; }
+  .title-row .calc-open { display: inline-flex; align-items: center; gap: .45rem; margin: 0; background: var(--chip-on-dark); border-color: var(--cyan-chip-border); border-radius: 999px; color: var(--on-dark); box-shadow: none; }
+  .title-row .calc-open:hover:not(:disabled) { background: var(--side-active); border-color: var(--accent-cyan-soft); color: var(--on-dark); }
+  .title-row .calc-open:focus-visible { outline-color: var(--accent-cyan-soft); }
 
   /* Login: rules stack on the left, brand + credentials on the right */
-  .login-layout { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(19rem, 1fr); gap: var(--space-4); align-items: start; }
-  .rules { display: grid; gap: var(--space-3); }
-  .rules-intro h2 { margin: var(--space-1) 0 0; font-size: 1.4rem; }
-  .rule-list { display: grid; gap: var(--space-2); margin: 0; padding-inline-start: 1.15rem; }
-  .rule-list li::marker { color: var(--ink-2); }
-  .accept { display: flex; align-items: flex-start; gap: var(--space-2); margin: 0; padding: var(--space-3) var(--space-4); background: var(--color-surface); border: 1px solid var(--ink-2); border-left: 4px solid var(--ink-2); border-radius: var(--radius-md); box-shadow: var(--shadow-card); font-weight: 600; color: var(--color-heading); }
-  .accept input { width: 1.1rem; }
-  .login-side { position: sticky; top: var(--space-4); display: grid; gap: var(--space-3); }
-  .brand { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4); background: var(--transparent); border-bottom: 1px solid var(--line); border-radius: var(--radius-md); box-shadow: none; }
-  .brand img { display: block; flex: none; width: 5.5rem; height: auto; }
-  .brand span { color: var(--ink); font-size: 1.75rem; font-weight: 600; letter-spacing: .01em; line-height: 1.1; overflow-wrap: anywhere; }
-  #student-login label { color: var(--color-heading); font-size: var(--text-sm); font-weight: 600; }
-  .login-intro { margin: 0 0 var(--space-2); color: var(--color-text-muted); }
-  .login-hint { color: var(--color-text-muted); font-size: var(--text-sm); }
-  .login-hint { margin-top: var(--space-3); }
-  .login-button { width: 100%; margin: var(--space-1) 0 0; }
+  .login-layout { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(19rem, 1fr); gap: 1.25rem; align-items: start; max-width: 72rem; margin: 0 auto; }
+  .rules { display: grid; gap: .9rem; }
+  .rules-intro h2 { margin: .15rem 0 0; font-size: 1.5rem; }
+  /* Rules are marked with blue dots; the rule that locks the exam is the critical one, on the alert fill. */
+  .rule-list { display: flex; flex-direction: column; gap: .7rem; margin: 0; padding: 0; list-style: none; }
+  .rule-list li { position: relative; padding-left: 1.3rem; }
+  .rule-list li::before { content: ''; position: absolute; left: .2rem; top: .55rem; width: 7px; height: 7px; border-radius: 50%; background: var(--action-primary); }
+  .rule-list li.critical { padding: .6rem .75rem .6rem 1.9rem; background: var(--alert-fill); border: 1px solid var(--alert-border); border-radius: var(--radius-ctl); }
+  .rule-list li.critical::before { left: .8rem; top: 1.05rem; background: var(--alert); }
+  /* The acknowledgement: a warm edge until it is checked, then the success state. */
+  .accept { display: flex; align-items: center; gap: .75rem; margin: 0; padding: .9rem 1rem; background: var(--bg-raised); border: 1px solid var(--border-subtle); border-left: 5px solid var(--warn); border-radius: var(--radius); box-shadow: var(--shadow-card); font-weight: 600; color: var(--text-main); cursor: pointer; transition: background-color .2s ease, border-color .2s ease, color .2s ease; }
+  .accept:hover { background: var(--hover-fill); }
+  .accept:has(input:checked) { border-left-color: var(--ok); background: var(--ok-fill); color: var(--ok-text); }
+  .accept input { width: 1.15rem; height: 1.15rem; accent-color: var(--ok-text); }
+  .login-side { position: sticky; top: var(--space-4); display: grid; gap: .9rem; }
+  .brand { display: flex; align-items: center; gap: 1rem; padding: .6rem .75rem; background: var(--bg-raised); border: 1px solid var(--border-subtle); border-radius: var(--radius); box-shadow: var(--shadow-card); }
+  .brand img { display: block; flex: none; width: 5.1rem; height: auto; padding: .35rem; background: var(--tile-fill); border: 1px solid var(--cyan-chip-border); border-radius: 14px; }
+  .brand span { color: var(--text-main); font-size: 1.6rem; font-weight: 700; letter-spacing: -.01em; line-height: 1.1; overflow-wrap: anywhere; }
+  #student-login label { margin: 0 0 var(--space-3); color: var(--text-main); font-size: var(--text-sm); font-weight: 600; }
+  .login-intro { margin: 0 0 var(--space-3); color: var(--text-muted); }
+  .login-hint { margin: var(--space-1) 0 var(--space-3); color: var(--text-muted); font-size: var(--text-sm); }
+  .login-button { width: 100%; min-height: 2.6rem; margin: var(--space-1) 0 0; }
 
   /* Exam: editor column plus status column */
   .exam-main { display: grid; gap: var(--space-3); min-width: 0; margin-top: var(--space-3); }
   .exam-main > :global(*) { margin-top: 0; margin-bottom: 0; }
-  .exam-main > button { justify-self: start; }
-  .timing p { margin: var(--space-1) 0; color: var(--color-text-muted); font-size: var(--text-sm); }
-  .timing p:first-child { color: var(--color-text); font-size: var(--text-base); }
-  .timing p:first-child strong { font-size: 1.5rem; }
+  .exam-main > button { display: inline-flex; align-items: center; justify-content: center; gap: .45rem; justify-self: start; }
+  .timing p { margin: var(--space-1) 0; color: var(--text-muted); font-size: var(--text-sm); }
+  .timing p:first-child { color: var(--text-main); font-size: var(--text-base); }
+  /* The remaining time is a monospace chip on the warm fill. */
+  .timing p:first-child strong { display: inline-block; padding: .05rem .55rem; font-family: var(--font-mono); font-size: 1.35rem; color: var(--warn-text); background: var(--warn-fill); border: 1px solid var(--warn-border); border-radius: 6px; }
   nav { display: flex; flex-wrap: wrap; gap: var(--space-2); }
   nav button { display: inline-flex; align-items: baseline; gap: var(--space-2); margin: 0; border-radius: 999px; padding-inline: var(--space-4); font-weight: 600; }
-  nav button small { font-weight: 400; font-size: var(--text-xs); opacity: .85; }
-  nav button[aria-current] { background: var(--ink); border-color: var(--ink); color: var(--surface); }
-  nav button[aria-current]:hover { background: var(--ink); }
-  nav button[aria-current]:disabled { opacity: 1; }
+  nav button small { font-family: var(--font-mono); font-weight: 400; font-size: var(--text-xs); opacity: .85; }
+  /* The current exercise is the selected step: deep blue with cream text. */
+  nav button[aria-current], nav button[aria-current]:hover, nav button[aria-current]:disabled { background: var(--action-hover); border-color: var(--action-hover); color: var(--bg-primary); box-shadow: var(--shadow-action); opacity: 1; }
   nav button.closed { text-decoration: line-through; }
-  .instructions { padding: var(--space-3) var(--space-4); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); }
-  .instructions summary { cursor: pointer; color: var(--color-heading); font-weight: 600; }
+  .instructions { padding: var(--space-3) var(--space-4); background: var(--bg-raised); border: 1px solid var(--border-subtle); border-radius: var(--radius); box-shadow: var(--shadow-card); }
+  .instructions summary { cursor: pointer; color: var(--action-hover); font-weight: 600; }
   .instructions[open] summary { margin-bottom: var(--space-2); }
   .pager { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
   .pager > button { margin: 0; }

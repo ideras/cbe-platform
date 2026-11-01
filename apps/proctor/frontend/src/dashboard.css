@@ -1,20 +1,11 @@
 /*
- * The proctor dashboard's look: a dark navigation rail beside a light content area with white cards (see the
- * CBE Portal dashboard reference). Palette and effect tokens live in the shared warm theme.
+ * The proctor dashboard's look: a navy navigation rail beside the cream canvas with raised cards (see the proctor
+ * dashboard mockup). Palette and effect tokens live in the shared theme (shared/theme/theme.css); this file owns only the
+ * dashboard's two radii, which are a little rounder than the student application's.
  */
 :root {
-  --radius-card: 14px;
-  --radius-control: 9px;
+  --radius-card: 12px;
+  --radius-control: 10px;
 }
-body { background: var(--page-bg); }
-
-button { border-radius: var(--radius-control); border-color: var(--brand); color: var(--brand-strong); }
-button:hover:not(:disabled) { background: var(--brand-soft); border-color: var(--brand-strong); }
-button.primary { background: var(--ocean); border-color: var(--ocean); color: var(--surface); }
-button.primary:hover:not(:disabled) { background: var(--ocean-strong); border-color: var(--ocean-strong); }
-button.primary:active:not(:disabled) { background: var(--ocean-strong); }
-button.danger { color: var(--coral); }
+button { border-radius: var(--radius-control); }
 input:not([type="checkbox"]):not([type="radio"]), select { border-radius: var(--radius-control); }
-:focus-visible { outline-color: var(--ocean); }
-
-h1, h2 { color: var(--title-ink); }

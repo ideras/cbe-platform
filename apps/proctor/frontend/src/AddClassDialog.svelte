@@ -1,7 +1,7 @@
 <script>
   import * as api from '$proctor-api';
   import Modal from './Modal.svelte';
-  import Icon from './Icon.svelte';
+  import Icon from '../../../../shared/theme/Icon.svelte';
   import { message } from './errors.js';
   // Adding a class takes its roster file, which the server checks before anything is stored, and a name. The file is read by the
   // native side; this window only sees what the server made of it.
@@ -65,12 +65,12 @@
   </form>
 </Modal>
 <style>
-  label, .label { display: block; margin: var(--space-4) 0 var(--space-1); color: var(--title-ink); font-weight: 600; }
+  label, .label { display: block; margin: var(--space-4) 0 var(--space-1); color: var(--text-main); font-weight: 600; }
   .label:first-child { margin-top: 0; }
   input { width: 100%; }
-  .file { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); padding: .45rem .6rem; background: var(--color-control-bg); border: 1px solid var(--color-control-border); border-radius: var(--radius-control); }
-  .file span { flex: 1 1 10rem; min-width: 0; overflow-wrap: anywhere; color: var(--color-text-muted); }
-  .file span.chosen { color: var(--color-text); }
+  .file { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); padding: .45rem .6rem; background: var(--bg-primary); border: 1px solid var(--control-border); border-radius: var(--radius-control); }
+  .file span { flex: 1 1 10rem; min-width: 0; overflow-wrap: anywhere; color: var(--text-muted); }
+  .file span.chosen { color: var(--text-main); font-family: var(--font-mono); font-size: var(--text-sm); }
   .file button { display: inline-flex; align-items: center; gap: .4rem; margin: 0; }
   .found { margin-bottom: 0; }
   ul { margin-top: var(--space-1); }

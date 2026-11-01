@@ -22,5 +22,6 @@
     font-family: var(--font-mono); font-size: var(--text-sm); vertical-align: baseline;
   }
   .text-answer { display: block; width: 100%; min-width: 0; margin: var(--space-2) 0; font-family: var(--font-mono); resize: vertical; }
-  .blank[readonly], .text-answer[readonly] { background: var(--color-disabled-bg); color: var(--color-disabled-text); }
+  /* A locked answer stays fully readable: full ink on the neutral fill. */
+  .blank[readonly], .text-answer[readonly] { background: var(--bg-secondary); border-color: var(--border-subtle); color: var(--text-main); }
 </style>

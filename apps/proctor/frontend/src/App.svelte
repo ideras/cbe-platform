@@ -7,7 +7,7 @@
   import AdmittingBar from './AdmittingBar.svelte';
   import ConnectionDialog from './ConnectionDialog.svelte';
   import CloseDialog from './CloseDialog.svelte';
-  import Icon from './Icon.svelte';
+  import Icon from '../../../../shared/theme/Icon.svelte';
 
   // The shell: it polls the native side for the dashboard's state and decides what is on screen. Classes (each with its exams) and
   // the "Now admitting" bar exist only while connected; everything else about a connection (address, token file, trying again)
@@ -84,15 +84,18 @@
 {#if connectionOpen}<ConnectionDialog {view} onClose={() => connectionOpen = false} onConnected={connected} onChanged={reload} onDisconnected={disconnected} />{/if}
 
 <style>
-  .shell { display: grid; grid-template-columns: 17.5rem minmax(0, 1fr); min-height: 100vh; }
+  .shell { display: grid; grid-template-columns: 16.5rem minmax(0, 1fr); min-height: 100vh; }
   .rail { position: sticky; top: 0; height: 100vh; }
-  main { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); align-content: start; min-width: 0; padding: clamp(1.25rem, 3vw, 2.6rem) clamp(1rem, 3.2vw, 3rem) 3rem; }
+  main { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); align-content: start; min-width: 0; padding: clamp(1.25rem, 3vw, 2.4rem) clamp(1rem, 3vw, 2.2rem) 3rem; }
   .page { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); align-content: start; min-width: 0; }
   .page[hidden] { display: none; }
-  .welcome { display: grid; justify-items: center; gap: var(--space-2); max-width: 36rem; margin: 12vh auto 0; padding: var(--space-6) var(--space-5); text-align: center; color: var(--brand); background: var(--color-surface); border: 1px solid var(--panel-border); border-radius: var(--radius-card); box-shadow: var(--panel-shadow); }
-  .welcome h1 { margin: var(--space-2) 0 0; font-size: 2rem; font-weight: 800; }
-  .welcome p { margin: 0; color: var(--color-text-muted); }
-  .welcome [role="alert"] { color: var(--color-danger); text-align: left; }
+  .welcome { display: grid; justify-items: center; gap: var(--space-2); max-width: 36rem; margin: 12vh auto 0; padding: var(--space-6) var(--space-5); text-align: center; color: var(--action-primary); background: var(--bg-raised); border: 1px solid var(--border-subtle); border-radius: var(--radius-card); box-shadow: var(--shadow-raised); }
+  /* The server icon sits on the same ice tile as the class cards' icons. */
+  .welcome > :global(svg) { width: 4.6rem; height: 4.6rem; padding: .85rem; background: var(--tile-fill); border: 1px solid var(--cyan-border); border-radius: 14px; }
+  .welcome h1 { margin: var(--space-2) 0 0; font-size: 2rem; font-weight: 800; letter-spacing: -.02em; }
+  .welcome p { margin: 0; color: var(--text-muted); }
+  .welcome [role="alert"] { text-align: left; }
+  .welcome .callout { text-align: left; }
   .welcome button { display: inline-flex; align-items: center; gap: .5rem; margin-top: var(--space-3); }
   @media (max-width: 820px) {
     .shell { grid-template-columns: minmax(0, 1fr); }

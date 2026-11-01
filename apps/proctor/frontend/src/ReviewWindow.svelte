@@ -68,9 +68,9 @@
 <style>
   .window { padding: var(--space-4); }
   .summary { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: .2rem var(--space-3); margin: 0 0 var(--space-2); }
-  .summary dt { color: var(--color-text-muted); font-size: var(--text-sm); }
+  .summary dt { color: var(--text-muted); font-size: var(--text-sm); }
   .summary dd { margin: 0; }
-  .warning { color: var(--color-warning); font-weight: 600; }
+  .warning { color: var(--warn-text); font-weight: 600; }
   .actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin: var(--space-3) 0; }
   .actions button { margin: 0; }
   .follow { display: inline-flex; align-items: center; gap: .35rem; font-size: var(--text-sm); }

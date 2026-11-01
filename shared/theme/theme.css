@@ -1,0 +1,199 @@
+/* Solarized Light + Ocean Blue: the one theme of the student and proctor desktop applications.
+ * Every color either app paints comes from this file; components name these tokens and never a literal.
+ * The first block is the mockups' palette, copied verbatim. Everything after it is derived from that palette:
+ * the rgba() tints and shadows the mockups use, or color-mix() of two palette tokens. No other hues exist.
+ * All assets and fonts are local.
+ */
+:root {
+  color-scheme: light;
+
+  /* Solarized Light foundations */
+  --bg-primary: #fdf6e3;      /* page canvas */
+  --bg-secondary: #eee8d5;    /* panels, neutral pills, disabled */
+  --bg-raised: #fffbf2;       /* cards sitting on the canvas */
+  --border-subtle: #ddd6c1;
+
+  /* Text */
+  --text-main: #0a2342;
+  --text-muted: #586e75;
+
+  /* Ocean Blue */
+  --ocean-deep: #03045e;
+  --action-primary: #0077b6;
+  --action-hover: #023e8a;
+  --accent-cyan: #00b4d8;
+  --accent-cyan-soft: #48cae4;
+  --selection-fill: #caf0f8;
+  --hover-fill: #e3f6fa;
+
+  /* Solarized status accents */
+  --warn: #b58900;  --warn-fill: #f5e9c4;  --warn-text: #6b5200;
+  --alert: #cb4b16; --alert-fill: #fbefe6;
+  --ok: #859900;    --ok-fill: #f6f6dc;    --ok-text: #4f5c00;
+  --success-badge: #1d7a73;
+
+  /* Proctor sidebar */
+  --side-bg: linear-gradient(180deg, #0a2342 0%, #061a3a 55%, #03045e 100%);
+  --side-text: #d8e4ef;
+  --side-text-dim: #8fa6bd;
+  --side-hover: rgba(72, 202, 228, 0.08);
+  --side-active: rgba(72, 202, 228, 0.16);
+
+  /* The two remaining literals of the mockups: their neutral grey (proctor mockup's --muted-dot: neutral status
+   * dots, disabled text, placeholders) and their pure white (text on navy, a focused input, exam pictures). */
+  --muted-dot: #93a1a1;
+  --paper: #ffffff;
+
+  /* ---- Derived roles: no new hues below this line ---- */
+  --transparent: transparent;
+  --on-dark: var(--paper);
+  /* Pictures in an exam keep a white ground: a figure drawn in black on transparent is unreadable otherwise. */
+  --figure-bg: var(--paper);
+  /* --alert is 4.1–4.5:1 as text on these grounds; error text uses it darkened toward the navy text, as the mockups
+   * do for --warn-text and --ok-text. */
+  --alert-text: color-mix(in srgb, var(--alert) 75%, var(--text-main));
+  /* Form-control edges must reach 3:1 against the card (WCAG 1.4.11); --border-subtle alone is 1.3:1. */
+  --control-border: color-mix(in srgb, var(--text-muted) 70%, var(--border-subtle));
+
+  /* Tinted borders, glows and washes, exactly as the mockups write them. */
+  --warn-border: rgba(181, 137, 0, 0.35);
+  --alert-border: rgba(203, 75, 22, 0.3);
+  --ok-border: rgba(133, 153, 0, 0.45);
+  --ok-glow: rgba(133, 153, 0, 0.2);
+  --cyan-border: rgba(72, 202, 228, 0.55);
+  --cyan-chip-border: rgba(72, 202, 228, 0.5);
+  --action-border: rgba(0, 119, 182, 0.25);
+  --side-border: rgba(72, 202, 228, 0.18);
+  --chip-on-dark: rgba(253, 246, 227, 0.12);
+  --focus-halo: rgba(0, 180, 216, 0.2);
+  --focus-halo-strong: rgba(0, 180, 216, 0.35);
+  --alert-halo: rgba(203, 75, 22, 0.2);
+  --spinner-track: rgba(0, 119, 182, 0.25);
+  --canvas-wash: radial-gradient(circle at 100% 0%, rgba(0, 180, 216, 0.06), transparent 40%);
+
+  /* Gradients of the component patterns. */
+  --header-strong: linear-gradient(120deg, var(--ocean-deep), var(--action-hover));
+  --header-soft: linear-gradient(90deg, var(--selection-fill), var(--hover-fill));
+  --tile-fill: linear-gradient(135deg, var(--selection-fill), var(--hover-fill));
+  --bar-fill: linear-gradient(90deg, var(--action-primary), var(--accent-cyan));
+  --accent-bar: linear-gradient(180deg, var(--accent-cyan), var(--action-primary));
+  --accent-bar-side: linear-gradient(180deg, var(--accent-cyan-soft), var(--action-primary));
+
+  /* Shadows: navy-tinted at rest, blue-tinted when lifted or actionable. */
+  --shadow-card: 0 2px 10px rgba(3, 4, 94, 0.05);
+  --shadow-card-hover: 0 8px 20px rgba(0, 119, 182, 0.14);
+  --shadow-raised: 0 4px 20px rgba(3, 4, 94, 0.07);
+  --shadow-action: 0 3px 10px rgba(0, 119, 182, 0.3);
+  --shadow-action-hover: 0 5px 14px rgba(2, 62, 138, 0.35);
+  --shadow-dialog: 0 24px 60px rgba(3, 4, 94, 0.28);
+  --shadow-pressed: inset 0 2px 4px rgba(3, 4, 94, 0.25);
+  --backdrop: rgba(10, 35, 66, 0.5);
+
+  /* Spacing, shape and type. */
+  --space-1: .25rem;
+  --space-2: .5rem;
+  --space-3: .75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --radius-sm: .35rem;
+  --radius-md: .5rem;
+  --radius-lg: .75rem;
+  --radius: 12px;
+  --radius-ctl: 8px;
+  --control-h: 32px;
+  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
+  --mono: var(--font-mono);
+  --text-xs: .8rem;
+  --text-sm: .875rem;
+  --text-base: 1rem;
+  --text-lg: 1.15rem;
+  --text-xl: 1.5rem;
+  --ui-gap: .5rem;
+  --ui-control-height: 2.15rem;
+
+  font-size: 15px;
+  line-height: 1.5;
+  font-family: var(--font-sans);
+  background: var(--bg-primary);
+  color: var(--text-main);
+}
+*, *::before, *::after { box-sizing: border-box; }
+/* The canvas: cream with a faint cyan wash in the top-right corner, fixed to the window. */
+body { margin: 0; min-height: 100vh; background: var(--canvas-wash) fixed, var(--bg-primary); color: var(--text-main); font-size: var(--text-base); }
+
+h1, h2, h3, h4 { margin: var(--space-2) 0 var(--space-1); line-height: 1.25; color: var(--text-main); font-weight: 650; }
+h1 { font-size: var(--text-xl); font-weight: 700; }
+h2 { font-size: 1.25rem; }
+h3 { font-size: var(--text-lg); }
+h4 { font-size: var(--text-base); }
+strong { color: var(--text-main); }
+p { margin: var(--space-2) 0; }
+small { font-size: var(--text-sm); }
+ul, ol { margin: var(--space-2) 0; padding-inline-start: 1.4rem; }
+code, pre { font-family: var(--font-mono); }
+/* Icons never shrink beside text, and sit on a button's middle line rather than on its text baseline. */
+svg { flex-shrink: 0; }
+button > svg { vertical-align: middle; }
+pre { margin: var(--space-2) 0; padding: var(--space-2) var(--space-3); background: var(--transparent); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); font-size: var(--text-sm); }
+summary { cursor: pointer; min-height: 1.7rem; color: var(--action-hover); font-weight: 600; }
+::selection { background: var(--selection-fill); color: var(--text-main); }
+.eyebrow { display: block; font-size: .75rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--action-primary); }
+.muted { color: var(--text-muted); font-size: var(--text-sm); }
+
+/* Buttons. The default is the mockups' ghost button; .primary is the one action of a screen; .danger is irreversible. */
+button, input, textarea, select { font: inherit; line-height: 1.25; }
+button {
+  min-height: var(--ui-control-height); padding: .3rem .9rem; cursor: pointer;
+  border: 1px solid var(--border-subtle); border-radius: var(--radius-ctl);
+  background: var(--bg-secondary); color: var(--text-main); font-weight: 600;
+  transition: background-color .15s ease, border-color .15s ease, color .15s ease, box-shadow .15s ease;
+}
+button:hover:not(:disabled) { background: var(--selection-fill); border-color: var(--action-primary); color: var(--action-hover); }
+button:active:not(:disabled) { box-shadow: var(--shadow-pressed); }
+button.primary { background: var(--action-primary); border-color: var(--action-primary); color: var(--bg-primary); font-weight: 700; box-shadow: var(--shadow-action); }
+button.primary:hover:not(:disabled) { background: var(--action-hover); border-color: var(--action-hover); color: var(--bg-primary); box-shadow: var(--shadow-action-hover); }
+button.primary:active:not(:disabled) { background: var(--action-hover); box-shadow: var(--shadow-pressed); }
+button.danger { background: var(--transparent); border-color: var(--alert); color: var(--alert-text); }
+button.danger:hover:not(:disabled) { background: var(--alert-fill); border-color: var(--alert); color: var(--alert-text); }
+button:disabled, button.primary:disabled, button.danger:disabled {
+  cursor: not-allowed; background: var(--bg-secondary); border-color: var(--border-subtle); color: var(--muted-dot); box-shadow: none; opacity: 1;
+}
+
+/* Inputs sit on the canvas color inside cards; focus turns the edge blue with a cyan ring. */
+input, textarea, select { padding: .3rem .65rem; border: 1px solid var(--control-border); border-radius: var(--radius-ctl); background: var(--bg-primary); color: var(--text-main); transition: border-color .15s ease, box-shadow .15s ease, background-color .15s ease; }
+input:not([type="checkbox"]):not([type="radio"]), select { min-height: var(--ui-control-height); }
+textarea { line-height: 1.45; resize: vertical; }
+input::placeholder, textarea::placeholder { color: var(--text-muted); opacity: 1; }
+input:disabled, textarea:disabled, select:disabled { cursor: not-allowed; background: var(--bg-secondary); border-color: var(--border-subtle); color: var(--text-muted); }
+input[type="checkbox"], input[type="radio"] { width: 1.1rem; height: 1.1rem; margin: .1rem 0; flex-shrink: 0; accent-color: var(--action-primary); }
+/* Keyboard focus everywhere: a blue outline with a cyan halo. The transparent outline on fields keeps an
+ * indicator in Windows high-contrast mode, where box-shadows are dropped. */
+:focus-visible { outline: 2px solid var(--action-primary); outline-offset: 2px; box-shadow: 0 0 0 6px var(--focus-halo-strong); }
+input:not([type="checkbox"]):not([type="radio"]):focus-visible, textarea:focus-visible, select:focus-visible {
+  outline: 2px solid var(--transparent); outline-offset: 0; border-color: var(--action-primary); background: var(--paper); box-shadow: 0 0 0 3px var(--focus-halo);
+}
+
+/* Callouts. A plain status is a confirmation (ok); alerts and .danger are errors; .warning asks for attention;
+ * .pending is work in flight and carries a spinner. Text never sits on --ok or --warn: only on their -fill. */
+[role="alert"], [role="status"], .callout {
+  --callout-bg: var(--ok-fill); --callout-border: var(--ok-border); --callout-edge: var(--ok); --callout-text: var(--ok-text);
+  margin: var(--space-3) 0; padding: .6rem .85rem;
+  border: 1px solid var(--callout-border); border-left: 4px solid var(--callout-edge); border-radius: var(--radius-ctl);
+  background: var(--callout-bg); color: var(--callout-text);
+}
+[role="alert"] strong, [role="status"] strong, .callout strong { color: inherit; }
+[role="alert"], .callout.danger { --callout-bg: var(--alert-fill); --callout-border: var(--alert-border); --callout-edge: var(--alert); --callout-text: var(--alert-text); font-weight: 500; }
+.callout.success { --callout-bg: var(--ok-fill); --callout-border: var(--ok-border); --callout-edge: var(--ok); --callout-text: var(--ok-text); font-weight: 600; }
+.callout.warning { --callout-bg: var(--warn-fill); --callout-border: var(--warn-border); --callout-edge: var(--warn); --callout-text: var(--warn-text); }
+.callout.warning::before { content: 'Warning'; display: block; margin-bottom: .15rem; font-weight: 700; }
+.callout.pending { --callout-bg: var(--hover-fill); --callout-border: var(--action-border); --callout-edge: var(--action-primary); --callout-text: var(--action-hover); }
+.callout.pending::before {
+  content: ''; display: inline-block; width: 12px; height: 12px; margin-right: .45rem; vertical-align: -1px;
+  border: 2px solid var(--spinner-track); border-top-color: var(--action-primary); border-radius: 50%; animation: theme-spin .8s linear infinite;
+}
+@keyframes theme-spin { to { transform: rotate(360deg); } }
+
+@media (pointer: coarse) { :root { --ui-control-height: 2.6rem; --control-h: 36px; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }

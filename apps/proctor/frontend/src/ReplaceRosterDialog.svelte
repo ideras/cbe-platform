@@ -1,7 +1,7 @@
 <script>
   import * as api from '$proctor-api';
   import Modal from './Modal.svelte';
-  import Icon from './Icon.svelte';
+  import Icon from '../../../../shared/theme/Icon.svelte';
   import { message } from './errors.js';
   // Replacing a roster means a new file takes the place of the whole list. The server compares the file with the class first;
   // students who are not in it lose their place in the class, and nothing changes until the proctor confirms.
@@ -68,12 +68,12 @@
 </Modal>
 <style>
   .lead { margin-top: 0; }
-  .label { display: block; margin: var(--space-4) 0 var(--space-1); color: var(--title-ink); font-weight: 600; }
-  .file { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); padding: .45rem .6rem; background: var(--color-control-bg); border: 1px solid var(--color-control-border); border-radius: var(--radius-control); }
-  .file span { flex: 1 1 10rem; min-width: 0; overflow-wrap: anywhere; color: var(--color-text-muted); }
-  .file span.chosen { color: var(--color-text); }
+  .label { display: block; margin: var(--space-4) 0 var(--space-1); color: var(--text-main); font-weight: 600; }
+  .file { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); padding: .45rem .6rem; background: var(--bg-primary); border: 1px solid var(--control-border); border-radius: var(--radius-control); }
+  .file span { flex: 1 1 10rem; min-width: 0; overflow-wrap: anywhere; color: var(--text-muted); }
+  .file span.chosen { color: var(--text-main); font-family: var(--font-mono); font-size: var(--text-sm); }
   .file button { display: inline-flex; align-items: center; gap: .4rem; margin: 0; }
-  .check { display: flex; align-items: flex-start; gap: var(--space-2); margin: var(--space-3) 0; font-weight: 600; color: var(--title-ink); }
+  .check { display: flex; align-items: flex-start; gap: var(--space-2); margin: var(--space-3) 0; font-weight: 600; color: var(--text-main); }
   ul { margin-top: var(--space-1); }
   .actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-5); }
   .actions button { margin: 0; min-width: 7.5rem; }

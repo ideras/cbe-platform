@@ -9,7 +9,7 @@
   import PreviewDialog from './PreviewDialog.svelte';
   import { parseTime } from './dates.js';
   import { monitorExam } from './monitor.js';
-  import Icon from './Icon.svelte';
+  import Icon from '../../../../shared/theme/Icon.svelte';
   // The exams of one class, where the proctor prepares them: an exam is imported into a class and stays there, and publishing it
   // admits that class's students. Exam files are Markdown, compiled and checked in Go; this view shows the result and asks for
   // what the file leaves out: the PIN and whether students may go back to an exercise.
@@ -214,28 +214,34 @@
   .row-cell { width: 1%; }
   .row-actions { display: flex; gap: var(--space-1); }
   /* Icon-only buttons: the tooltip and the accessible name say what each one does. Ghost by default. */
-  .row-actions button { display: inline-flex; align-items: center; justify-content: center; width: 2.3rem; height: 2.3rem; min-height: 0; margin: 0; padding: 0; background: var(--transparent); border-color: var(--transparent); color: var(--ink-2); }
-  .row-actions button:hover:not(:disabled) { background: var(--hover); border-color: var(--transparent); color: var(--ink); }
-  .row-actions button:disabled { background: var(--transparent); border-color: var(--transparent); color: var(--ink-2); }
+  .row-actions button { display: inline-flex; align-items: center; justify-content: center; width: 2.3rem; height: 2.3rem; min-height: 0; margin: 0; padding: 0; background: var(--transparent); border-color: var(--transparent); color: var(--text-muted); box-shadow: none; }
+  .row-actions button:hover:not(:disabled) { background: var(--hover-fill); border-color: var(--transparent); color: var(--action-hover); }
+  .row-actions button:disabled { background: var(--transparent); border-color: var(--transparent); color: var(--muted-dot); }
   .row-actions :global(svg) { flex: none; width: 1.35rem; height: 1.35rem; object-fit: contain; }
   .row-actions :global(svg.monitor), .row-actions :global(svg.close-admission), .row-actions :global(svg.delete-exam), .row-actions :global(svg.download) { width: 1.6rem; height: 1.6rem; }
-  .row-actions .purge { color: var(--coral); }
-  .row-actions .purge:hover:not(:disabled) { background: var(--color-danger-bg); border-color: var(--transparent); color: var(--color-danger-strong); }
-  .row-actions button:disabled :global(svg) { opacity: .35; }
+  .row-actions .purge { color: var(--alert-text); }
+  .row-actions .purge:hover:not(:disabled) { background: var(--alert-fill); border-color: var(--transparent); color: var(--alert-text); }
+  .row-actions button:disabled :global(svg) { opacity: .5; }
   .open-folder { margin: 0 0 0 var(--space-2); padding: .15rem .6rem; font-size: var(--text-sm); }
-  .table-scroll { overflow-x: auto; margin-top: var(--space-3); border: 1px solid var(--panel-border); border-radius: var(--radius-card); }
-  table { width: 100%; border-collapse: collapse; min-width: 760px; background: var(--color-surface); }
-  caption { padding: var(--space-2) var(--space-3); color: var(--color-text-muted); font-size: var(--text-sm); text-align: left; border-bottom: 1px solid var(--panel-border); }
-  th { color: var(--ink-2); font-size: var(--text-sm); letter-spacing: .02em; border-bottom: 1px solid var(--panel-border); }
+  .table-scroll { overflow-x: auto; margin-top: var(--space-3); border: 1px solid var(--border-subtle); border-radius: 10px; }
+  table { width: 100%; border-collapse: collapse; min-width: 760px; background: var(--bg-raised); }
+  caption { padding: var(--space-2) var(--space-3); color: var(--text-muted); font-size: var(--text-sm); text-align: left; border-bottom: 1px solid var(--border-subtle); }
+  th { background: var(--bg-secondary); color: var(--text-main); font-size: .78rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; border-bottom: 1px solid var(--border-subtle); }
   th, td { text-align: left; vertical-align: top; padding: .5rem .7rem; overflow-wrap: anywhere; }
   th { white-space: nowrap; }
-  td { border-bottom: 1px solid var(--line); }
-  small { display: block; margin-top: .15rem; color: var(--color-text-muted); }
-  .late { display: inline-block; margin-top: .15rem; padding: .05rem .5rem; border-radius: 999px; background: var(--sand); color: var(--sand-ink); font-weight: 600; }
-  .badge { display: inline-block; margin-left: var(--space-1); padding: .05rem .35rem; font-size: var(--text-sm); font-weight: 700; border: 1px solid; border-radius: var(--radius-sm); }
-  .open { background: var(--color-success-bg); color: var(--color-success); border-color: var(--color-success); }
-  .watching { background: var(--transparent); color: var(--ink-2); border-color: var(--ink-2); }
-  .forward { background: var(--transparent); color: var(--ink-2); border-color: var(--ink-2); }
+  td { border-bottom: 1px solid var(--border-subtle); }
+  tbody tr:last-child td { border-bottom: 0; }
+  tbody tr:hover { background: var(--hover-fill); }
+  /* The published exam is the open one: a green edge, besides its Published badge. */
+  tr.published td:first-child { box-shadow: inset 3px 0 0 var(--ok); }
+  small { display: block; margin-top: .15rem; color: var(--text-muted); }
+  .late { display: inline-block; margin-top: .15rem; padding: .05rem .5rem; border-radius: 999px; background: var(--warn-fill); color: var(--warn-text); font-weight: 600; }
+  .badge { display: inline-flex; align-items: center; gap: .3rem; margin-left: var(--space-1); padding: .05rem .5rem; font-size: .8rem; font-weight: 700; line-height: 1.5; border: 1px solid; border-radius: 999px; vertical-align: .1em; }
+  .open { background: var(--ok-fill); color: var(--ok-text); border-color: var(--ok-border); }
+  .open::before { content: ''; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 2px var(--ok-glow); }
+  .watching { background: var(--selection-fill); color: var(--action-hover); border-color: var(--cyan-border); }
+  .watching::before { content: ''; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--accent-cyan); }
+  .forward { background: var(--bg-secondary); color: var(--text-main); border-color: var(--border-subtle); }
   /* The dash marks an optional enabled feature, independently of its color. */
-  .calc { background: var(--sea); color: var(--sea-ink); border-color: color-mix(in srgb, var(--sea-ink) 45%, var(--transparent)); border-style: dashed; }
+  .calc { background: var(--hover-fill); color: var(--action-hover); border-color: var(--action-border); border-style: dashed; border-radius: var(--radius-ctl); }
 </style>

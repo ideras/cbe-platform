@@ -20,9 +20,9 @@
   </div>
 </dialog>
 <style>
-  dialog { width: min(32rem, calc(100% - 2rem)); padding: var(--space-5); color: var(--color-text); background: var(--color-surface); border: 1px solid var(--color-border); border-top: 5px solid var(--color-warning-border); border-radius: var(--radius-lg); box-shadow: var(--shadow-raised); }
-  dialog::backdrop { background: var(--backdrop-confirm); }
-  h2 { margin: 0 0 var(--space-3); color: var(--color-heading); font-size: var(--text-xl); }
+  dialog { width: min(32rem, calc(100% - 2rem)); padding: var(--space-5); color: var(--text-main); background: var(--bg-raised); border: 1px solid var(--border-subtle); border-top: 5px solid var(--warn); border-radius: 14px; box-shadow: var(--shadow-dialog); }
+  dialog::backdrop { background: var(--backdrop); }
+  h2 { margin: 0 0 var(--space-3); color: var(--text-main); font-size: var(--text-xl); }
   #confirm-body :global(p) { margin: 0 0 var(--space-2); }
   .actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-4); }
   .actions button { margin: 0; }

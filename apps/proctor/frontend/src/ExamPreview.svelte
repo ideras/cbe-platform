@@ -48,18 +48,18 @@
 </div>
 
 <style>
-  .exam-preview { display: grid; gap: var(--space-3); max-height: 34rem; overflow: auto; padding: var(--space-2); background: var(--color-surface); border: 1px solid var(--panel-border); border-radius: var(--radius-md); overflow-wrap: anywhere; }
-  .block + .block { padding-top: var(--space-3); border-top: 1px solid var(--panel-border); }
+  .exam-preview { display: grid; gap: var(--space-3); max-height: 34rem; overflow: auto; padding: var(--space-2) var(--space-3); background: var(--bg-primary); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); overflow-wrap: anywhere; }
+  .block + .block { padding-top: var(--space-3); border-top: 1px solid var(--border-subtle); }
   h4, h5 { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2); margin: var(--space-2) 0; }
   h4 { font-size: var(--text-base); }
   h5 { font-size: var(--text-sm); }
-  small { color: var(--color-text-muted); font-weight: 400; }
-  .exam-preview :global(pre) { margin: var(--space-2) 0; padding: var(--space-2); overflow: auto; background: var(--transparent); border: 1px solid var(--line); border-radius: var(--radius-sm); font-size: var(--text-sm); }
+  small { color: var(--text-muted); font-weight: 400; }
+  .exam-preview :global(pre) { margin: var(--space-2) 0; padding: var(--space-2); overflow: auto; background: var(--transparent); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); font-size: var(--text-sm); }
   .exam-preview :global(table) { border-collapse: collapse; margin: var(--space-2) 0; }
-  .exam-preview :global(th), .exam-preview :global(td) { padding: .25rem .55rem; border: 1px solid var(--panel-border); }
-  .exam-preview :global(img) { display: block; max-width: 100%; height: auto; margin: .75rem auto; background: var(--color-figure-bg); -webkit-user-drag: none; user-select: none; }
-  .exam-preview :global(.preview-blank) { display: inline-block; min-width: 6ch; padding: 0 .35rem; background: var(--transparent); border: 1px dashed var(--ink-2); border-radius: var(--radius-sm); color: var(--ink-2); font-family: var(--font-mono, monospace); font-size: var(--text-sm); }
-  .exam-preview :global(.preview-answer) { margin: var(--space-2) 0; background: var(--transparent); border: 1px dashed var(--ink-2); border-radius: var(--radius-sm); }
-  .exam-preview :global(.preview-answer span) { display: block; padding: .15rem .5rem; color: var(--brand-strong); font-size: var(--text-sm); font-weight: 600; }
+  .exam-preview :global(th), .exam-preview :global(td) { padding: .25rem .55rem; border: 1px solid var(--border-subtle); }
+  .exam-preview :global(img) { display: block; max-width: 100%; height: auto; margin: .75rem auto; background: var(--figure-bg); -webkit-user-drag: none; user-select: none; }
+  .exam-preview :global(.preview-blank) { display: inline-block; min-width: 6ch; padding: 0 .35rem; background: var(--transparent); border: 1px dashed var(--control-border); border-radius: var(--radius-sm); color: var(--text-muted); font-family: var(--font-mono, monospace); font-size: var(--text-sm); }
+  .exam-preview :global(.preview-answer) { margin: var(--space-2) 0; background: var(--transparent); border: 1px dashed var(--control-border); border-radius: var(--radius-sm); }
+  .exam-preview :global(.preview-answer span) { display: block; padding: .15rem .5rem; color: var(--action-hover); font-size: var(--text-sm); font-weight: 600; }
   .exam-preview :global(.preview-answer pre) { margin: 0; background: var(--transparent); }
 </style>

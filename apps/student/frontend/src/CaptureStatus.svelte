@@ -6,7 +6,7 @@
 </script>
 
 {#if admission || testable || capture?.enabled}
-  <Card label="Screenshot monitoring" title={testable ? 'Screenshot test' : admission ? 'Screen capture check' : 'Screen capture and retention'} level={3} tone={testable || admission ? 'info' : 'deep'}>
+  <Card label="Screenshot monitoring" title={testable ? 'Screenshot test' : admission ? 'Screen capture check' : 'Screen capture and retention'} icon="screen" level={3} tone={testable || admission ? 'info' : 'deep'}>
     {#if admission}
       <p>When you click <strong>Login / resume</strong>, the app takes one test screenshot to check that capture works on this computer. The image is not saved or sent. The exam does not start unless the check succeeds.</p>
       <p>If your system asks for permission to record or share your screen, allow it.</p>

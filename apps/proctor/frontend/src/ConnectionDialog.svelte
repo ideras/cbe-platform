@@ -1,7 +1,7 @@
 <script>
   import * as api from '$proctor-api';
   import Modal from './Modal.svelte';
-  import Icon from './Icon.svelte';
+  import Icon from '../../../../shared/theme/Icon.svelte';
   import { message } from './errors.js';
   // Where the proctor says which server to use and which token file proves who they are. The token is read by the native
   // side and never reaches this window; only the file's name does.
@@ -73,22 +73,24 @@
   </form>
 </Modal>
 <style>
-  .lead { margin-top: 0; color: var(--color-text-muted); }
-  label, .label { display: block; margin: var(--space-4) 0 var(--space-1); color: var(--title-ink); font-weight: 600; }
+  .lead { margin-top: 0; color: var(--text-muted); }
+  label, .label { display: block; margin: var(--space-4) 0 var(--space-1); color: var(--text-main); font-weight: 600; }
   input { width: 100%; }
-  .token { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); padding: .45rem .6rem; background: var(--color-control-bg); border: 1px solid var(--color-control-border); border-radius: var(--radius-control); }
-  .file { flex: 1 1 10rem; min-width: 0; overflow-wrap: anywhere; color: var(--color-text-muted); }
-  .file.chosen { color: var(--color-text); }
+  #connection-server { font-family: var(--font-mono); }
+  .token { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); padding: .45rem .6rem; background: var(--bg-primary); border: 1px solid var(--control-border); border-radius: var(--radius-control); }
+  .file { flex: 1 1 10rem; min-width: 0; overflow-wrap: anywhere; color: var(--text-muted); }
+  .file.chosen { color: var(--text-main); font-family: var(--font-mono); font-size: var(--text-sm); }
   .token button { display: inline-flex; align-items: center; gap: .4rem; margin: 0; }
-  .problem { margin: var(--space-1) 0 0; color: var(--color-danger); font-size: var(--text-sm); font-weight: 600; }
-  .hint { display: block; margin-top: var(--space-2); color: var(--color-text-muted); }
-  .connected { display: flex; align-items: center; gap: .55rem; margin: var(--space-3) 0 0; padding: .5rem .7rem; color: var(--color-success); background: var(--color-success-bg); border-radius: var(--radius-control); font-size: var(--text-sm); }
+  .problem { margin: var(--space-1) 0 0; color: var(--alert-text); font-size: var(--text-sm); font-weight: 600; }
+  .hint { display: block; margin-top: var(--space-2); color: var(--text-muted); }
+  .connected { display: flex; align-items: center; gap: .55rem; margin: var(--space-3) 0 0; padding: .5rem .7rem; color: var(--ok-text); background: var(--ok-fill); border: 1px solid var(--ok-border); border-radius: var(--radius-control); font-size: var(--text-sm); }
   .connected strong { color: inherit; }
-  .dot { flex: none; width: .6rem; height: .6rem; border-radius: 50%; background: var(--ok); }
+  .dot { flex: none; width: .6rem; height: .6rem; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px var(--ok-glow); }
   .actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-5); }
-  .disconnect { margin-right: auto; border-color: var(--color-danger); color: var(--color-danger); }
-  .disconnect:hover:not(:disabled) { background: var(--color-danger-bg); border-color: var(--color-danger-strong); color: var(--color-danger-strong); }
+  .disconnect { margin-right: auto; }
+  .disconnect:not(:disabled) { background: var(--transparent); border-color: var(--alert); color: var(--alert-text); }
+  .disconnect:hover:not(:disabled) { background: var(--alert-fill); border-color: var(--alert); color: var(--alert-text); }
   .actions button { margin: 0; min-width: 6.5rem; }
-  .spinner { display: inline-block; width: .95rem; height: .95rem; margin-right: .5rem; vertical-align: -.15rem; border: 2px solid var(--spinner-track); border-top-color: var(--ink-2); border-radius: 50%; animation: spin .8s linear infinite; }
+  .spinner { display: inline-block; width: .95rem; height: .95rem; margin-right: .5rem; vertical-align: -.15rem; border: 2px solid var(--spinner-track); border-top-color: var(--action-primary); border-radius: 50%; animation: spin .8s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
 </style>

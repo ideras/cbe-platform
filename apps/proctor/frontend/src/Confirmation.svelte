@@ -49,7 +49,7 @@
   </form>
 </Modal>
 <style>
-  label { display: block; margin: var(--space-3) 0; font-weight: 600; color: var(--title-ink); }
+  label { display: block; margin: var(--space-3) 0; font-weight: 600; color: var(--text-main); }
   .check { display: flex; align-items: flex-start; gap: var(--space-2); }
   textarea { display: block; width: 100%; margin-top: var(--space-1); font-weight: 400; }
   .actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-4); }

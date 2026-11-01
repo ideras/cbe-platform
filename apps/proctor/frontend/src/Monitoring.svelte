@@ -142,27 +142,27 @@
 <style>
   .monitoring { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); min-width: 0; }
   .summary { margin: 0 0 var(--space-2); }
-  small { display: block; margin-top: .15rem; color: var(--color-text-muted); }
-  .stale { color: var(--color-warning); font-weight: 600; }
-  .table-scroll { overflow-x: auto; margin-top: var(--space-3); border: 1px solid var(--panel-border); border-radius: 10px; }
-  table { width: 100%; border-collapse: collapse; min-width: 850px; background: var(--color-surface); }
-  caption { padding: var(--space-2) var(--space-3); color: var(--color-text-muted); font-size: var(--text-sm); text-align: left; border-bottom: 1px solid var(--panel-border); }
-  th { color: var(--ink-2); font-size: var(--text-sm); letter-spacing: .02em; border-bottom: 1px solid var(--panel-border); }
+  small { display: block; margin-top: .15rem; color: var(--text-muted); }
+  .stale { font-weight: 600; }
+  .table-scroll { overflow-x: auto; margin-top: var(--space-3); border: 1px solid var(--border-subtle); border-radius: 10px; }
+  table { width: 100%; border-collapse: collapse; min-width: 850px; background: var(--bg-raised); }
+  caption { padding: var(--space-2) var(--space-3); color: var(--text-muted); font-size: var(--text-sm); text-align: left; border-bottom: 1px solid var(--border-subtle); }
+  th { background: var(--bg-secondary); color: var(--text-main); font-size: .78rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; border-bottom: 1px solid var(--border-subtle); }
   th, td { text-align: left; vertical-align: top; padding: .5rem .7rem; overflow-wrap: anywhere; }
-  td { border-bottom: 1px solid var(--line); }
-  tbody tr:hover { background: var(--hover); }
+  td { border-bottom: 1px solid var(--border-subtle); }
+  tbody tr:hover { background: var(--hover-fill); }
   td button { display: block; margin: 0 0 .25rem; }
-  td div, td small { color: var(--color-text); }
-  td small { color: var(--color-text-muted); }
-  tbody tr.network-row:hover { background: var(--hover); }
-  .focus-row td:first-child { box-shadow: inset 4px 0 0 var(--color-focus-border); }
-  .badge { display: inline-block; padding: .1rem .35rem; margin-bottom: .2rem; font-weight: 700; border: 1px solid; border-radius: var(--radius-sm); }
-  .network { background: var(--sand); color: var(--color-warning); border-color: var(--color-warning-border); }
-  .focus { background: var(--surface); color: var(--color-focus); border-color: var(--color-focus-border); }
-  .pending { background: var(--transparent); color: var(--ink-2); border-color: var(--ink-2); }
-  .lock { background: var(--surface); color: var(--color-danger); border-color: var(--color-danger); }
-  tbody tr.locked-row:hover { background: var(--hover); }
-  tbody tr.locked-row td:first-child { box-shadow: inset 4px 0 0 var(--color-danger); }
+  td div, td small { color: var(--text-main); }
+  td small { color: var(--text-muted); }
+  tbody tr.network-row:hover { background: var(--hover-fill); }
+  .focus-row td:first-child { box-shadow: inset 4px 0 0 var(--alert); }
+  .badge { display: inline-block; padding: .1rem .55rem; margin-bottom: .2rem; font-size: var(--text-sm); font-weight: 700; border: 1px solid; border-radius: 999px; }
+  .network { background: var(--warn-fill); color: var(--warn-text); border-color: var(--warn-border); }
+  .focus { background: var(--alert-fill); color: var(--alert-text); border-color: var(--alert-border); }
+  .pending { background: var(--bg-secondary); color: var(--text-main); border-color: var(--border-subtle); }
+  .lock { background: var(--bg-raised); color: var(--alert-text); border-color: var(--alert); }
+  tbody tr.locked-row:hover { background: var(--hover-fill); }
+  tbody tr.locked-row td:first-child { box-shadow: inset 4px 0 0 var(--alert); }
   .roster-missing { display: grid; grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr)); gap: var(--space-2); margin: var(--space-3) 0 0; padding: 0; list-style: none; }
-  .roster-missing li { padding: .3rem .6rem; background: var(--transparent); border: 1px solid var(--line); border-radius: var(--radius-sm); }
+  .roster-missing li { padding: .3rem .7rem; background: var(--bg-primary); border: 1px solid var(--border-subtle); border-radius: var(--radius-ctl); }
 </style>

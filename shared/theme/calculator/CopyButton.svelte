@@ -1,4 +1,5 @@
 <script>
+  import Icon from '../Icon.svelte';
   let { value, label = 'Copy answer' } = $props();
   let host;
   let message = $state('');
@@ -31,12 +32,7 @@
 
 <span class="copy" bind:this={host}>
   <button type="button" aria-label={label} title={label} onclick={copy}>
-    <!-- Lucide copy (ISC), bundled locally; notices ship in public/lucide-LICENSE.txt. -->
-    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-      stroke-linecap="round" stroke-linejoin="round" stroke-width="2" aria-hidden="true" focusable="false">
-      <rect width="14" height="14" x="8" y="8" rx="2" ry="2" />
-      <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
-    </svg>
+    <Icon name="copy" size={16} />
   </button>
   {#if message}<span class="feedback" role="status">{message}</span>{/if}
 </span>

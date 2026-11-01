@@ -33,9 +33,9 @@
 </Modal>
 
 <style>
-  label { display: block; margin: var(--space-3) 0; font-weight: 600; color: var(--title-ink); }
+  label { display: block; margin: var(--space-3) 0; font-weight: 600; color: var(--text-main); }
   .check { display: flex; align-items: flex-start; gap: var(--space-2); font-weight: 400; }
-  .muted { color: var(--color-text-muted); }
+  .muted { color: var(--text-muted); }
   .actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-4); }
   .actions button { margin: 0; }
 </style>

@@ -22,10 +22,10 @@
 </button>
 {#if error}<span class="error" role="alert">Image unavailable: {error}</span>{/if}
 <style>
-  .thumb { display: inline-grid; place-items: center; width: 4.5rem; height: 2.8rem; min-height: 0; margin: 0; padding: 0; overflow: hidden; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm); }
-  .thumb:hover:not(:disabled) { border-color: var(--brand); }
+  .thumb { display: inline-grid; place-items: center; width: 4.5rem; height: 2.8rem; min-height: 0; margin: 0; padding: 0; overflow: hidden; background: var(--bg-raised); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); }
+  .thumb:hover:not(:disabled) { background: var(--bg-raised); border-color: var(--action-primary); }
   img { display: block; width: 100%; height: 100%; object-fit: cover; }
-  .failed { color: var(--color-danger); font-weight: 700; }
-  .loading { color: var(--color-text-muted); }
-  .error { display: block; color: var(--color-danger); font-size: var(--text-sm); }
+  .failed { color: var(--alert-text); font-weight: 700; }
+  .loading { color: var(--text-muted); }
+  .error { display: block; margin: var(--space-1) 0 0; padding: .2rem .5rem; font-size: var(--text-sm); }
 </style>

@@ -9,7 +9,7 @@
   import Modal from './Modal.svelte';
   import ExamPreview from './ExamPreview.svelte';
   import Calculator from '../../../../shared/theme/calculator/Calculator.svelte';
-  import Icon from './Icon.svelte';
+  import Icon from '../../../../shared/theme/Icon.svelte';
 
   let { examID, preview = null, onClose } = $props();
 
@@ -75,8 +75,8 @@
   .toolbar { display: flex; justify-content: flex-start; margin: 0 0 var(--space-3); }
   .toolbar .tools { display: inline-flex; align-items: center; gap: var(--space-2); margin: 0; font-weight: 600; }
   .toolbar .tools :global(svg) { width: 1.25rem; height: 1.25rem; object-fit: contain; }
-  .toolbar .tools[aria-expanded='true'] { background: var(--sea); border-color: var(--sea-ink); color: var(--sea-ink); }
+  .toolbar .tools[aria-expanded='true'] { background: var(--selection-fill); border-color: var(--action-primary); color: var(--action-hover); box-shadow: inset 3px 0 0 var(--action-primary); }
   .content { min-width: 0; }
-  .muted { color: var(--color-text-muted); font-size: var(--text-sm); }
-  details summary { cursor: pointer; font-weight: 600; color: var(--brand-strong); margin: var(--space-2) 0; }
+  .muted { color: var(--text-muted); font-size: var(--text-sm); }
+  details summary { cursor: pointer; font-weight: 600; color: var(--action-hover); margin: var(--space-2) 0; }
 </style>
