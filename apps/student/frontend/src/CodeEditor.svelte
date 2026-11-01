@@ -1,15 +1,29 @@
 <script>
   import { onMount } from 'svelte';
-  import { basicSetup } from 'codemirror';
+  import { foldGutter, foldKeymap, indentOnInput, bracketMatching, syntaxHighlighting, HighlightStyle } from '@codemirror/language';
+  import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
+  import { searchKeymap, highlightSelectionMatches } from '@codemirror/search';
+  import { tags } from '@lezer/highlight';
+  import { loadLanguage } from './languages.js';
   import { Compartment, EditorState } from '@codemirror/state';
-  import { indentWithTab } from '@codemirror/commands';
-  import { EditorView, keymap } from '@codemirror/view';
+  import { indentWithTab, defaultKeymap, history, historyKeymap } from '@codemirror/commands';
+  import { EditorView, keymap, lineNumbers, highlightActiveLineGutter, highlightSpecialChars, drawSelection, dropCursor, rectangularSelection, crosshairCursor, highlightActiveLine } from '@codemirror/view';
 
-  // rows sets the visible height; language only names the language for screen readers, without highlighting.
+  // Highlighting only: never install autocompletion or its keymap in an exam.
   let { slotId, language = '', rows = 0, value, locked, onChange } = $props();
   let host;
   let editor = $state(null);
   const access = new Compartment();
+  const syntax = new Compartment();
+  const colors = HighlightStyle.define([
+    { tag: tags.keyword, color: 'var(--syntax-keyword)', fontWeight: 'bold' },
+    { tag: [tags.string, tags.character], color: 'var(--syntax-string)' },
+    { tag: [tags.number, tags.bool, tags.null], color: 'var(--syntax-number)' },
+    { tag: tags.comment, color: 'var(--syntax-comment)', fontStyle: 'italic' },
+    { tag: tags.variableName, color: 'var(--syntax-variable)' },
+    { tag: [tags.labelName, tags.function(tags.variableName)], color: 'var(--syntax-label)' },
+    { tag: [tags.typeName, tags.meta], color: 'var(--syntax-type)' },
+  ]);
   let synchronizing = false;
 
   onMount(() => {
@@ -18,8 +32,11 @@
     editor = new EditorView({
       parent: host,
       state: EditorState.create({ doc: value, extensions: [
-        basicSetup,
-        keymap.of([indentWithTab]),
+        lineNumbers(), highlightActiveLineGutter(), highlightSpecialChars(), history(), foldGutter(),
+        drawSelection(), dropCursor(), EditorState.allowMultipleSelections.of(true),
+        indentOnInput(), bracketMatching(), closeBrackets(), rectangularSelection(), crosshairCursor(),
+        highlightActiveLine(), highlightSelectionMatches(), syntaxHighlighting(colors), syntax.of([]),
+        keymap.of([indentWithTab, ...closeBracketsKeymap, ...defaultKeymap, ...searchKeymap, ...historyKeymap, ...foldKeymap]),
         EditorView.lineWrapping,
         EditorView.contentAttributes.of({ 'aria-label': label }),
         access.of([EditorState.readOnly.of(locked), EditorView.editable.of(!locked)]),
@@ -58,6 +75,10 @@
         }, { dark: false }),
       ] }),
     });
+    const mounted = editor;
+    // An editor may be destroyed during the import; never dispatch into its replacement.
+    loadLanguage(language).then(extension => { if (editor === mounted) mounted.dispatch({ effects: syntax.reconfigure(extension) }); })
+      .catch(() => { /* Plain text remains usable if a bundled parser cannot load. */ });
     const measure = () => editor?.requestMeasure();
     window.addEventListener('exam-text-size', measure);
     return () => { window.removeEventListener('exam-text-size', measure); editor.destroy(); editor = null; };

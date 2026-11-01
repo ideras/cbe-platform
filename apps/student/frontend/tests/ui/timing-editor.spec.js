@@ -1,7 +1,8 @@
 import { test, expect } from '@playwright/test';
 
-async function login(page) {
+async function login(page, setup) {
   await page.goto('/');
+  if (setup) await page.evaluate(setup);
   await page.getByLabel('I have read these rules').check();
   await page.getByLabel('Account number').fill('00123');
   await page.getByLabel('Exam PIN').fill('PIN');

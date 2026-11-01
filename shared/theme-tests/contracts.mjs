@@ -186,6 +186,8 @@ export function registerThemeTests() {
 
   test('every text pair the apps paint reaches 4.5:1', () => {
     const pairs = [
+      ...['syntax-keyword', 'syntax-string', 'syntax-number', 'syntax-comment', 'syntax-variable', 'syntax-label', 'syntax-type']
+        .flatMap(fg => ['bg-primary', 'paper', 'hover-fill'].map(bg => [fg, bg])),
       // Body text and headings on every ground; muted text where it is used (never on --bg-secondary, --selection-fill
       // or --warn-fill, where it falls under 4.5:1).
       ...['bg-primary', 'bg-raised', 'bg-secondary', 'selection-fill', 'hover-fill', 'warn-fill', 'ok-fill', 'alert-fill'].map(bg => ['text-main', bg]),

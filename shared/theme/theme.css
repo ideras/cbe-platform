@@ -31,6 +31,14 @@
   --alert: #cb4b16; --alert-fill: #fbefe6;
   --ok: #859900;    --ok-fill: #f6f6dc;    --ok-text: #4f5c00;
   --success-badge: #1d7a73;
+  /* Answer editor ink, all tested on resting, focused and active-line grounds. */
+  --syntax-keyword: var(--action-hover);
+  --syntax-string: var(--ok-text);
+  --syntax-number: var(--alert-text);
+  --syntax-comment: var(--text-muted);
+  --syntax-variable: var(--warn-text);
+  --syntax-label: var(--success-badge);
+  --syntax-type: var(--action-hover);
 
   /* Proctor sidebar */
   --side-bg: linear-gradient(180deg, #0a2342 0%, #061a3a 55%, #03045e 100%);

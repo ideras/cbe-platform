@@ -84,7 +84,7 @@ main:
 |---|---|---|
 | `title` | yes | The exam title, at most 512 bytes. |
 | `duration` | yes | Time per student, counted from their first login, as a Go duration in whole seconds: `80m`, `1h20m`, `90s`. A bare number like `90` is rejected. |
-| `grace` | no | Extra time after the deadline in which students can still save and submit, such as `2m` or `45s`. When omitted, the proctor's Settings (*Default grace period*, 30 s unless changed) apply. |
+| `grace` | no | Extra time after the deadline in which students can still save and submit, such as `2m` or `45s`. When omitted, the proctor's Settings (*Default grace period*, 30 s unless changed) apply. The proctor may extend grace for one student or the whole exam from the live roster; exam-wide extensions also apply to later logins. |
 | `min_volume` | no | The lowest system volume (0–100, a trailing `%` is accepted) the student application keeps during the exam; `0` leaves the student's volume alone. Default 80. |
 | `opens_at`, `closes_at` | no | The window in which students may **start** the exam, as RFC 3339 with an offset: `2026-10-20T08:00:00-06:00`. `opens_at` must be earlier than `closes_at`. A student who has already started can resume. |
 | `navigation` | no | `free` (default) or `forward_only`. See [Navigation](#navigation). |
@@ -160,6 +160,8 @@ scale_array:
 | `lang=mips` | Makes it a code answer edited in the code editor; the language is shown as a label. Short lowercase name: `c`, `mips`, `python`, `"c++"`, `"c#"` (the last two quoted). |
 | `kind=text` / `kind=code` | Sets the kind explicitly. Without `lang` or `kind` the field is a free-text box. `lang` with `kind=text` is an error. |
 | `lines=N` | Visible height, a whole number 1–100. Text boxes default to 6 lines. |
+
+Answer editors highlight C (`c`, `h`), C++ (`"c++"`, `cpp`, `cc`, `cxx`), Python (`python`, `py`), and MIPS32 (`mips`, `mips32`, `asm`, `s`). Names are mapped case-insensitively by the editor. Other languages remain labelled plain text. Highlighting offers no completion popup, hints, or linting; normal read-only code blocks are unchanged.
 
 The options go in braces after `answer`, separated by spaces: `{#code lang=c lines=20}` (`{id=code}` is an equivalent spelling of `#code`). Any other option is an error. Quote values that contain symbols: `lang="c++"`, `lang="c#"`.
 
