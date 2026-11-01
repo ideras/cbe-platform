@@ -9,7 +9,7 @@
   import PreviewDialog from './PreviewDialog.svelte';
   import { parseTime } from './dates.js';
   import { monitorExam } from './monitor.js';
-  import Icon from './Icon.svelte';
+  import Icon from '../../../../shared/theme/Icon.svelte';
   // The exams of one class, where the proctor prepares them: an exam is imported into a class and stays there, and publishing it
   // admits that class's students. Exam files are Markdown, compiled and checked in Go; this view shows the result and asks for
   // what the file leaves out: the PIN and whether students may go back to an exercise.

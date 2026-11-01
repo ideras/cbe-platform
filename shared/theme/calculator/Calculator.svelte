@@ -11,6 +11,7 @@
   import { calcMessage, calcHint } from './calc-messages.js';
   import CopyButton from './CopyButton.svelte';
   import Programmer from './Programmer.svelte';
+  import Icon from '../Icon.svelte';
 
   let { open = false, angleSetting = 'user', modes = ['scientific'], allowed = [], disabledNames = [], history = [], note = '', floating = false, api, onEvaluated, onClose } = $props();
   // floating renders the calculator as a non-modal dialog of the host window (owner decision 2026-10-23): its
@@ -218,8 +219,8 @@
       <div class="calc-head">
         <button type="button" class="calc-move" aria-label="Move calculator" title="Drag to move, or use the arrow keys when focused"
           onpointerdown={startDrag} onpointermove={moveDrag} onpointerup={() => drag = null}
-          onpointercancel={() => drag = null} onlostpointercapture={() => drag = null} onkeydown={moveKey}>⠿ Calculator</button>
-        <button type="button" class="calc-close" aria-label="Close the calculator" onclick={close}>✕</button>
+          onpointercancel={() => drag = null} onlostpointercapture={() => drag = null} onkeydown={moveKey}><Icon name="grip" size={16} />Calculator</button>
+        <button type="button" class="calc-close" aria-label="Close the calculator" onclick={close}><Icon name="close" size={18} /></button>
       </div>
       {#if panels.length > 1}
       <div class="calc-head">
@@ -289,7 +290,7 @@
         {/if}
         <div class="calc-actions">
           <button type="button" class="equals" onclick={evaluate} aria-label="Evaluate">=</button>
-          <button type="button" onclick={backspace} aria-label="Delete the last character">⌫</button>
+          <button type="button" onclick={backspace} aria-label="Delete the last character"><Icon name="backspace" size={18} /></button>
         </div>
       {:else if activeMode === 'programmer'}
         <Programmer {allowed} disabledNames={disabledNames} {api} {onEvaluated} />
@@ -329,7 +330,7 @@
   .calc-floating { position: fixed; top: 1rem; right: 1rem; width: min(30rem, 44vw); z-index: 60; box-shadow: var(--shadow-dialog); }
   .calc-backdrop { position: fixed; inset: 0; background: var(--backdrop); display: grid; place-items: center; z-index: 40; }
   .calc-modal { width: min(34rem, 94vw); max-height: 90vh; overflow-y: auto; padding: var(--space-3) var(--space-4); background: var(--bg-raised); border: 1px solid var(--border-subtle); border-radius: var(--radius); box-shadow: var(--shadow-raised); display: grid; gap: var(--space-2); }
-  .calc-move { flex: 1; margin: 0 var(--space-2) 0 0; padding: .15rem .4rem; text-align: left; cursor: grab; touch-action: none; user-select: none; }
+  .calc-move { display: inline-flex; align-items: center; gap: .35rem; flex: 1; margin: 0 var(--space-2) 0 0; padding: .15rem .4rem; text-align: left; cursor: grab; touch-action: none; user-select: none; }
   .calc-move:active { cursor: grabbing; }
   .calc-head { display: flex; align-items: center; justify-content: space-between; }
   .calc-tabs { display: inline-flex; gap: var(--space-1); }
@@ -337,7 +338,7 @@
   .calc-tabs button[aria-selected='true'] { background: var(--action-primary); border-color: var(--action-primary); color: var(--bg-primary); }
   .calc-angle { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--text-main); font-weight: 600; }
   .calc-angle button { margin: 0; padding: .1rem .5rem; font-size: var(--text-sm); }
-  .calc-close { margin: 0; padding: .1rem .55rem; }
+  .calc-close { display: inline-grid; place-items: center; margin: 0; padding: .1rem .45rem; }
   .calc-input { background: var(--bg-primary); font-family: var(--font-mono, monospace); font-size: 1.05rem; }
   .calc-output { display: flex; align-items: center; }
   .calc-result { flex: 1; min-width: 0; background: var(--bg-primary); min-height: 1.6rem; margin: 0; overflow-wrap: anywhere; }

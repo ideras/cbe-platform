@@ -18,7 +18,7 @@ test('theme roles apply to the actual class controls, inline icons, focus and ca
   await expect(page.getByRole('button', { name: 'Import exam…' })).toHaveCSS('background-color', ocean);
   const monitor = page.getByRole('button', { name: 'Monitor Databases midterm', exact: true });
   await expect(monitor).toHaveCSS('border-top-color', 'rgba(0, 0, 0, 0)');
-  await expect(monitor.locator('svg')).toHaveCSS('stroke', secondary);
+  await expect(monitor.locator('svg')).toHaveCSS('color', secondary);
   await monitor.hover();
   await expect(monitor).toHaveCSS('background-color', await token(page, 'hover-fill'));
   const door = page.getByRole('button', { name: 'Close admission to Databases midterm…' }).locator('svg');

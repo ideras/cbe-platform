@@ -9,6 +9,7 @@
   // read an integer; it never changes the displayed result, whose bits and readings stay put.
   import { tick } from 'svelte';
   import CopyButton from './CopyButton.svelte';
+  import Icon from '../Icon.svelte';
   import { calcMessage, programmerHint } from './calc-messages.js';
 
   let { allowed = [], disabledNames = [], api, onEvaluated } = $props();
@@ -357,7 +358,7 @@
           {:else}
             <button type="button" class="key" class:fn={key.name} class:sym={!key.digit && !key.name && !key.action} class:clear={key.action === 'clear'}
               aria-label={key.aria} aria-disabled={key.digit && !readable[base].includes(key.label) ? 'true' : undefined}
-              onclick={() => press(key)}>{key.label}</button>
+              onclick={() => press(key)}>{#if key.action === 'backspace'}<Icon name="backspace" size={18} />{:else}{key.label}{/if}</button>
           {/if}
         {/each}
         <button type="button" class="key equals" aria-label="Evaluate" onclick={evaluate}>=</button>

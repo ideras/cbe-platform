@@ -1,7 +1,7 @@
 <script>
   import * as api from '$proctor-api';
   import Modal from './Modal.svelte';
-  import Icon from './Icon.svelte';
+  import Icon from '../../../../shared/theme/Icon.svelte';
   import { message } from './errors.js';
   // Where the proctor says which server to use and which token file proves who they are. The token is read by the native
   // side and never reaches this window; only the file's name does.

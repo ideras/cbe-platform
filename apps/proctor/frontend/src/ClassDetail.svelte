@@ -6,7 +6,7 @@
   import RenameClassDialog from './RenameClassDialog.svelte';
   import ReplaceRosterDialog from './ReplaceRosterDialog.svelte';
   import Confirmation from './Confirmation.svelte';
-  import Icon from './Icon.svelte';
+  import Icon from '../../../../shared/theme/Icon.svelte';
   import { message } from './errors.js';
   // One class, in two tabs: its exams (the default) and its roster, which is loaded from the server. The exams are imported into
   // the class and stay there. The roster is read-only; it changes by replacing the whole file. The class can be renamed, and

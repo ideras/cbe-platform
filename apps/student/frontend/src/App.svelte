@@ -11,6 +11,7 @@
   import SoundStatus from './SoundStatus.svelte';
   import Toasts from './Toasts.svelte';
   import Card from '../../../../shared/theme/Card.svelte';
+  import Icon from '../../../../shared/theme/Icon.svelte';
   import brandLogo from './assets/cbe-portal-logo.svg';
   // Inlined as a data: URL on purpose: WebKitGTK cannot play media loaded through Wails' wails:// scheme (NotSupportedError).
   import alertURL from './assets/unfocus-alert.wav?inline';
@@ -256,7 +257,7 @@
           <span class="eyebrow">Before you start</span>
           <h2>Exam rules</h2>
         </div>
-        <Card title="During the exam" level={3}>
+        <Card title="During the exam" icon="clock" level={3}>
           <ul class="rule-list">
             <li><strong>Stay in this window until you submit.</strong> If you leave it for {alarmTime}, an alarm sounds until you come back.</li>
             <li><strong>While you are away, screenshots of all your screens are taken</strong>, including anything else open on them. Only your instructor sees them, and they are deleted after grading.</li>
@@ -274,7 +275,7 @@
           <img src={brandLogo} alt="Computer Based Evaluation desktop logo" width="310" height="295" />
           <span>CBE Portal</span>
         </div>
-        <Card label="Login" title="Login" tone="deep">
+        <Card label="Login" title="Login" icon="login" tone="deep">
           <form id="student-login" onsubmit={login}>
             <p class="login-intro">Start or resume your exam.</p>
             <label>Server address <input class="mono" bind:value={server} required disabled={busy} autocomplete="off" spellcheck="false" /></label>
@@ -292,7 +293,7 @@
     </div>
   {:else if view.phase === 'loading'}
     <div class="exam-main">
-      <Card title="Session started — exam not fully loaded" tone="warning">
+      <Card title="Session started — exam not fully loaded" icon="warning" tone="warning">
         <p>The server’s timer is running. Editing remains disabled until questions, saved answers and authoritative status are loaded.</p>
         <button class="primary" onclick={load} disabled={busy}>Retry loading exam</button>
       </Card>
@@ -306,10 +307,10 @@
   {:else}
     <div class="title-row">
       <h2 class="exam-title">{exam?.title || 'Exam finished'}</h2>
-      {#if calcAvailable}<button class="calc-open" bind:this={calcButton} onclick={openCalculator}>Calculator</button>{/if}
+      {#if calcAvailable}<button class="calc-open" bind:this={calcButton} onclick={openCalculator}><Icon name="calculator" size={18} />Calculator</button>{/if}
     </div>
     {#if view.phase === 'complete'}
-      <Card label="Submission closed" title="Submission closed" level={3} tone="success">
+      <Card label="Submission closed" title="Submission closed" icon="done" level={3} tone="success">
         <p>Server state: {view.final?.status || view.status?.status || 'submitted'}.</p>
         {#if view.final}<p>Selected final version: {view.final.version_seq}.</p>{/if}
         <p>Your exam is finished. Questions and answers are no longer shown.</p>
@@ -318,7 +319,7 @@
         <button class="primary" onclick={closeWindow}>Close exam window</button>
       </Card>
     {:else if view.status}
-      <Card label="Server timing" title="Server timing" level={3} tone="info">
+      <Card label="Server timing" title="Server timing" icon="clock" level={3} tone="info">
         <div class="timing">
           <p>{view.status.status === 'grace' ? 'Grace time remaining' : 'Remaining time'} (last server report): <strong>{remainingTime(view.status)}</strong>.</p>
           <p>State: {view.status.status}. Server report: {view.status.server_time}.</p>
@@ -338,7 +339,7 @@
         {#if view.unlock_note}<p role="status">{view.unlock_note}{view.added_seconds ? ` — ${addedTime(view.added_seconds)}` : ''}.</p>{/if}
         {#if view.submitting}<p role="status" class="callout pending">Submission awaiting server confirmation. Editing is locked; ambiguous failures retry the same snapshot.</p>{/if}
         {#if view.advancing}<p role="status" class="callout pending">Moving to the next exercise — waiting for the server to confirm. Editing is locked.</p>{/if}
-        {#if view.save_error || view.submit_error || view.advance_error || view.timing_stale || answerBridgeError}<button onclick={retry}>Retry connection / pending work</button>{/if}
+        {#if view.save_error || view.submit_error || view.advance_error || view.timing_stale || answerBridgeError}<button onclick={retry}><Icon name="refresh" size={18} />Retry connection / pending work</button>{/if}
         {#if exam && exercise}
           {#if exam.content.instructions}
             <details class="instructions" open>
@@ -409,7 +410,7 @@
   /* The exam's title bar is the mockups' navy header; the calculator button sits in it like the timer chip. */
   .title-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; margin-bottom: var(--space-3); padding: .65rem 1.1rem; background: var(--header-strong); border-radius: var(--radius-ctl); box-shadow: var(--shadow-raised); }
   .title-row .exam-title { margin: 0; color: var(--accent-cyan-soft); font-size: 1.25rem; font-weight: 700; overflow-wrap: anywhere; }
-  .title-row .calc-open { margin: 0; background: var(--chip-on-dark); border-color: var(--cyan-chip-border); border-radius: 999px; color: var(--on-dark); box-shadow: none; }
+  .title-row .calc-open { display: inline-flex; align-items: center; gap: .45rem; margin: 0; background: var(--chip-on-dark); border-color: var(--cyan-chip-border); border-radius: 999px; color: var(--on-dark); box-shadow: none; }
   .title-row .calc-open:hover:not(:disabled) { background: var(--side-active); border-color: var(--accent-cyan-soft); color: var(--on-dark); }
   .title-row .calc-open:focus-visible { outline-color: var(--accent-cyan-soft); }
 
@@ -440,7 +441,7 @@
   /* Exam: editor column plus status column */
   .exam-main { display: grid; gap: var(--space-3); min-width: 0; margin-top: var(--space-3); }
   .exam-main > :global(*) { margin-top: 0; margin-bottom: 0; }
-  .exam-main > button { justify-self: start; }
+  .exam-main > button { display: inline-flex; align-items: center; justify-content: center; gap: .45rem; justify-self: start; }
   .timing p { margin: var(--space-1) 0; color: var(--text-muted); font-size: var(--text-sm); }
   .timing p:first-child { color: var(--text-main); font-size: var(--text-base); }
   /* The remaining time is a monospace chip on the warm fill. */

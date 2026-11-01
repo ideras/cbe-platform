@@ -292,16 +292,23 @@ export function registerThemeTests() {
     assert.deepEqual(rawColors('color: var(--text-main); stroke="currentColor"; fill="none";'), []);
   });
 
-  test('Lucide action icons are local, inherit color and include the approved locked door', () => {
-    for (const name of ['monitoring-exam', 'preview-exam', 'publish-exam', 'close-admission', 'download-submissions', 'purge-screenshots', 'delete-exam', 'tools']) {
-      const svg = read(proctor(`icons/${name}.svg`));
-      assert(svg.includes('viewBox="0 0 24 24"'));
-      assert(svg.includes('stroke="currentColor"'));
-      assert(!/<(?:script|image|foreignObject)\b|\bon\w+=|href=/.test(svg), `Non-static SVG ${name}`);
+  test('bundled icons are local, take the text color, are licensed, and keep the approved locked door', () => {
+    const icons = readdirSync(resolve(root, 'shared/theme/icons')).filter(name => name.endsWith('.svg'));
+    assert(icons.length >= 30, 'the shared icon set');
+    for (const name of icons) {
+      const svg = read(`shared/theme/icons/${name}`);
+      assert(svg.includes('viewBox="0 0 24 24"'), `${name}: 24px grid`);
+      assert(svg.includes('currentColor'), `${name}: follows the text color`);
+      assert(!/<(?:script|image|foreignObject|style)\b|\bon\w+=|href=/.test(svg), `Non-static SVG ${name}`);
     }
-    const door = read(proctor('icons/close-admission.svg'));
-    assert(door.includes('<rect width="8" height="5" x="14" y="16" rx="1"/>'), 'Lucide door-closed-locked lock shape');
-    assert(read('apps/proctor/frontend/public/lucide-LICENSE.txt').includes('Copyright (c) 2013-present Cole Bemis'));
-    assert(read(proctor('Icon.svelte')).includes("'./icons/close-admission.svg?raw'"));
+    // Monitoring is Fluent's desktop pulse, closing admission Lucide's locked door (owner decisions); the rest are Tabler.
+    assert(read('shared/theme/icons/close-admission.svg').includes('<rect width="8" height="5" x="14" y="16" rx="1"/>'), 'Lucide door-closed-locked lock shape');
+    assert(read('shared/theme/icons/monitor.svg').includes('fill="currentColor"'), 'Fluent desktop pulse');
+    for (const app of ['proctor', 'student']) {
+      const license = read(`apps/${app}/frontend/public/icons-LICENSE.txt`);
+      for (const notice of ['Copyright (c) 2020-2026 Paweł Kuna', 'Copyright (c) 2020 Microsoft Corporation', 'Lucide Icons and Contributors']) assert(license.includes(notice), `${app}: ${notice}`);
+      for (const name of icons) assert(license.includes(`${name}: `), `${app}: no source listed for ${name}`);
+      assert(!/https?:\/\//.test(license), `${app}: the shipped license names its sources without links`);
+    }
   });
 }

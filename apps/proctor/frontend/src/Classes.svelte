@@ -1,6 +1,6 @@
 <script>
   import { untrack } from 'svelte';
-  import Icon from './Icon.svelte';
+  import Icon from '../../../../shared/theme/Icon.svelte';
   import ClassDetail from './ClassDetail.svelte';
   import AddClassDialog from './AddClassDialog.svelte';
   import { examLine } from './classes.js';

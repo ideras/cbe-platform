@@ -41,7 +41,7 @@ func TestEmbeddedFrontend(t *testing.T) {
 			}
 		}
 		// Attribution links in the bundled license are plain text, not remote assets.
-		if path != "lucide-LICENSE.txt" && (strings.Contains(text, "https://") || strings.Contains(text, "http://")) {
+		if path != "icons-LICENSE.txt" && (strings.Contains(text, "https://") || strings.Contains(text, "http://")) {
 			t.Errorf("%s contains an external resource", path)
 		}
 		return nil

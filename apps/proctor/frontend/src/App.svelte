@@ -7,7 +7,7 @@
   import AdmittingBar from './AdmittingBar.svelte';
   import ConnectionDialog from './ConnectionDialog.svelte';
   import CloseDialog from './CloseDialog.svelte';
-  import Icon from './Icon.svelte';
+  import Icon from '../../../../shared/theme/Icon.svelte';
 
   // The shell: it polls the native side for the dashboard's state and decides what is on screen. Classes (each with its exams) and
   // the "Now admitting" bar exist only while connected; everything else about a connection (address, token file, trying again)

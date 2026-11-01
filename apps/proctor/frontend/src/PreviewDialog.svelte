@@ -9,7 +9,7 @@
   import Modal from './Modal.svelte';
   import ExamPreview from './ExamPreview.svelte';
   import Calculator from '../../../../shared/theme/calculator/Calculator.svelte';
-  import Icon from './Icon.svelte';
+  import Icon from '../../../../shared/theme/Icon.svelte';
 
   let { examID, preview = null, onClose } = $props();
 

@@ -5,7 +5,7 @@
   let label = $derived([sound.volume_percent == null ? '' : `${sound.volume_percent}%`, sound.volume_muted ? 'muted' : ''].filter(Boolean).join(' · ') || 'not available');
 </script>
 
-<Card label="Sound volume" title="Sound volume" level={3} tone="info">
+<Card label="Sound volume" title="Sound volume" icon="volume" level={3} tone="info">
   <p class="level" aria-label="Current sound volume">Current volume: <strong>{label}</strong>{#if sound.volume_percent != null}<span class="volume-bar" class:muted={sound.volume_muted} aria-hidden="true"><span style:width="{Math.min(100, Math.max(0, sound.volume_percent))}%"></span></span>{/if}</p>
   <p>The alarm must be heard: after you log in, the app turns the volume up if needed and restores it when the exam ends.</p>
 </Card>

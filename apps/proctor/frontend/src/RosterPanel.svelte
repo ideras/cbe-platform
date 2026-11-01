@@ -1,6 +1,6 @@
 <script>
   import Panel from './Panel.svelte';
-  import Icon from './Icon.svelte';
+  import Icon from '../../../../shared/theme/Icon.svelte';
   // The roster of one class as a table of account number and full name. It is read-only in this version: `tools` is the place
   // where actions that change a roster (add, edit, remove, import, sync) will go, so they can be added without redesigning the panel.
   let { roster, loading = false, problem = '', readonly = true, tools, onReload } = $props();

@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import Icon from './Icon.svelte';
+  import Icon from '../../../../shared/theme/Icon.svelte';
   // A modal dialog with a title, a close button and a body. While `busy` it cannot be dismissed, so an action in flight
   // is never abandoned by accident. Focus returns to whatever opened it.
   let { title, titleId = 'modal-title', tone = '', busy = false, onClose, children, width = '34rem' } = $props();

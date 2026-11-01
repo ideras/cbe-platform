@@ -22,7 +22,7 @@
   });
 </script>
 
-<Card label="Exam locked" title="Your exam is locked" level={2} tone="warning">
+<Card label="Exam locked" title="Your exam is locked" icon="lock" level={2} tone="warning">
   {#if reason}<p>{reason}</p>{/if}
   <p><strong>Call your instructor. The exam time keeps running.</strong></p>
   <p>{status?.status === 'grace' ? 'Grace time remaining' : 'Remaining time'} (last server report): <strong class="time">{remainingTime(status)}</strong>.</p>

@@ -1,7 +1,7 @@
 <script>
   import * as api from '$proctor-api';
   import Modal from './Modal.svelte';
-  import Icon from './Icon.svelte';
+  import Icon from '../../../../shared/theme/Icon.svelte';
   import { message } from './errors.js';
   // Replacing a roster means a new file takes the place of the whole list. The server compares the file with the class first;
   // students who are not in it lose their place in the class, and nothing changes until the proctor confirms.

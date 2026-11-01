@@ -1,5 +1,5 @@
 <script>
-  import Icon from './Icon.svelte';
+  import Icon from '../../../../shared/theme/Icon.svelte';
   // The navigation rail. Server connection and Close always work; Classes needs a connection and is really disabled (not just
   // dimmed) while there is none. Exams are reached through the class they belong to. `connection` is idle | connecting |
   // connected | lost | failed.

@@ -1,7 +1,7 @@
 <script>
   import * as api from '$proctor-api';
   import Modal from './Modal.svelte';
-  import Icon from './Icon.svelte';
+  import Icon from '../../../../shared/theme/Icon.svelte';
   import { message } from './errors.js';
   // Adding a class takes its roster file, which the server checks before anything is stored, and a name. The file is read by the
   // native side; this window only sees what the server made of it.

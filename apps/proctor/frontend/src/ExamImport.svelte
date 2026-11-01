@@ -1,7 +1,7 @@
 <script>
   // Presentation only: the class view retains the preview lifecycle, PIN and import callbacks.
   import PreviewDialog from './PreviewDialog.svelte';
-  import Icon from './Icon.svelte';
+  import Icon from '../../../../shared/theme/Icon.svelte';
 
   let {
     preview, className, contents, duration, grace, calculator, logins,
@@ -19,7 +19,7 @@
       <h3 id="{id}-file-title">Exam file</h3>
       <span class="file-chip" title={preview.file}>{preview.file}</span>
       {#if preview.valid}
-        <span class="validated"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>Validated</span>
+        <span class="validated"><Icon name="check" size={12} />Validated</span>
       {/if}
     </header>
     <div class="card-body">
@@ -55,13 +55,7 @@
         <div class="input-wrap">
           <input id="{id}-pin" type={showPin ? 'text' : 'password'} bind:value={pin} required autocomplete="off" spellcheck="false" maxlength="256" aria-describedby="{id}-pin-hint" />
           <button type="button" class="icon-btn" onclick={() => showPin = !showPin} aria-label={showPin ? 'Hide PIN' : 'Show PIN'} aria-pressed={showPin} title={showPin ? 'Hide PIN' : 'Show PIN'}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              {#if showPin}
-                <path d="M17.9 17.9A10.1 10.1 0 0 1 12 19c-6.4 0-10-7-10-7a18 18 0 0 1 4.1-4.9M9.9 5.2A9.7 9.7 0 0 1 12 5c6.4 0 10 7 10 7a18 18 0 0 1-2.2 3.2M1 1l22 22M9.9 9.9a3 3 0 0 0 4.2 4.2" />
-              {:else}
-                <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z" /><circle cx="12" cy="12" r="3" />
-              {/if}
-            </svg>
+            <Icon name={showPin ? 'eyeOff' : 'eye'} size={18} />
           </button>
         </div>
         <label class="check" for="{id}-forward">
@@ -69,7 +63,7 @@
           <span><strong>Students cannot go back to an exercise once they move on</strong><small id="{id}-forward-hint">Applies to everyone and cannot be changed after the exam is published.</small></span>
         </label>
         <div class="note" role="note">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" /></svg>
+          <Icon name="info" size={16} />
           <span>Importing stores the exam in <strong>{className}</strong>. Students cannot log in until you publish it.</span>
         </div>
         <div class="actions">
@@ -117,7 +111,7 @@
   .check strong { display: block; font-size: 14px; font-weight: 600; }
   .check input:checked ~ span small { color: var(--alert-text); font-weight: 600; }
   .note { margin-top: 12px; padding: 7px 12px; background: var(--bg-secondary); color: var(--text-main); border-radius: 10px; font-size: 13px; line-height: 1.35; display: flex; gap: 8px; }
-  .note svg { flex: none; margin-top: 1px; color: var(--text-muted); }
+  .note :global(svg) { flex: none; margin-top: 0; color: var(--text-muted); }
   .actions { margin-top: 14px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .primary { background: var(--action-primary); color: var(--bg-primary); border-color: var(--action-primary); box-shadow: var(--shadow-action); }
   .primary:hover:not(:disabled) { background: var(--action-hover); border-color: var(--action-hover); color: var(--bg-primary); box-shadow: var(--shadow-action-hover); }

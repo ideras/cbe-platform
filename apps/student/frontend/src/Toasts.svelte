@@ -1,5 +1,6 @@
 <script>
   import { onMount } from 'svelte';
+  import Icon from '../../../../shared/theme/Icon.svelte';
   // The stack of notifications. It is fixed to the window, so a message is seen wherever the page is scrolled, and it never
   // takes the focus. Time stands still while the pointer or the keyboard is on a toast and while the window is not the
   // active one. Alt+Shift+N moves the keyboard here from anywhere, the calculator included; Escape goes back.
@@ -63,9 +64,9 @@
   onfocusin={() => focusInside = true} onfocusout={event => { if (!host.contains(event.relatedTarget)) { focusInside = false; entered = false; } }}>
   {#each toasts as toast (toast.id)}
     <div class="toast {toast.kind}" role={toast.kind === 'error' ? 'alert' : 'status'}>
-      <span class="icon" aria-hidden="true">{toast.kind === 'error' ? '!' : toast.kind === 'info' ? 'i' : '!'}</span>
+      <span class="icon" aria-hidden="true"><Icon name={toast.kind === 'error' ? 'error' : toast.kind === 'info' ? 'info' : 'warning'} size={16} /></span>
       <p>{toast.text}</p>
-      <button type="button" class="close" aria-label={label(toast)} onclick={() => dismiss(toast)}><span aria-hidden="true">×</span></button>
+      <button type="button" class="close" aria-label={label(toast)} onclick={() => dismiss(toast)}><Icon name="close" size={18} /></button>
     </div>
   {/each}
 </div>
@@ -76,13 +77,13 @@
   /* A raised card with a status edge: warn by default, alert for errors, blue for information. */
   .toast { pointer-events: auto; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: var(--space-2);
     padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3); background: var(--bg-raised); color: var(--text-main);
-    border: 1px solid var(--border-subtle); border-left: 5px solid var(--warn); border-radius: var(--radius-ctl); box-shadow: var(--shadow-dialog); }
+    border: 1px solid var(--border-subtle); border-left: 5px solid var(--warn); border-radius: var(--radius-ctl); box-shadow: var(--shadow-raised); }
   .toast.error { border-left-color: var(--alert); }
   .toast.info { border-left-color: var(--action-primary); }
-  .icon { display: grid; place-items: center; flex: none; width: 1.4rem; height: 1.4rem; margin-top: .1rem; border-radius: 50%; background: var(--warn-fill); color: var(--warn-text); font-weight: 700; font-size: var(--text-sm); }
+  .icon { display: grid; place-items: center; flex: none; width: 1.6rem; height: 1.6rem; margin-top: 0; border-radius: 50%; background: var(--warn-fill); color: var(--warn-text); }
   .error .icon { background: var(--alert-fill); color: var(--alert-text); }
   .info .icon { background: var(--selection-fill); color: var(--action-hover); }
   p { margin: 0; padding-top: .1rem; overflow-wrap: anywhere; line-height: 1.4; }
-  .close { margin: 0; min-width: 2rem; min-height: 2rem; padding: 0 var(--space-2); line-height: 1; font-size: 1.25rem; background: var(--transparent); border-color: var(--transparent); color: var(--text-muted); }
+  .close { margin: 0; min-width: 2rem; min-height: 2rem; padding: 0 var(--space-2); line-height: 1; background: var(--transparent); border-color: var(--transparent); color: var(--text-muted); }
   @media (max-width: 720px) { .toasts { right: var(--space-2); left: var(--space-2); bottom: var(--space-2); width: auto; } }
 </style>
