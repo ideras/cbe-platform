@@ -38,18 +38,18 @@
   .rich :global(> :first-child) { margin-top: 0; }
   .rich :global(> :last-child) { margin-bottom: 0; }
   .rich :global(pre) {
-    margin: var(--space-3) 0; padding: var(--space-3); overflow: auto; background: var(--transparent); border: 1px solid var(--color-border-soft);
-    border: 1px solid var(--color-border-soft); border-radius: var(--radius-sm); font-size: var(--text-sm); line-height: 1.45;
+    margin: var(--space-3) 0; padding: var(--space-3); overflow: auto; background: var(--bg-primary);
+    border: 1px solid var(--border-subtle); border-radius: var(--radius-ctl); font-size: var(--text-sm); line-height: 1.45;
   }
   .rich :global(code) { font-family: var(--font-mono); font-size: .92em; }
-  .rich :global(:not(pre) > code) { padding: .05rem .3rem; background: var(--color-surface-sunken); border-radius: var(--radius-sm); }
+  .rich :global(:not(pre) > code) { padding: .05rem .35rem; background: var(--bg-secondary); border-radius: var(--radius-sm); }
   .rich :global(table) { margin: var(--space-3) 0; border-collapse: collapse; max-width: 100%; }
-  .rich :global(th), .rich :global(td) { padding: .35rem .7rem; border: 1px solid var(--color-border); vertical-align: middle; }
-  .rich :global(th) { background: var(--transparent); color: var(--color-heading); text-align: left; }
+  .rich :global(th), .rich :global(td) { padding: .35rem .7rem; border: 1px solid var(--border-subtle); vertical-align: middle; }
+  .rich :global(th) { background: var(--bg-secondary); color: var(--text-main); text-align: left; }
   .rich :global(th[align="center"]), .rich :global(td[align="center"]) { text-align: center; }
   .rich :global(th[align="right"]), .rich :global(td[align="right"]) { text-align: right; }
-  .rich :global(blockquote) { margin: var(--space-3) 0; padding-left: var(--space-3); border-left: 3px solid var(--color-border); color: var(--color-text-muted); }
+  .rich :global(blockquote) { margin: var(--space-3) 0; padding-left: var(--space-3); border-left: 3px solid var(--accent-cyan-soft); color: var(--text-muted); }
   .rich :global(li + li) { margin-top: var(--space-1); }
   .rich :global(div.slot) { display: block; }
-  .rich :global(img) { display: block; max-width: 100%; height: auto; margin: .75rem auto; background: var(--color-figure-bg); -webkit-user-drag: none; user-select: none; }
+  .rich :global(img) { display: block; max-width: 100%; height: auto; margin: .75rem auto; background: var(--figure-bg); -webkit-user-drag: none; user-select: none; }
 </style>

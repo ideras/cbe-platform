@@ -19,8 +19,9 @@
 </Card>
 
 <style>
-  .points { margin-left: var(--space-2); padding: .05rem .5rem; border-radius: 999px; background: var(--transparent); border: 1px solid var(--line-strong); color: var(--ink); font-size: var(--text-sm); font-weight: 600; white-space: nowrap; }
-  .item { margin-top: var(--space-4); padding-top: var(--space-3); border-top: 1px solid var(--color-border-soft); }
-  .item h4 { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2); margin: 0 0 var(--space-2); color: var(--color-heading); font-size: var(--text-base); }
-  .item h4 .points { margin-left: 0; background: var(--transparent); color: var(--color-accent); }
+  /* Points: a chip on the exercise's navy header, a light-blue label beside an item's title. */
+  .points { margin-left: var(--space-2); padding: .05rem .6rem; border-radius: 999px; background: var(--chip-on-dark); border: 1px solid var(--cyan-chip-border); color: var(--on-dark); font-family: var(--font-mono); font-size: var(--text-sm); font-weight: 600; white-space: nowrap; }
+  .item { margin-top: var(--space-4); padding-top: var(--space-3); border-top: 1px solid var(--border-subtle); }
+  .item h4 { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2); margin: 0 0 var(--space-2); color: var(--text-main); font-size: var(--text-base); }
+  .item h4 .points { margin-left: 0; padding: .1rem .6rem; background: var(--selection-fill); border-color: var(--transparent); color: var(--action-hover); font-family: inherit; font-size: .75rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
 </style>

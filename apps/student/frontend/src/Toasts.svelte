@@ -73,15 +73,16 @@
 <style>
   .toasts { position: fixed; z-index: 100; right: var(--space-3); bottom: var(--space-3); display: flex; flex-direction: column; gap: var(--space-2);
     width: min(26rem, calc(100vw - 2 * var(--space-3))); max-height: calc(100vh - 2 * var(--space-3)); overflow-y: auto; pointer-events: none; }
+  /* A raised card with a status edge: warn by default, alert for errors, blue for information. */
   .toast { pointer-events: auto; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: var(--space-2);
-    padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3); background: var(--color-surface); color: var(--color-text);
-    border: 1px solid var(--color-border); border-left: 5px solid var(--color-warning-border); border-radius: var(--radius-md); box-shadow: var(--shadow-dialog); }
-  .toast.error { border-left-color: var(--color-danger); }
-  .toast.info { border-left-color: var(--color-success); }
-  .icon { display: grid; place-items: center; flex: none; width: 1.4rem; height: 1.4rem; margin-top: .1rem; border-radius: 50%; background: var(--color-warning-bg); color: var(--color-warning); font-weight: 700; font-size: var(--text-sm); }
-  .error .icon { background: var(--color-danger-bg); color: var(--color-danger); }
-  .info .icon { background: var(--color-success-bg); color: var(--color-success); }
+    padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3); background: var(--bg-raised); color: var(--text-main);
+    border: 1px solid var(--border-subtle); border-left: 5px solid var(--warn); border-radius: var(--radius-ctl); box-shadow: var(--shadow-dialog); }
+  .toast.error { border-left-color: var(--alert); }
+  .toast.info { border-left-color: var(--action-primary); }
+  .icon { display: grid; place-items: center; flex: none; width: 1.4rem; height: 1.4rem; margin-top: .1rem; border-radius: 50%; background: var(--warn-fill); color: var(--warn-text); font-weight: 700; font-size: var(--text-sm); }
+  .error .icon { background: var(--alert-fill); color: var(--alert-text); }
+  .info .icon { background: var(--selection-fill); color: var(--action-hover); }
   p { margin: 0; padding-top: .1rem; overflow-wrap: anywhere; line-height: 1.4; }
-  .close { margin: 0; min-width: 2rem; min-height: 2rem; padding: 0 var(--space-2); line-height: 1; font-size: 1.25rem; }
+  .close { margin: 0; min-width: 2rem; min-height: 2rem; padding: 0 var(--space-2); line-height: 1; font-size: 1.25rem; background: var(--transparent); border-color: var(--transparent); color: var(--text-muted); }
   @media (max-width: 720px) { .toasts { right: var(--space-2); left: var(--space-2); bottom: var(--space-2); width: auto; } }
 </style>

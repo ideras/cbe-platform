@@ -69,7 +69,6 @@
   --focus-halo-strong: rgba(0, 180, 216, 0.35);
   --alert-halo: rgba(203, 75, 22, 0.2);
   --spinner-track: rgba(0, 119, 182, 0.25);
-  --minimum-marker: rgba(10, 35, 66, 0.45);
   --canvas-wash: radial-gradient(circle at 100% 0%, rgba(0, 180, 216, 0.06), transparent 40%);
 
   /* Gradients of the component patterns. */
@@ -192,34 +191,6 @@ input:not([type="checkbox"]):not([type="radio"]):focus-visible, textarea:focus-v
   border: 2px solid var(--spinner-track); border-top-color: var(--action-primary); border-radius: 50%; animation: theme-spin .8s linear infinite;
 }
 @keyframes theme-spin { to { transform: rotate(360deg); } }
-
-/* TRANSITIONAL: the previous theme's names, pointed at the new palette so components not yet migrated keep
- * rendering. Removed once every component names the palette directly. */
-:root {
-  --page: var(--bg-primary); --surface: var(--bg-raised); --hover: var(--hover-fill); --ink: var(--text-main); --ink-2: var(--text-muted);
-  --line: var(--border-subtle); --line-strong: var(--control-border); --ocean: var(--action-primary); --ocean-strong: var(--action-hover);
-  --sea: var(--hover-fill); --sea-ink: var(--action-hover); --sand: var(--warn-fill); --sand-ink: var(--warn-text);
-  --coral: var(--alert-text); --coral-tint: var(--alert-fill); --ok-on-dark: var(--ok);
-  --sidebar: var(--text-main); --sidebar-ink: var(--side-text); --sidebar-ink-2: var(--side-text-dim); --sidebar-raised: var(--side-active);
-  --ground: var(--bg-secondary); --ground-hover: var(--selection-fill); --muted: var(--text-muted); --border: var(--border-subtle);
-  --card: var(--bg-raised); --disabled-ink: var(--muted-dot); --header-divider: var(--cyan-border);
-  --color-page: var(--bg-primary); --color-surface: var(--bg-raised); --color-surface-tint: var(--hover-fill); --color-surface-sunken: var(--bg-primary);
-  --color-border: var(--border-subtle); --color-border-soft: var(--border-subtle); --color-control-bg: var(--bg-primary); --color-control-border: var(--control-border);
-  --color-text: var(--text-main); --color-text-muted: var(--text-muted); --color-heading: var(--text-main); --color-accent: var(--action-hover);
-  --color-on-dark: var(--on-dark); --color-on-dark-muted: var(--side-text); --color-placeholder: var(--text-muted);
-  --color-danger: var(--alert-text); --color-danger-strong: var(--alert-text); --color-danger-bg: var(--alert-fill);
-  --color-success: var(--ok-text); --color-success-bg: var(--ok-fill);
-  --color-warning: var(--warn-text); --color-warning-bg: var(--warn-fill); --color-warning-border: var(--warn); --color-warning-band: var(--warn-fill);
-  --color-focus: var(--alert-text); --color-focus-bg: var(--alert-fill); --color-focus-border: var(--alert);
-  --color-figure-bg: var(--figure-bg); --color-disabled-bg: var(--bg-secondary); --color-disabled-border: var(--border-subtle); --color-disabled-text: var(--text-muted);
-  --brand: var(--text-muted); --brand-strong: var(--action-hover); --brand-soft: var(--hover-fill);
-  --nav-active: var(--side-active); --nav-accent: var(--accent-cyan-soft); --nav-text: var(--side-text); --nav-muted: var(--side-text-dim);
-  --page-bg: var(--bg-primary); --panel-border: var(--border-subtle); --title-ink: var(--text-main);
-  --panel-shadow: var(--shadow-card); --shadow-search: var(--shadow-card); --pressed: var(--hover-fill); --selected: var(--selection-fill);
-  --current-halo: var(--focus-halo-strong); --backdrop-dialog: var(--backdrop); --backdrop-confirm: var(--backdrop); --backdrop-calculator: var(--backdrop);
-  --sidebar-status: var(--side-hover); --sidebar-dot-halo: var(--ok-glow); --status-dot-halo: var(--ok-glow);
-  --focus-ring: 2px solid var(--action-primary);
-}
 
 @media (pointer: coarse) { :root { --ui-control-height: 2.6rem; --control-h: 36px; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }

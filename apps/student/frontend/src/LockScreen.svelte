@@ -25,7 +25,12 @@
 <Card label="Exam locked" title="Your exam is locked" level={2} tone="warning">
   {#if reason}<p>{reason}</p>{/if}
   <p><strong>Call your instructor. The exam time keeps running.</strong></p>
-  <p>{status?.status === 'grace' ? 'Grace time remaining' : 'Remaining time'} (last server report): <strong>{remainingTime(status)}</strong>.</p>
+  <p>{status?.status === 'grace' ? 'Grace time remaining' : 'Remaining time'} (last server report): <strong class="time">{remainingTime(status)}</strong>.</p>
   {#if timingStale}<p role="alert">Timing stale / disconnected — waiting for a current server report.</p>{/if}
   <p>No questions are shown while the exam is locked. Your unsaved answers are kept and sent once your instructor unlocks the exam.</p>
 </Card>
+
+<style>
+  /* The remaining time is a monospace chip on the warm fill, as everywhere else. */
+  .time { display: inline-block; padding: 0 .45rem; font-family: var(--font-mono); color: var(--warn-text); background: var(--warn-fill); border: 1px solid var(--warn-border); border-radius: 5px; }
+</style>

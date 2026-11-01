@@ -145,6 +145,20 @@ const selectorChecks = [
   [proctor('ExamImport.svelte'), '.duration', 'background', 'var(--warn-fill)'],
   [proctor('DownloadDialog.svelte'), '.progress .bar', 'background', 'var(--bar-fill)'],
   [proctor('ConnectionDialog.svelte'), '.spinner', 'border-top-color', 'var(--action-primary)'],
+  // Student application
+  [student('App.svelte'), '.title-row', 'background', 'var(--header-strong)'],
+  [student('App.svelte'), '.title-row .exam-title', 'color', 'var(--accent-cyan-soft)'],
+  [student('App.svelte'), '.rule-list li::before', 'background', 'var(--action-primary)'],
+  [student('App.svelte'), '.rule-list li.critical', 'background', 'var(--alert-fill)'],
+  [student('App.svelte'), '.accept', 'border-left', '5px solid var(--warn)'],
+  [student('App.svelte'), '.accept:has(input:checked)', 'background', 'var(--ok-fill)'],
+  [student('App.svelte'), '.timing p:first-child strong', 'background', 'var(--warn-fill)'],
+  [student('App.svelte'), 'nav button[aria-current]', 'background', 'var(--action-hover)'],
+  [student('CodeEditor.svelte'), '.editor:focus-within', 'border-color', 'var(--action-primary)'],
+  [student('SoundStatus.svelte'), '.volume-bar', 'background', 'var(--bg-secondary)'],
+  [student('SoundStatus.svelte'), '.volume-bar span', 'background', 'var(--bar-fill)'],
+  [student('Toasts.svelte'), '.toast.error', 'border-left-color', 'var(--alert)'],
+  [student('ConfirmDialog.svelte'), 'dialog', 'border-top', '5px solid var(--warn)'],
 ];
 
 export function registerThemeTests() {
@@ -270,6 +284,7 @@ export function registerThemeTests() {
       }
     }
     assert.deepEqual([...new Set(failures)], []);
+    assert(!/TRANSITIONAL|--(?:ink|ink-2|sea|sea-ink|sand|sand-ink|coral|coral-tint|surface|ocean|ocean-strong|page|line|brand|title-ink)(?![\w-])/.test(uncomment(theme)), 'The previous theme’s token names are gone');
   });
 
   test('the raw-color guard catches fallback, functional, named and SVG paints', () => {
