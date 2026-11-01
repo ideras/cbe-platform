@@ -10,6 +10,8 @@ CBE Portal is a computer-based examination platform for supervised exams on an i
 | Student app | Student login, exam exercises, autosaving, submission, exam-enabled calculators, focus monitoring and screen capture | `apps/student` |
 | Proctor dashboard | Class and roster management, Markdown exam import, admission, session monitoring, locks, submission review and downloads | `apps/proctor` |
 
+For grace extensions, class-wide end times and their effect on late arrivals, see [Managing exam time](docs/exam-timing.md).
+
 The student app and proctor dashboard are native desktop applications. Each embeds its frontend and communicates with the server through Go services exposed by Wails.
 
 ## Development stack

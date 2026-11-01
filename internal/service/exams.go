@@ -122,6 +122,7 @@ func (s *Exams) Create(ctx context.Context, classID string, input CreateExamInpu
 // ExamDetail is what the proctor reads to render students' submissions: the exam's content and, when it was stored, the
 // Markdown source. It never carries the PIN.
 type ExamDetail struct {
+	EndsAt     *time.Time        `json:"ends_at"`
 	ExamID     string            `json:"exam_id"`
 	Title      string            `json:"title"`
 	ClassID    string            `json:"class_id"`
@@ -142,7 +143,7 @@ func (s *Exams) Detail(ctx context.Context, examID string) (ExamDetail, error) {
 	if err != nil {
 		return ExamDetail{}, err
 	}
-	entry := ExamDetail{ExamID: detail.ID, Title: detail.Title, ClassID: detail.ClassID, ClassName: detail.ClassName, Navigation: detail.Navigation, Content: detail.Content, SourceMarkdown: detail.SourceMarkdown}
+	entry := ExamDetail{ExamID: detail.ID, EndsAt: detail.EndsAt, Title: detail.Title, ClassID: detail.ClassID, ClassName: detail.ClassName, Navigation: detail.Navigation, Content: detail.Content, SourceMarkdown: detail.SourceMarkdown}
 	if detail.Tools != nil && detail.Tools.On() {
 		effective := detail.Tools.Effective()
 		entry.Tools = &effective

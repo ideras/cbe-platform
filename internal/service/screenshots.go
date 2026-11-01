@@ -163,7 +163,7 @@ func (s *Screenshots) eligible(ctx context.Context, tx ScreenshotTransaction, to
 	if detail.Unconfirmed || session.LastSeen == nil {
 		return session, ErrScreenshotIneligible
 	}
-	effective := session.GraceUntil
+	_, effective := session.EffectiveTimes()
 	if session.SubmittedAt != nil && session.SubmittedAt.Before(effective) {
 		effective = *session.SubmittedAt
 	}

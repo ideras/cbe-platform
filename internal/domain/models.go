@@ -168,6 +168,7 @@ type Exam struct {
 // ExamDetail is one exam as the proctor reads it to render students' submissions: its content and, when stored, the
 // Markdown it was written in.
 type ExamDetail struct {
+	EndsAt     *time.Time
 	ID         string
 	ClassID    string
 	ClassName  string

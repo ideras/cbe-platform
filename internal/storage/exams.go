@@ -119,10 +119,10 @@ func (s *Store) Exam(ctx context.Context, id string) (domain.Exam, error) {
 func (s *Store) ExamDetail(ctx context.Context, id string) (domain.ExamDetail, error) {
 	var detail domain.ExamDetail
 	var content string
-	var source, tools sql.NullString
-	err := s.db.QueryRowContext(ctx, `SELECT e.exam_id, e.class_id, c.name, e.title, e.navigation, json(e.content_json), e.source_markdown, e.tools_json
+	var source, tools, ends sql.NullString
+	err := s.db.QueryRowContext(ctx, `SELECT e.exam_id, e.class_id, c.name, e.title, e.navigation, json(e.content_json), e.source_markdown, e.tools_json, e.ends_at
 		FROM exams e JOIN classes c ON c.class_id = e.class_id WHERE e.exam_id = ?`, id).
-		Scan(&detail.ID, &detail.ClassID, &detail.ClassName, &detail.Title, &detail.Navigation, &content, &source, &tools)
+		Scan(&detail.ID, &detail.ClassID, &detail.ClassName, &detail.Title, &detail.Navigation, &content, &source, &tools, &ends)
 	if errors.Is(err, sql.ErrNoRows) {
 		return detail, domain.ErrNotFound
 	}
@@ -137,6 +137,9 @@ func (s *Store) ExamDetail(ctx context.Context, id string) (domain.ExamDetail, e
 		if err := json.Unmarshal([]byte(tools.String), detail.Tools); err != nil {
 			return detail, fmt.Errorf("decode exam tools: %w", err)
 		}
+	}
+	if detail.EndsAt, err = nullableTime(ends); err != nil {
+		return detail, err
 	}
 	if source.Valid {
 		detail.SourceMarkdown = &source.String

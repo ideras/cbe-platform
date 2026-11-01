@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"time"
@@ -20,18 +21,23 @@ type TimingAPI interface {
 func endTimeHandler(api TimingAPI, logger *slog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		input, ok := decodeBody[struct {
-			EndsAt *time.Time `json:"ends_at"`
+			EndsAt json.RawMessage `json:"ends_at"`
 		}](w, r, 1024)
 		if !ok {
 			return
 		}
-		if err := api.SetEndTime(r.Context(), r.PathValue("id"), input.EndsAt); err != nil {
+		var end *time.Time
+		if len(input.EndsAt) == 0 || json.Unmarshal(input.EndsAt, &end) != nil {
+			writeError(w, http.StatusBadRequest, "ends_at must be an RFC 3339 timestamp or null")
+			return
+		}
+		if err := api.SetEndTime(r.Context(), r.PathValue("id"), end); err != nil {
 			serviceError(w, logger, "change end time", err)
 			return
 		}
 		writeJSON(w, http.StatusOK, struct {
 			EndsAt *time.Time `json:"ends_at"`
-		}{input.EndsAt})
+		}{end})
 	}
 }
 func extendGraceHandler(api TimingAPI, logger *slog.Logger, everyone bool) http.HandlerFunc {

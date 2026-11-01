@@ -216,6 +216,7 @@ window.__studentHarness = {
   releaseLoginCapture() { releaseLoginCapture(); },
   get loginRequests() { return loginRequests; },
   soundNotice(value) { state.sound_notice = value; },
+  timeNotices(value) { state.time_notices = value; },
   get closeCalls() { return closeCalls; },
   get answers() { return { ...answers }; }, get submitted() { return captured; },
   offline(value) { offline = value; state.timing_stale = value; state.status_error = value ? 'Server unavailable.' : ''; if (!value) { state.save_error = ''; acknowledge(); } },
@@ -228,7 +229,7 @@ window.__studentHarness = {
   get exercise() { return state.exercise; },
   holdAdvance(value) { holdAdvance = value; },
   releaseAdvance() { finishAdvance(); },
-  status(value) { state.status = { ...status, ...value }; if (['submitted', 'force_submitted'].includes(value.status)) state.phase = 'complete'; },
+  status(value) { state.status_observation = (state.status_observation || 0) + 1; state.status = { ...status, ...value }; if (['submitted', 'force_submitted'].includes(value.status)) state.phase = 'complete'; },
 };
 function acknowledge() {
   if (offline || state.submitting) return;

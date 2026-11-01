@@ -11,6 +11,13 @@ type TimeNotice struct {
 	EndsAt       *time.Time `json:"ends_at"`
 }
 
+func ownTimes(status Status) (time.Time, time.Time) {
+	if !status.OwnDeadlineAt.IsZero() && !status.OwnGraceUntil.IsZero() {
+		return status.OwnDeadlineAt, status.OwnGraceUntil
+	}
+	return status.DeadlineAt, status.GraceUntil
+}
+
 func sameEnd(a, b *time.Time) bool {
 	return a == nil && b == nil || a != nil && b != nil && a.Equal(*b)
 }
@@ -30,8 +37,11 @@ func (s *Service) observeStatus(status Status, observedAt time.Time) {
 		}
 		// Unlock moves both bounds; changing an end cap may also move both. Neither
 		// is a grace extension and must not produce a duplicate toast.
-		if sameEnd(previous.EndsAt, status.EndsAt) && previous.DeadlineAt.Equal(status.DeadlineAt) && status.GraceUntil.After(previous.GraceUntil) && s.locked == nil && previous.Locked == nil {
-			post("grace", int64(status.GraceUntil.Sub(previous.GraceUntil)/time.Second))
+		oldDeadline, oldGrace := ownTimes(*previous)
+		deadline, grace := ownTimes(status)
+		hasOwnTimes := !previous.OwnGraceUntil.IsZero() && !status.OwnGraceUntil.IsZero()
+		if (hasOwnTimes || sameEnd(previous.EndsAt, status.EndsAt)) && oldDeadline.Equal(deadline) && grace.After(oldGrace) && s.locked == nil && previous.Locked == nil {
+			post("grace", int64(grace.Sub(oldGrace)/time.Second))
 		}
 		if len(notices) > 0 {
 			s.timeNotices = notices

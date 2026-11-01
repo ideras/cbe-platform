@@ -743,7 +743,7 @@ func (s *Service) pollOnce() {
 	}
 	previousDeadline := time.Time{}
 	if s.status != nil {
-		previousDeadline = s.status.DeadlineAt
+		previousDeadline, _ = ownTimes(*s.status)
 	}
 	s.observeStatus(status, observedAt)
 	s.monitor.setPolicy(status.Policy)
@@ -777,7 +777,8 @@ func (s *Service) pollOnce() {
 		s.locked = nil
 		s.unlockNote, s.addedSeconds = "Unlocked by your instructor", 0
 		if !previousDeadline.IsZero() {
-			s.addedSeconds = int64(status.DeadlineAt.Sub(previousDeadline) / time.Second)
+			deadline, _ := ownTimes(status)
+			s.addedSeconds = max(0, int64(deadline.Sub(previousDeadline)/time.Second))
 		}
 		if s.exam == nil {
 			// The application started on the lock screen and never had the questions: the server sends them now.

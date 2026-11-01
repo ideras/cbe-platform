@@ -45,7 +45,11 @@ type loginResponse struct {
 }
 
 type statusResponse struct {
-	Reason              string               `json:"reason,omitempty"`
+	Reason string `json:"reason,omitempty"`
+	// Uncapped entitlements are for change notices only; displays and admission use
+	// DeadlineAt/GraceUntil. A cap must not hide a grace extension or unlock.
+	OwnDeadlineAt       time.Time            `json:"own_deadline_at"`
+	OwnGraceUntil       time.Time            `json:"own_grace_until"`
 	Policy              service.ClientPolicy `json:"telemetry_policy"`
 	Status              domain.SessionStatus `json:"status"`
 	ServerTime          time.Time            `json:"server_time"`
@@ -83,7 +87,7 @@ func statusHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	deadline, grace := principal.Session.EffectiveTimes()
 	writeJSON(w, http.StatusOK, statusResponse{
-		Policy: principal.Policy, Reason: principal.FinalReason,
+		Policy: principal.Policy, Reason: principal.FinalReason, OwnDeadlineAt: principal.Session.DeadlineAt, OwnGraceUntil: principal.Session.GraceUntil,
 		Status: principal.Lifecycle.Status, ServerTime: principal.ServerTime, DeadlineAt: deadline,
 		GraceUntil: grace, EndsAt: principal.Session.EndsAt, SecondsRemaining: principal.Lifecycle.SecondsRemaining,
 		FinalizationPending: principal.Lifecycle.FinalizationPending, CurrentExercise: principal.Session.CurrentExercise,
@@ -185,7 +189,7 @@ func serviceError(w http.ResponseWriter, logger *slog.Logger, operation string, 
 		w.Header().Set("WWW-Authenticate", `Bearer realm="student"`)
 		writeError(w, http.StatusUnauthorized, "unauthorized")
 	case errors.Is(err, service.ErrExamEnded):
-		writeError(w, http.StatusForbidden, "This exam has ended")
+		writeError(w, http.StatusGone, "This exam has ended")
 	case errors.Is(err, service.ErrAdmissionClosed):
 		writeError(w, http.StatusForbidden, "exam admission is closed")
 	case errors.Is(err, service.ErrAlreadySubmitted):

@@ -13,10 +13,12 @@ import (
 	"exam-platform/shared/calc"
 )
 
-type publishTransaction struct{ tx *sql.Tx }
+type publishTransaction struct{ *sessionTransaction }
 
 func (s *Store) WithPublishTransaction(ctx context.Context, fn func(service.PublishTransaction) error) error {
-	return s.withTx(ctx, func(tx *sql.Tx) error { return fn(&publishTransaction{tx: tx}) })
+	return s.withTx(ctx, func(tx *sql.Tx) error {
+		return fn(&publishTransaction{sessionTransaction: &sessionTransaction{tx: tx, store: s}})
+	})
 }
 
 type queryRower interface {

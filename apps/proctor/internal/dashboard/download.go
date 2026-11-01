@@ -78,6 +78,7 @@ type DownloadResult struct {
 }
 
 type examDetail struct {
+	EndsAt         *time.Time      `json:"ends_at"`
 	ExamID         string          `json:"exam_id"`
 	Title          string          `json:"title"`
 	ClassID        string          `json:"class_id"`
@@ -632,9 +633,12 @@ func renderIndex(detail examDetail, roster Roster, names map[string]string, now 
 	var out strings.Builder
 	out.WriteString(indexHeader(detail, now))
 	out.WriteString("\n\n")
+	if detail.EndsAt != nil {
+		fmt.Fprintf(&out, "Exam end time: %s.\n\n", localStamp(*detail.EndsAt))
+	}
 	for _, session := range roster.Sessions {
-		if session.EndsAt != nil {
-			fmt.Fprintf(&out, "Exam end time for %s: %s.\n\n", tableCell(session.Account), localStamp(*session.EndsAt))
+		if session.EndsAt != nil && (detail.EndsAt == nil || !session.EndsAt.Equal(*detail.EndsAt)) {
+			fmt.Fprintf(&out, "Exam end time for %s: %s (at submission).\n\n", tableCell(session.Account), localStamp(*session.EndsAt))
 		}
 	}
 	out.WriteString("Students of " + tableCell(detail.ClassName) + " in " + tableCell(detail.Title) + ", in name order. ")

@@ -133,7 +133,7 @@
     {#if outcome}<p role="status">{outcome}</p>{/if}
     {#if view.loaded}
       {#if monitored}
-        <p>Grace: {spoken(monitored.grace_seconds * 1000)}{#if monitored.extra_grace_seconds} + {spoken(monitored.extra_grace_seconds * 1000)} added{/if} · {monitored.ends_at ? `Ends ${localTime(monitored.ends_at)}` : 'No exam end time'}
+        <p>Grace: {`${spoken(monitored.grace_seconds * 1000)}${monitored.extra_grace_seconds ? ` + ${spoken(monitored.extra_grace_seconds * 1000)} added` : ''}`} · {monitored.ends_at ? `Ends ${localTime(monitored.ends_at)}` : 'No exam end time'}
           {#if monitored.published || monitored.active_sessions > 0}<button disabled={disabled || view.busy || timingBusy} onclick={() => askTiming('end')}>Change end time…</button>{#if monitored.ends_at}<button disabled={disabled || view.busy || timingBusy} onclick={() => askTiming('clear')}>Clear end time</button>{/if}<button disabled={disabled || view.busy || timingBusy} onclick={() => askTiming('grace')}>Extend grace for everyone…</button>{/if}
         </p>
       {/if}

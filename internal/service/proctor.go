@@ -191,8 +191,8 @@ func (s *Sessions) proctorSession(ctx context.Context, tx SessionTransaction, re
 			}
 			if !detail.Unconfirmed && !interrupted && (latest.ID == last.ID || latest.Type == "network_gap") {
 				until := now
-				if until.After(session.GraceUntil) {
-					until = session.GraceUntil
+				if until.After(grace) {
+					until = grace
 				}
 				if session.SubmittedAt != nil && until.After(*session.SubmittedAt) {
 					until = *session.SubmittedAt

@@ -84,6 +84,8 @@ type Lock struct {
 }
 
 type Status struct {
+	OwnDeadlineAt       time.Time  `json:"own_deadline_at,omitempty"`
+	OwnGraceUntil       time.Time  `json:"own_grace_until,omitempty"`
 	EndsAt              *time.Time `json:"ends_at"`
 	Reason              string     `json:"reason,omitempty"`
 	Policy              *Policy    `json:"telemetry_policy,omitempty"`
@@ -167,7 +169,7 @@ func requestJSON(ctx context.Context, httpClient *http.Client, base, token, meth
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		messages := map[int]string{400: "The server rejected the request. Check your input or contact the proctor.", 401: "Credentials were rejected. Check account/PIN or contact the proctor.", 403: "The session is locked or admission is closed.", 409: "This session has already been submitted, or it is no longer on that exercise.", 413: "Answer size exceeds the server limit. Shorten the answer and try again.", 423: "Your exam is locked. Call your instructor.", 503: "No exam is available. Contact the proctor."}
+		messages := map[int]string{400: "The server rejected the request. Check your input or contact the proctor.", 401: "Credentials were rejected. Check account/PIN or contact the proctor.", 403: "The session is locked or admission is closed.", 410: "This exam has ended. Contact your instructor.", 409: "This session has already been submitted, or it is no longer on that exercise.", 413: "Answer size exceeds the server limit. Shorten the answer and try again.", 423: "Your exam is locked. Call your instructor.", 503: "No exam is available. Contact the proctor."}
 		message := messages[response.StatusCode]
 		if message == "" {
 			message = "Server request failed. Contact the proctor if it persists."

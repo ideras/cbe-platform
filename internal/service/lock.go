@@ -143,6 +143,8 @@ func (s *Sessions) Unlock(ctx context.Context, sessionID, operatorReason string,
 		if err := tx.AddEvent(ctx, domain.Event{SessionID: session.ID, Type: "unlocked", OccurredAt: now, Detail: detail}); err != nil {
 			return err
 		}
+		session.DeadlineAt, session.GraceUntil = deadline, grace
+		deadline, grace = session.EffectiveTimes()
 		result = UnlockResult{SessionID: session.ID, DeadlineAt: deadline, GraceUntil: grace, SecondsAdded: int64(extra / time.Second), LockedMillis: locked.Milliseconds()}
 		return nil
 	})

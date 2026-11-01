@@ -31,6 +31,7 @@ type PublishRepository interface {
 }
 
 type PublishTransaction interface {
+	SessionTransaction
 	Exam(context.Context, string) (domain.Exam, error)
 	Class(context.Context, string) (domain.Class, error)
 	CurrentExam(context.Context) (examID, classID string, err error)
@@ -182,6 +183,21 @@ func (p *Publisher) change(ctx context.Context, target, expected string, allowAc
 			return ErrSelectionChanged
 		}
 		if len(end) > 0 {
+			// An expiry that occurred before this publish must win: replacing
+			// the cap may not resurrect a session the worker has not visited yet.
+			records, err := tx.ProctorSessions(ctx, target)
+			if err != nil {
+				return err
+			}
+			sessions := &Sessions{}
+			for _, record := range records {
+				if terminal(record.Session) {
+					continue
+				}
+				if _, _, err := sessions.reconcileSession(ctx, tx, record.Session, now); err != nil {
+					return err
+				}
+			}
 			if err := tx.SetExamEndTime(ctx, target, end[0]); err != nil {
 				return err
 			}

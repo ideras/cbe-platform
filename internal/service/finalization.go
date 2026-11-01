@@ -55,5 +55,6 @@ func (s *Sessions) finalize(ctx context.Context, tx SessionTransaction, session 
 		return domain.Session{}, err
 	}
 	session.Status, session.SubmittedAt, session.FinalVersionID = cause.Status, &now, &version.ID
+	session.LockedAt, session.LockReason = nil, ""
 	return session, nil
 }

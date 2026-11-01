@@ -18,9 +18,10 @@ func (s *Sessions) ensureGap(ctx context.Context, tx SessionTransaction, session
 		return session, false, nil
 	}
 	policy := session.Policy
+	_, grace := session.EffectiveTimes()
 	observedUntil := now
-	if observedUntil.After(session.GraceUntil) {
-		observedUntil = session.GraceUntil
+	if observedUntil.After(grace) {
+		observedUntil = grace
 	}
 	age := domain.NonnegativeElapsed(observedUntil, *session.LastSeen)
 	if age <= policy.OverdueThreshold {
@@ -144,7 +145,7 @@ func (s *Sessions) presence(ctx context.Context, tx SessionTransaction, session 
 		// it expired), so its heartbeat age and missed intervals stop growing.
 		until := now
 		if !monitoring {
-			end := session.GraceUntil
+			_, end := session.EffectiveTimes()
 			if session.SubmittedAt != nil && session.SubmittedAt.Before(end) {
 				end = *session.SubmittedAt
 			}
