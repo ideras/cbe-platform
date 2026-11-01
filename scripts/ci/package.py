@@ -57,7 +57,7 @@ def main():
                 "architectures": [args.arch], "go": version("go", "version"),
                 "node": version("node", "--version"), "npm": version("npm", "--version"),
                 "wails": "v3.0.0-beta.29", "signing": "unsigned"}
-    notice = ROOT / "apps/proctor/frontend/public/lucide-LICENSE.txt"
+    notice = ROOT / "apps/proctor/frontend/public/icons-LICENSE.txt"
     for app in APPS:
         binary = args.input / (f"cbe-portal-{app}" + suffix)
         check_arch(binary, args.os, args.arch)

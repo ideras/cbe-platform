@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { relative, resolve, sep } from 'node:path';
 
@@ -311,6 +311,15 @@ export function registerThemeTests() {
       for (const notice of ['Copyright (c) 2020-2026 Paweł Kuna', 'Copyright (c) 2020 Microsoft Corporation', 'Lucide Icons and Contributors']) assert(license.includes(notice), `${app}: ${notice}`);
       for (const name of icons) assert(license.includes(`${name}: `), `${app}: no source listed for ${name}`);
       assert(!/https?:\/\//.test(license), `${app}: the shipped license names its sources without links`);
+    }
+  });
+
+  // The release packaging copies the proctor's icon notice into its archives; a file it names that is gone fails the whole CI run.
+  test('the packaging scripts name licence files that exist', () => {
+    for (const script of ['scripts/ci/package.py', 'scripts/ci/macos-package.sh']) {
+      const named = [...read(script).matchAll(/apps\/[\w-]+\/frontend\/public\/[\w.-]+/g)].map(match => match[0]);
+      assert(named.length > 0, `${script} names the notice it ships`);
+      for (const path of named) assert(existsSync(resolve(root, path)), `${script} names ${path}, which does not exist`);
     }
   });
 }

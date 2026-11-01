@@ -33,7 +33,7 @@ for app in student proctor; do
   mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Resources"
   cp "$stage/$binary" "$bundle/Contents/MacOS/$binary"
   cp "$stage/manifest.json" "$bundle/Contents/Resources/manifest.json"
-  if [[ "$app" == proctor ]]; then cp apps/proctor/frontend/public/lucide-LICENSE.txt "$bundle/Contents/Resources/"; fi
+  if [[ "$app" == proctor ]]; then cp apps/proctor/frontend/public/icons-LICENSE.txt "$bundle/Contents/Resources/"; fi
   python3 - "$bundle/Contents/Info.plist" "$binary" "$app" <<'PY'
 import os, plistlib, sys
 path, binary, app = sys.argv[1:]
