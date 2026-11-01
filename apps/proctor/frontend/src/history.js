@@ -7,7 +7,7 @@ const labels = {
   network_gap: 'Network gap', network_connected: 'Network connected', network_reconnected: 'Network back', connection_changed: 'Connection changed',
   capture_ready: 'Screenshot test passed', capture_failed: 'Screenshot capture failed', capture_restored: 'Screenshot capture restored', capture_health: 'Screenshot status',
   submitted: 'Submitted', force_submitted: 'Force-submitted', focus_lost: 'Left the exam window', focus_regained: 'Back in the exam window', marker: 'Marker',
-  locked: 'Exam locked', unlocked: 'Exam unlocked',
+  locked: 'Exam locked', unlocked: 'Exam unlocked', grace_extended: 'Grace extended', end_time_changed: 'End time changed',
   calc_opened: 'Calculator opened', calc_closed: 'Calculator closed', calc_mode_changed: 'Calculator mode changed', calc_tab_changed: 'Calculator tab changed',
   calc_evaluated: 'Calculator evaluated', calc_inspected: 'IEEE 754 inspected',
 };
@@ -125,6 +125,10 @@ export function historyRows(items, finalVersionId) {
       row.beyond = event.detail?.threshold_exceeded === true;
     } else if (event.event_type === 'locked' || event.event_type === 'unlocked') {
       row.note = lockDetail(event.event_type, event.detail);
+    } else if (event.event_type === 'grace_extended') {
+      row.note = `${duration(event.detail?.extended_ms)} added (${event.detail?.scope}): ${event.detail?.operator_reason ?? ''}`;
+    } else if (event.event_type === 'end_time_changed') {
+      row.note = event.detail?.ends_at ? `Ends ${new Date(event.detail.ends_at).toLocaleString()}` : 'End time cleared';
     } else if (event.event_type.startsWith('calc_')) {
       row.note = calcDetail(event.event_type, event.detail);
     }

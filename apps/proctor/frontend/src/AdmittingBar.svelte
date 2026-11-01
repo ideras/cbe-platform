@@ -1,4 +1,5 @@
 <script>
+  import { localTime } from './dates.js';
   import { monitorExam } from './monitor.js';
   import { message } from './errors.js';
   // What students are being admitted to right now, at the top of every page: the published exam, its class and how many students
@@ -19,7 +20,7 @@
 <section class="admitting" class:closed={!exam} aria-label="Now admitting">
   {#if exam}
     <span class="dot" aria-hidden="true"></span>
-    <p class="line"><strong>Admitting:</strong> {exam.title} — {catalog.current_class_name} · <span class="count" class:live={exam.active_sessions > 0}>{exam.active_sessions} working</span>{#if lockedCount} · {lockedCount} locked{/if}</p>
+    <p class="line"><strong>Admitting:</strong> {exam.title} — {catalog.current_class_name} · <span class="count" class:live={exam.active_sessions > 0}>{exam.active_sessions} working</span>{#if lockedCount} · {lockedCount} locked{/if}{#if exam.ends_at} · Ends {localTime(exam.ends_at)}{/if}</p>
     <div class="buttons">
       <button type="button" disabled={locked} title="Open the monitoring window for {exam.title}" onclick={monitor}>Monitor</button>
       <button type="button" disabled={locked} title="Open {catalog.current_class_name}, on its exams" onclick={() => onOpenClass(catalog.current_class_id)}>Open class</button>

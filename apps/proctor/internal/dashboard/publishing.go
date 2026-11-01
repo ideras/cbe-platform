@@ -688,16 +688,22 @@ func (s *Service) Unpublish(expectedExam string, allowActive, confirmed bool) (P
 	return s.changeAdmission("/admin/unpublish", "", expectedExam, allowActive)
 }
 
-func (s *Service) changeAdmission(path, wantExam, expectedExam string, allowActive bool) (PublishOutcome, error) {
+func (s *Service) changeAdmission(path, wantExam, expectedExam string, allowActive bool, end ...*time.Time) (PublishOutcome, error) {
 	ctx, base, token, err := s.beginAdmin()
 	if err != nil {
 		return PublishOutcome{}, err
 	}
 	defer s.endAction()
 	body, err := json.Marshal(struct {
-		ExpectedCurrent string `json:"expected_current"`
-		AllowActive     bool   `json:"allow_active"`
-	}{expectedExam, allowActive})
+		ExpectedCurrent string     `json:"expected_current"`
+		AllowActive     bool       `json:"allow_active"`
+		EndsAt          *time.Time `json:"ends_at,omitempty"`
+	}{expectedExam, allowActive, func() *time.Time {
+		if len(end) > 0 {
+			return end[0]
+		}
+		return nil
+	}()})
 	if err != nil {
 		return PublishOutcome{}, errors.New("Cannot encode request.")
 	}

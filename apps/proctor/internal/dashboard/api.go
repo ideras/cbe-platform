@@ -56,18 +56,19 @@ type Session struct {
 	ID     string `json:"session_id"`
 	ExamID string `json:"exam_id"`
 	Student
-	RosterActive        bool      `json:"roster_active"`
-	Status              string    `json:"status"`
-	PersistedStatus     string    `json:"persisted_status"`
-	FinalizationPending bool      `json:"finalization_pending"`
-	StartedAt           time.Time `json:"started_at"`
-	DeadlineAt          time.Time `json:"deadline_at"`
-	GraceUntil          time.Time `json:"grace_until"`
-	Remaining           int64     `json:"seconds_remaining"`
-	Presence            Presence  `json:"presence"`
-	KnownUnfocused      *int64    `json:"last_known_unfocused_duration_ms"`
-	NetworkWarning      bool      `json:"network_warning"`
-	FocusWarning        bool      `json:"focus_warning"`
+	RosterActive        bool       `json:"roster_active"`
+	Status              string     `json:"status"`
+	PersistedStatus     string     `json:"persisted_status"`
+	FinalizationPending bool       `json:"finalization_pending"`
+	StartedAt           time.Time  `json:"started_at"`
+	DeadlineAt          time.Time  `json:"deadline_at"`
+	GraceUntil          time.Time  `json:"grace_until"`
+	EndsAt              *time.Time `json:"ends_at"`
+	Remaining           int64      `json:"seconds_remaining"`
+	Presence            Presence   `json:"presence"`
+	KnownUnfocused      *int64     `json:"last_known_unfocused_duration_ms"`
+	NetworkWarning      bool       `json:"network_warning"`
+	FocusWarning        bool       `json:"focus_warning"`
 	// Locked says that the exam is locked, since when and why; nil while it is not.
 	Locked *Lock `json:"locked"`
 	// Locks are the locks and unlocks of the session, in the order they happened.
@@ -163,16 +164,18 @@ type ExamEntry struct {
 	Title         string `json:"title"`
 	ExerciseCount int    `json:"exercise_count"`
 	// Navigation is free, or forward_only when students cannot return to an exercise they left.
-	Navigation       string     `json:"navigation"`
-	DurationSeconds  int64      `json:"duration_seconds"`
-	GraceSeconds     int64      `json:"grace_seconds"`
-	MinVolumePercent int        `json:"min_volume_percent"`
-	CreatedAt        time.Time  `json:"created_at"`
-	OpensAt          *time.Time `json:"opens_at"`
-	ClosesAt         *time.Time `json:"closes_at"`
-	Published        bool       `json:"published"`
-	ActiveSessions   int        `json:"active_sessions"`
-	TotalSessions    int        `json:"total_sessions"`
+	Navigation        string     `json:"navigation"`
+	DurationSeconds   int64      `json:"duration_seconds"`
+	GraceSeconds      int64      `json:"grace_seconds"`
+	ExtraGraceSeconds int64      `json:"extra_grace_seconds"`
+	EndsAt            *time.Time `json:"ends_at"`
+	MinVolumePercent  int        `json:"min_volume_percent"`
+	CreatedAt         time.Time  `json:"created_at"`
+	OpensAt           *time.Time `json:"opens_at"`
+	ClosesAt          *time.Time `json:"closes_at"`
+	Published         bool       `json:"published"`
+	ActiveSessions    int        `json:"active_sessions"`
+	TotalSessions     int        `json:"total_sessions"`
 	// LockedSessions are the running sessions a proctor has to unlock.
 	LockedSessions int `json:"locked_sessions"`
 	// Tools is the exam's effective tools configuration; omitted when the exam has no calculator.

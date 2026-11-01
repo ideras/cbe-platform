@@ -4,6 +4,8 @@
   import * as api from '$proctor-api';
   import Confirmation from './Confirmation.svelte';
   import UnlockDialog from './UnlockDialog.svelte';
+  import ExtendGraceDialog from './ExtendGraceDialog.svelte';
+  import EndTimeDialog from './EndTimeDialog.svelte';
   import Panel from './Panel.svelte';
   import { localTime } from './dates.js';
   // The lock alert is inlined as a data: URL on purpose: WebKitGTK cannot play media loaded through Wails' wails:// scheme.
@@ -22,6 +24,24 @@
   // The locks already announced, so the alert is played once per lock. It is not reactive state: the effect below must
   // not depend on it, or it would run again and again.
   let announced = new Set();
+  let timingModal = $state(null);
+  let timingBusy = $state(false);
+  let timingError = $state('');
+  function askTiming(kind, student = null) { timingModal = { kind, student }; timingError = ''; }
+  async function changeTiming(value) {
+    if (timingBusy) return;
+    timingBusy = true; timingError = '';
+    try {
+      if (timingModal.kind === 'grace') {
+        const result = timingModal.student
+          ? await api.ExtendGrace(timingModal.student.session_id, value.minutes, value.reason, true)
+          : await api.ExtendExamGrace(view.exam_id, value.minutes, value.reason, true);
+        outcome = `Grace extended: ${result.changed} sessions changed, ${result.skipped} submitted sessions skipped.${result.capped ? ' Capped by the exam end time.' : ''}`;
+      } else { await api.SetEndTime(view.exam_id, value, true); outcome = value ? 'Exam end time changed.' : 'Exam end time cleared.'; }
+      timingModal = null; await onRefresh();
+    } catch (err) { timingError = String(err); }
+    finally { timingBusy = false; }
+  }
 
   const monitored = $derived(view.catalog?.exams?.find(entry => entry.exam_id === view.exam_id));
   // The locked sessions come first: they are the ones the proctor has to act on.
@@ -112,6 +132,11 @@
     {#if reviewError}<p role="alert">{reviewError}</p>{/if}
     {#if outcome}<p role="status">{outcome}</p>{/if}
     {#if view.loaded}
+      {#if monitored}
+        <p>Grace: {spoken(monitored.grace_seconds * 1000)}{#if monitored.extra_grace_seconds} + {spoken(monitored.extra_grace_seconds * 1000)} added{/if} · {monitored.ends_at ? `Ends ${localTime(monitored.ends_at)}` : 'No exam end time'}
+          {#if monitored.published || monitored.active_sessions > 0}<button disabled={disabled || view.busy || timingBusy} onclick={() => askTiming('end')}>Change end time…</button>{#if monitored.ends_at}<button disabled={disabled || view.busy || timingBusy} onclick={() => askTiming('clear')}>Clear end time</button>{/if}<button disabled={disabled || view.busy || timingBusy} onclick={() => askTiming('grace')}>Extend grace for everyone…</button>{/if}
+        </p>
+      {/if}
       <p class="muted">Exam rules: alarm after {spoken(policy.focus_threshold_ms)} · screenshot every {spoken(policy.capture_interval_ms)} · {lockRule(policy)}.</p>
       <p class="muted">Server policy: heartbeat {duration(policy.heartbeat_interval_ms)} · overdue strictly beyond {duration(policy.overdue_threshold_ms)}.</p>
       <div class="table-scroll"><table>
@@ -123,7 +148,7 @@
             <td>{#if row.network_warning}<span class="badge network">⚠ Network overdue</span>{:else}<span>{row.presence.connectivity}</span>{/if}{#if row.presence.monitoring}<div>Heartbeat age: {duration(row.presence.heartbeat_age_ms)}</div><div>Missed intervals: {row.presence.missed_intervals}</div>{:else}<div>Last heartbeat before the end: {duration(row.presence.heartbeat_age_ms)} earlier</div><div>Missed intervals before the end: {row.presence.missed_intervals}</div>{/if}<div>Sound: {sound(row.presence)}</div>{#if row.presence.ever_overdue}<small>Historical overdue recorded</small>{/if}{#if !row.presence.monitoring}<small>Not live monitored</small>{/if}</td>
             <td>{#if row.focus_warning}<span class="badge focus">⚠ Sustained focus loss</span>{/if}<div>Current focus: {row.presence.focus.state}</div><div>Current unfocused: {duration(row.presence.focus.unfocused_duration_ms)}</div><small>Last known capped loss: {duration(row.last_known_unfocused_duration_ms)}</small></td>
             <td><strong>{row.status}</strong>{#if row.locked}<div><span class="badge lock">🔒 Locked · {lockLabel(row).reason}</span></div><div>Locked {lockLabel(row).ago}</div>{/if}<div>{row.status === 'grace' ? 'Grace remaining' : 'Remaining'}: {remainingTime(row, view.roster?.server_time)}</div>{#if row.finalization_pending}<span class="badge pending">Finalization pending — no confirmed final yet</span>{:else if row.final_version}<small>Final #{row.final_version.final_version_id} · sequence {row.final_version.version_seq} · {row.final_version.reason}</small>{/if}</td>
-            <td><button onclick={() => review(row)}>Review {row.account_number}</button>{#if row.locked}<button disabled={disabled || unlockBusy || view.busy} onclick={() => askUnlock(row)}>Unlock {row.account_number}…</button>{:else if canForce(row)}<button class="danger" disabled={disabled || actionBusy || view.busy} onclick={() => ask('force', row)}>Force-submit {row.account_number}…</button>{/if}</td>
+            <td><button onclick={() => review(row)}>Review {row.account_number}</button>{#if ['active', 'grace'].includes(row.status) && !row.finalization_pending}<button disabled={disabled || view.busy || timingBusy} onclick={() => askTiming('grace', row)}>Extend grace {row.account_number}…</button>{/if}{#if row.locked}<button disabled={disabled || unlockBusy || view.busy} onclick={() => askUnlock(row)}>Unlock {row.account_number}…</button>{:else if canForce(row)}<button class="danger" disabled={disabled || actionBusy || view.busy} onclick={() => ask('force', row)}>Force-submit {row.account_number}…</button>{/if}</td>
           </tr>
         {/each}</tbody>
       </table></div>
@@ -138,6 +163,8 @@
 </div>
 {#if modal}<Confirmation kind={modal.kind} student={modal.student} exam={modal.exam} busy={actionBusy} error={actionError} onCancel={() => modal = null} onConfirm={action} />{/if}
 {#if unlockModal}<UnlockDialog student={unlockModal} busy={unlockBusy} error={unlockError} onCancel={() => unlockModal = null} onConfirm={unlock} />{/if}
+
+{#if timingModal?.kind === 'grace'}<ExtendGraceDialog student={timingModal.student} {sessions} exam={monitored} busy={timingBusy} error={timingError} onCancel={() => timingModal = null} onConfirm={changeTiming} />{:else if timingModal}<EndTimeDialog exam={monitored} serverTime={view.catalog?.server_time} clear={timingModal.kind === 'clear'} busy={timingBusy} error={timingError} onCancel={() => timingModal = null} onConfirm={changeTiming} />{/if}
 
 <style>
   .monitoring { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); min-width: 0; }

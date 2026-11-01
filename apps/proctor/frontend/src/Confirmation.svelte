@@ -1,10 +1,12 @@
 <script>
   import Modal from './Modal.svelte';
+  import EndTimeField from './EndTimeField.svelte';
   // kind: force | purge | deleteExam | deleteClass (irreversible) or publish | unpublish. details carries what the proctor saw: the exam
   // (entry), its class (klass), and the exam published now (current) with its class (currentClass). Publishing admits the
   // students of the exam's class; onConfirm receives { reason }.
   let { kind, student = null, exam = '', details = null, busy, error, onCancel, onConfirm } = $props();
   let reason = $state('');
+  let endTime = $state('');
   let confirmed = $state(false);
   function plural(n, noun) { return `${n} ${noun}${n === 1 ? '' : 's'}`; }
   const titles = { force: 'Confirm force-submit', purge: 'Confirm screenshot purge', deleteExam: 'Delete exam', deleteClass: 'Delete class', publish: 'Publish exam', unpublish: 'Close admission' };
@@ -14,7 +16,7 @@
   const ready = $derived(confirmed && !(kind === 'force' && !reason.trim()));
 </script>
 <Modal title={titles[kind]} titleId="confirmation-title" tone={danger ? 'danger' : working > 0 ? 'warning' : 'info'} {busy} onClose={onCancel} width="38rem">
-  <form onsubmit={event => { event.preventDefault(); if (ready && !busy) onConfirm({ reason }); }}>
+  <form onsubmit={event => { event.preventDefault(); if (ready && !busy) onConfirm({ reason, endTime }); }}>
     {#if kind === 'force'}
       <p><strong>{student.student_name} ({student.account_number})</strong></p>
       <p>Irreversible: finalize the latest committed answers and lock further editing. Unacknowledged local text may not be included. A concurrent student submission or expiry keeps its original final result.</p>
@@ -34,6 +36,7 @@
       <label class="check"><input type="checkbox" bind:checked={confirmed} disabled={busy} /> I want to delete the exam “{details.entry.title}”.</label>
     {:else if kind === 'publish'}
       <p>The <strong>{plural(details.klass.student_count, 'student')}</strong> of <strong>{details.klass.name}</strong> will log in to <strong>{details.entry.title}</strong> ({plural(details.entry.exercise_count, 'exercise')}{details.entry.navigation === 'forward_only' ? ', forward only' : ''}, {details.entry.duration_seconds / 60} min) with its PIN, starting now. Students of other classes cannot.</p>
+      <EndTimeField bind:value={endTime} exam={details.entry} serverTime={details.serverTime} />
       {#if details.admission !== 'open'}<p class="callout warning">Its login window is {details.admission} by the server’s clock, so students cannot start it yet.</p>{/if}
       {#if working > 0}
         <p class="callout warning"><strong>{plural(working, 'student')} still working in “{details.current.title}” ({details.currentClass}).</strong> They keep their sessions and can keep saving and submitting, but if their application closes or crashes they cannot log back in to it after this change.</p>

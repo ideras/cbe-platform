@@ -80,6 +80,7 @@ let partialPurge = false;
 let rows = Array.from({ length: 90 }, (_, i) => ({
   session_id: i === 0 ? SESSION : `${String(i).padStart(8, '0')}-0000-4000-8000-000000000000`, exam_id: EXAM,
   student_name: `Student ${String(i).padStart(3, '0')}`, account_number: String(i + 1).padStart(4, '0'), roster_active: true,
+  started_at: AT, deadline_at: '2035-01-01T00:01:29Z', grace_until: '2035-01-01T00:01:59Z',
   status: 'active', persisted_status: 'active', seconds_remaining: 89, finalization_pending: false, final_version: null,
   network_warning: i === 0, focus_warning: i === 0,
   presence: { hostname: `desk-${i}`, remote_addr: `10.0.0.${i + 1}`, connectivity: i === 0 ? 'overdue' : 'healthy', heartbeat_age_ms: i === 0 ? 35000 : 1000, missed_intervals: i === 0 ? 2 : 0, ever_overdue: i < 2, monitoring: true, volume_percent: i === 2 ? null : i === 0 ? 35 : 70, volume_muted: i === 2 ? null : i === 0, focus: { state: i === 0 ? 'unknown' : 'focused', unfocused_duration_ms: null } }, last_known_unfocused_duration_ms: i === 0 ? 29000 : null,
@@ -122,6 +123,29 @@ function snapshot() {
     classes: ok ? classList() : [], classes_loaded: ok,
     roster: { exam_id: selectedExam, server_time: AT, sessions: loaded ? structuredClone(rows) : [], students_without_session: loaded ? structuredClone(missing) : [],
       policy: { heartbeat_interval_ms: 15000, focus_threshold_ms: 5000, overdue_threshold_ms: 30000, alert_interval_ms: 2000, capture_interval_ms: 5000, lock_away_after_ms: 300000, lock_no_contact_after_ms: 300000 } } };
+}
+export async function PreviewEndTime(hhmm) {
+  const now = new Date(); const [h, m] = hhmm.split(':').map(Number);
+  const end = new Date(now); end.setHours(h, m, 0, 0); if (end <= now) end.setDate(end.getDate() + 1);
+  return { ends_at: end.toISOString(), label: `Ends ${end.toDateString() === now.toDateString() ? 'today' : 'tomorrow'} at ${hhmm}`, clock_warning: false };
+}
+export async function SetEndTime(id, hhmm, confirmed) {
+  if (!confirmed) throw new Error('Confirmation required');
+  const entry = exams.find(e => e.exam_id === id); entry.ends_at = hhmm ? (await PreviewEndTime(hhmm)).ends_at : null;
+}
+export async function PublishTimed(id, expected, active, confirmed, hhmm) { await Publish(id, expected, active, confirmed); await SetEndTime(id, hhmm, confirmed); }
+export async function ExtendGrace(id, minutes, reason, confirmed) {
+  if (!confirmed || !reason) throw new Error('Confirmation and reason required');
+  const row = rows.find(r => r.session_id === id);
+  if (!['active', 'grace'].includes(row.status)) return { changed: 0, skipped: 1 };
+  row.grace_until = new Date(new Date(row.grace_until || AT).getTime() + minutes * 60000).toISOString();
+  return { changed: 1, skipped: 0, capped: false };
+}
+export async function ExtendExamGrace(id, minutes, reason, confirmed) {
+  const entry = exams.find(e => e.exam_id === id); entry.extra_grace_seconds = (entry.extra_grace_seconds || 0) + minutes * 60;
+  let changed = 0, skipped = 0;
+  for (const row of rows) { const result = await ExtendGrace(row.session_id, minutes, reason, confirmed); changed += result.changed; skipped += result.skipped; }
+  return { changed, skipped, capped: false };
 }
 export async function Snapshot() { return snapshot(); }
 export async function Connect(server) {

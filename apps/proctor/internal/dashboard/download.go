@@ -567,6 +567,8 @@ func statusPhrase(sub submission) string {
 		return "submitted by the student"
 	case "grace_expired":
 		return "submitted when time ran out"
+	case "end_time_reached":
+		return "submitted at the exam end time (end_time_reached)"
 	case "force_submit":
 		if reason := strings.TrimSpace(sub.OperatorReason); reason != "" {
 			return "submitted by the proctor: " + reason
@@ -582,6 +584,8 @@ func indexStatus(reason string) string {
 	switch reason {
 	case "grace_expired":
 		return "time ran out"
+	case "end_time_reached":
+		return "exam end time (end_time_reached)"
 	case "force_submit":
 		return "submitted by proctor"
 	default:
@@ -628,6 +632,11 @@ func renderIndex(detail examDetail, roster Roster, names map[string]string, now 
 	var out strings.Builder
 	out.WriteString(indexHeader(detail, now))
 	out.WriteString("\n\n")
+	for _, session := range roster.Sessions {
+		if session.EndsAt != nil {
+			fmt.Fprintf(&out, "Exam end time for %s: %s.\n\n", tableCell(session.Account), localStamp(*session.EndsAt))
+		}
+	}
 	out.WriteString("Students of " + tableCell(detail.ClassName) + " in " + tableCell(detail.Title) + ", in name order. ")
 	out.WriteString("Finished sessions have a file; the others are listed so every student can be checked off.\n\n")
 	out.WriteString("| Student | Account | Status | Submitted | Locks | File |\n")

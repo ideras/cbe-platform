@@ -114,16 +114,17 @@
   }
   function ask(kind, exam = null) {
     modalError = '';
-    modal = { kind, entry: exam, klass, current, currentClass: view.catalog?.current_class_name ?? '', admission: exam ? admission(exam) : 'open' };
+    modal = { kind, entry: exam, klass, current, currentClass: view.catalog?.current_class_name ?? '', serverTime: view.catalog?.server_time, admission: exam ? admission(exam) : 'open' };
   }
-  async function confirm() {
+  async function confirm({ endTime = '' } = {}) {
     if (modalBusy) return;
     modalBusy = true; modalError = ''; lastFolder = '';
     const { kind, entry, current } = modal;
     const inUse = (current?.active_sessions ?? 0) > 0;
     try {
       if (kind === 'publish') {
-        await api.Publish(entry.exam_id, current?.exam_id ?? '', inUse, true);
+        if (endTime) await api.PublishTimed(entry.exam_id, current?.exam_id ?? '', inUse, true, endTime);
+        else await api.Publish(entry.exam_id, current?.exam_id ?? '', inUse, true);
         status = `“${entry.title}” is published to ${klass.name}. Its students log in with the exam PIN. Use Monitor to watch them in the monitoring window.`;
         modal = null;
         await onSelected();
@@ -176,7 +177,7 @@
         <thead><tr><th>Exam</th><th>Exercises</th><th>Time</th><th>Logins allowed</th><th>Sessions</th><th>Actions</th></tr></thead>
         <tbody>{#each exams as entry (entry.exam_id)}
           <tr class:published={entry.published}>
-            <td><strong>{entry.title}</strong>
+            <td><strong>{entry.title}</strong>{#if entry.ends_at}<div>Ends {new Date(entry.ends_at).toLocaleString()}</div>{/if}
               {#if entry.published}<span class="badge open">Published</span>{/if}
               {#if entry.exam_id === view.exam_id}<span class="badge watching">Monitoring</span>{/if}
               {#if entry.navigation === 'forward_only'}<span class="badge forward" title="Students cannot go back to an exercise once they move on">Forward only</span>{/if}
