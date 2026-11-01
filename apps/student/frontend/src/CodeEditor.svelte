@@ -7,7 +7,7 @@
   import { loadLanguage } from './languages.js';
   import { Compartment, EditorState } from '@codemirror/state';
   import { indentWithTab, defaultKeymap, history, historyKeymap } from '@codemirror/commands';
-  import { EditorView, keymap, lineNumbers, highlightActiveLineGutter, highlightSpecialChars, drawSelection, dropCursor, rectangularSelection, crosshairCursor, highlightActiveLine } from '@codemirror/view';
+  import { EditorView, keymap, lineNumbers, highlightActiveLineGutter, highlightSpecialChars, drawSelection, dropCursor, rectangularSelection, crosshairCursor } from '@codemirror/view';
 
   // Highlighting only: never install autocompletion or its keymap in an exam.
   let { slotId, language = '', rows = 0, value, locked, onChange } = $props();
@@ -35,7 +35,7 @@
         lineNumbers(), highlightActiveLineGutter(), highlightSpecialChars(), history(), foldGutter(),
         drawSelection(), dropCursor(), EditorState.allowMultipleSelections.of(true),
         indentOnInput(), bracketMatching(), closeBrackets(), rectangularSelection(), crosshairCursor(),
-        highlightActiveLine(), highlightSelectionMatches(), syntaxHighlighting(colors), syntax.of([]),
+        highlightSelectionMatches(), syntaxHighlighting(colors), syntax.of([]),
         keymap.of([indentWithTab, ...closeBracketsKeymap, ...defaultKeymap, ...searchKeymap, ...historyKeymap, ...foldKeymap]),
         EditorView.lineWrapping,
         EditorView.contentAttributes.of({ 'aria-label': label }),
@@ -50,10 +50,12 @@
           '.cm-content': { fontFamily: 'var(--font-mono)', caretColor: 'var(--text-main)' },
           '.cm-content:focus-visible': { outline: 'none', boxShadow: 'none' },
           '.cm-scroller': { overflow: 'auto' },
-          '.cm-gutters, .cm-activeLineGutter': { backgroundColor: 'var(--transparent)', color: 'var(--text-muted)', borderColor: 'var(--border-subtle)' },
+          '.cm-gutters': { backgroundColor: 'var(--transparent)', color: 'var(--text-muted)', borderColor: 'var(--border-subtle)' },
+          // The cursor's line is told by its number. Its text is never given a fill of its own: the selection is drawn in a layer
+          // behind the text, so any background on a line would cover a selection made on that line.
+          '.cm-activeLineGutter': { backgroundColor: 'var(--transparent)', color: 'var(--action-hover)', fontWeight: '700' },
           '.cm-panels': { backgroundColor: 'var(--bg-raised)', color: 'var(--text-muted)', borderColor: 'var(--border-subtle)' },
-          '.cm-activeLine': { backgroundColor: 'var(--hover-fill)' },
-          '&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection': { backgroundColor: 'var(--selection-fill)', color: 'var(--text-main)' },
+          '&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, & > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-content ::selection': { backgroundColor: 'var(--selection-fill)', color: 'var(--text-main)' },
           '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--text-main)' },
           '.cm-tooltip': { backgroundColor: 'var(--bg-raised)', color: 'var(--text-main)', borderColor: 'var(--control-border)' },
           '.cm-tooltip-arrow:before': { borderTopColor: 'var(--control-border)', borderBottomColor: 'var(--control-border)' },
