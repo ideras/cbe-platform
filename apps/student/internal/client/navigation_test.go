@@ -3,6 +3,7 @@ package client
 import (
 	"maps"
 	"net/http"
+	"sync"
 	"testing"
 	"time"
 )
@@ -86,6 +87,17 @@ func TestAdvanceRetriesTheSameSnapshotAfterAnUnclearFailure(t *testing.T) {
 
 func TestARefusedAdvanceResumesEditingAndTheServerPositionWins(t *testing.T) {
 	f, s := forwardOnly(t)
+	// The snapshot the refused advance carried was never saved, so the client saves it as an ordinary autosave right after the
+	// refusal, and that save clears the message. Held here until the refusal has been seen, the test does not race the save for it.
+	saving := make(chan struct{})
+	releaseSave := sync.OnceFunc(func() { close(saving) })
+	t.Cleanup(releaseSave) // a failing test must not leave the fake server's handler waiting
+	f.onWrite = func(_ http.ResponseWriter, r *http.Request, _ writeRecord, _ int) bool {
+		if r.URL.Path == "/autosave" {
+			<-saving
+		}
+		return false
+	}
 	// Another window already moved this student on: the server refuses, and the next status read shows where they are.
 	f.mu.Lock()
 	f.status.CurrentExercise = 1
@@ -93,10 +105,10 @@ func TestARefusedAdvanceResumesEditingAndTheServerPositionWins(t *testing.T) {
 	if _, err := s.Advance(map[string]string{"q1": "late", "q2": ""}, 1, 0); err != nil {
 		t.Fatal(err)
 	}
-	view := waitView(t, s, func(v View) bool { return !v.Advancing && v.Exercise == 1 })
-	if view.AdvanceError == "" {
-		t.Fatal("the refusal was not reported")
-	}
+	// The refusal is reported, and editing is no longer locked by the advance.
+	waitView(t, s, func(v View) bool { return !v.Advancing && v.AdvanceError != "" })
+	releaseSave()
+	waitView(t, s, func(v View) bool { return v.Exercise == 1 })
 	if _, err := s.UpdateAnswers(map[string]string{"q1": "", "q2": "editing again"}, 2); err != nil {
 		t.Fatal(err)
 	}
