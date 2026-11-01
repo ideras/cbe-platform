@@ -27,6 +27,8 @@
   // The tab counts what the table shows once the exams are known; until then, what the class list says.
   const examCount = $derived(view.catalog_loaded ? view.catalog.exams.filter(exam => exam.class_id === entry.class_id).length : entry.exam_count);
   const sessionCount = $derived(view.catalog_loaded ? view.catalog.exams.filter(exam => exam.class_id === entry.class_id).reduce((sum, exam) => sum + exam.total_sessions, 0) : null);
+  // The other classes' names, which a new name for this one cannot repeat.
+  const otherNames = $derived((view.classes ?? []).filter(klass => klass.class_id !== entry.class_id).map(klass => klass.name));
   const tabs = $derived([{ id: 'exams', text: 'Exams', count: examCount, icon: 'exams', label: `Exams (${examCount})` }, { id: 'students', text: 'Students', count: entry.student_count, icon: 'classes', label: `Students (${entry.student_count})` }]);
   function plural(n, noun) { return `${n} ${noun}${n === 1 ? '' : 's'}`; }
 
@@ -97,7 +99,7 @@
     </RosterPanel>
   </div>
 </div>
-{#if renaming}<RenameClassDialog {entry} onClose={() => renaming = false} onRenamed={renamed} />{/if}
+{#if renaming}<RenameClassDialog {entry} {examCount} others={otherNames} onClose={() => renaming = false} onRenamed={renamed} />{/if}
 {#if replacing}<ReplaceRosterDialog {entry} onClose={() => replacing = false} onReplaced={replaced} />{/if}
 {#if deleting}<Confirmation kind="deleteClass" details={{ entry }} busy={deleteBusy} error={deleteError} onCancel={() => deleting = false} onConfirm={confirmDelete} />{/if}
 <style>

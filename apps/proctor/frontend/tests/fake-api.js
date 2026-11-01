@@ -28,6 +28,8 @@ let releaseRoster;
 let nextClassFile = null;
 let createFails = '';
 let renameFails = '';
+let deferRename = false;
+let releaseRename;
 let deleteFails = '';
 let replaceFails = '';
 let nextRosterChange = null;
@@ -208,6 +210,7 @@ export async function ClassRoster(id) {
 }
 export async function RenameClass(id, name) {
   calls.renameClass.push({ id, name });
+  if (deferRename) await new Promise(resolve => releaseRename = resolve);
   if (renameFails) throw new Error(renameFails);
   const entry = classes.find(item => item.class_id === id);
   entry.name = name;
@@ -373,7 +376,7 @@ window.ProctorHarness = {
   classRoster(id, names, total = null) { const entry = classes.find(item => item.class_id === id); rosterOverride[id] = { class_id: id, name: entry.name, total: total ?? names.length, students: names.map(([account, name]) => ({ account_number: account, student_name: name })) }; },
   rosterFails(value) { rosterFails = value; }, holdRoster() { deferRoster = true; }, releaseRoster() { deferRoster = false; releaseRoster?.(); },
   classFile(value) { nextClassFile = value; }, createFails(value) { createFails = value; },
-  renameFails(value) { renameFails = value; }, deleteFails(value) { deleteFails = value; }, replaceFails(value) { replaceFails = value; }, rosterChange(value) { nextRosterChange = value; }, pruned(value) { pruned = value; },
+  renameFails(value) { renameFails = value; }, holdRename() { deferRename = true; }, releaseRename() { deferRename = false; releaseRename?.(); }, deleteFails(value) { deleteFails = value; }, replaceFails(value) { replaceFails = value; }, rosterChange(value) { nextRosterChange = value; }, pruned(value) { pruned = value; },
   working(value) { workingStudents = value; }, examFile(value) { nextExamFile = { content: sampleContent, ...value }; }, importFails(value) { importFails = value; }, publishFails(value) { publishFails = value; }, deleteExamFails(value) { deleteExamFails = value; }, catalogDown(value) { catalogDown = value; }, stale(value) { stale = value; }, imagesMissing(value) { imageMissing = value; },
   failForce(value) { failForce = value; }, holdForce() { deferForce = true; }, releaseForce() { releaseForce?.(); }, originalSubmit() { forceStatus = 'submitted'; }, partialPurge() { partialPurge = true; },
   downloadPreview(value) { downloadPreviewOverride = value; }, downloadNeedsReplace(value = true) { downloadNeedsReplace = value; }, downloadFails(value) { downloadFails = value; }, downloadFailure(value) { downloadFailureFor = value; }, openFolderFails(value) { openFolderFails = value; },

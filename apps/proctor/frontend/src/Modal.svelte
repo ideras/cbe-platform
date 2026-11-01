@@ -34,7 +34,7 @@
   dialog.deep::backdrop { backdrop-filter: blur(2px); }
   .deep header { justify-content: flex-start; padding: 1rem 1.1rem; background: var(--header-strong); color: var(--on-dark); }
   .deep h2 { color: inherit; font-size: var(--text-lg); line-height: 1.2; overflow-wrap: anywhere; }
-  .deep .heading p { color: var(--side-text); font-size: .82rem; }
+  .deep .heading p { color: var(--side-text); font-size: .82rem; overflow-wrap: anywhere; }
   .deep .heading-icon { background: var(--side-active); border: 1px solid var(--cyan-chip-border); color: var(--accent-cyan-soft); }
   .deep .close { flex: none; width: 34px; min-height: 34px; margin-left: auto; border: 1px solid var(--cyan-chip-border); border-radius: 9px; color: var(--side-text); }
   .deep .close:hover:not(:disabled) { background: var(--chip-on-dark); border-color: var(--accent-cyan-soft); color: var(--on-dark); }

@@ -302,7 +302,8 @@ test('a name the server refuses stays in the rename dialog, and cancelling chang
   await open(page);
   await page.getByRole('button', { name: 'Rename…' }).click();
   const dialog = page.getByRole('dialog', { name: 'Rename class' });
-  await dialog.getByLabel('Class name').fill('History 11B');
+  // A name another class has never gets this far (see rename-dialog.spec.js); this is a refusal only the server can give.
+  await dialog.getByLabel('Class name').fill('History 11C');
   await dialog.getByRole('button', { name: 'Rename', exact: true }).click();
   await expect(dialog.getByRole('alert')).toContainText('already exists');
   await expect(dialog).toBeVisible();
