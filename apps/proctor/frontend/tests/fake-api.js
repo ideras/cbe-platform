@@ -124,10 +124,13 @@ function snapshot() {
     roster: { exam_id: selectedExam, server_time: AT, sessions: loaded ? structuredClone(rows) : [], students_without_session: loaded ? structuredClone(missing) : [],
       policy: { heartbeat_interval_ms: 15000, focus_threshold_ms: 5000, overdue_threshold_ms: 30000, alert_interval_ms: 2000, capture_interval_ms: 5000, lock_away_after_ms: 300000, lock_no_contact_after_ms: 300000 } } };
 }
+let endTimePreviewFailure = '';
+let endTimeClockWarning = false;
 export async function PreviewEndTime(hhmm) {
+  if (endTimePreviewFailure) throw new Error(endTimePreviewFailure);
   const now = new Date(); const [h, m] = hhmm.split(':').map(Number);
   const end = new Date(now); end.setHours(h, m, 0, 0); if (end <= now) end.setDate(end.getDate() + 1);
-  return { ends_at: end.toISOString(), label: `Ends ${end.toDateString() === now.toDateString() ? 'today' : 'tomorrow'} at ${hhmm}`, clock_warning: false };
+  return { ends_at: end.toISOString(), label: `Ends ${end.toDateString() === now.toDateString() ? 'today' : 'tomorrow'} at ${hhmm}`, clock_warning: endTimeClockWarning };
 }
 export async function SetEndTime(id, hhmm, confirmed) {
   if (!confirmed) throw new Error('Confirmation required');
@@ -356,6 +359,9 @@ if (/^#\/(monitoring|review|image)/.test(location.hash)) { connected = true; sel
 window.ProctorHarness = {
   marker: 'PROCTOR_UI_FIXTURE', calls, nativeCalls,
   timing(index, value, serverTime) { Object.assign(rows[index], value); AT = serverTime; },
+  monitoringRoster(sessions, students, serverTime = AT) { rows = sessions; missing = students; AT = serverTime; },
+  endTimePreviewFailure(value) { endTimePreviewFailure = value; },
+  endTimeClockWarning(value) { endTimeClockWarning = value; },
   launchCredential(value) { launchCredential = value; }, rejected(value) { rejected = value; }, notice(value) { notice = value; }, tokenFile(value) { nextTokenFile = value; }, tokenFileFails(value) { tokenFileFails = value; },
   connectFails(value) { connectFails = value; }, holdConnect() { heldConnect = true; }, releaseConnect() { heldConnect = null; releaseConnect?.(); }, unreachable(value) { unreachable = value; }, knownServers(value) { knownServers = value; },
   // The application started with a server and a token known: it is connected (or still connecting, or failed) before anyone clicks.
