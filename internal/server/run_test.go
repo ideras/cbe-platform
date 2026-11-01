@@ -17,6 +17,11 @@ import (
 	"exam-platform/internal/storage"
 )
 
+// waitLimit is how long these tests wait for the server to come up, answer or go down. It is spent only when something is wrong,
+// so it is long: `go test ./...` runs every package at once under the race detector, and on a busy CI machine the server has taken
+// more than the 5 seconds this used to be (a startup that takes 0.6 s alone took 5+ s with the processors oversubscribed).
+const waitLimit = 30 * time.Second
+
 func serverConfig(t *testing.T) config.Config {
 	t.Helper()
 	dir := t.TempDir()
@@ -67,7 +72,7 @@ func TestStartupAndGracefulShutdown(t *testing.T) {
 	go func() { stopped <- Run(ctx, cfg, slog.New(slog.NewTextHandler(io.Discard, nil))) }()
 	client := &http.Client{Timeout: 500 * time.Millisecond}
 	ready := false
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(waitLimit)
 	for time.Now().Before(deadline) {
 		response, err := client.Get("http://" + cfg.Bind + "/healthz")
 		if err == nil {
@@ -95,7 +100,7 @@ func TestStartupAndGracefulShutdown(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(waitLimit):
 		t.Fatal("server did not stop")
 	}
 	s, err := storage.Open(t.Context(), cfg.Database)
@@ -120,7 +125,10 @@ func TestStartsEmptyAndKeepsWhatTheProctorPublishedAcrossARestart(t *testing.T) 
 	cfg.Bind = listener.Addr().String()
 	listener.Close()
 	base := "http://" + cfg.Bind
-	client := &http.Client{Timeout: time.Second}
+	// `probe` asks whether the server is up yet and may be refused or kept waiting; `client` makes the requests that matter, each of
+	// which commits to the database, so it waits as long as the server may take.
+	probe := &http.Client{Timeout: time.Second}
+	client := &http.Client{Timeout: waitLimit}
 	send := func(method, path, contentType, body string) (int, string) {
 		t.Helper()
 		request, err := http.NewRequest(method, base+path, strings.NewReader(body))
@@ -141,16 +149,21 @@ func TestStartsEmptyAndKeepsWhatTheProctorPublishedAcrossARestart(t *testing.T) 
 		ctx, cancel := context.WithCancel(t.Context())
 		stopped := make(chan error, 1)
 		go func() { stopped <- Run(ctx, cfg, slog.New(slog.NewTextHandler(io.Discard, nil))) }()
-		deadline := time.Now().Add(5 * time.Second)
+		deadline := time.Now().Add(waitLimit)
 		for {
-			if response, err := client.Get(base + "/healthz"); err == nil {
+			if response, err := probe.Get(base + "/healthz"); err == nil {
 				response.Body.Close()
 				break
+			}
+			// A server that stopped on its own says why, instead of the wait running out as if it were only slow.
+			select {
+			case err := <-stopped:
+				t.Fatalf("server exited before startup: %v", err)
+			case <-time.After(10 * time.Millisecond):
 			}
 			if time.Now().After(deadline) {
 				t.Fatal("server did not start without a roster")
 			}
-			time.Sleep(10 * time.Millisecond)
 		}
 		return func() {
 			cancel()
