@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { connect as connectTo, calls, admitting, card, examsPanel, tab } from './helpers.js';
+import { connect as connectTo, calls, admitting, admittingLine, card, examCard, examsPanel, tab } from './helpers.js';
 
 const EXAM = '11111111-1111-4111-8111-111111111111';
 const PRACTICE = '33333333-3333-4333-8333-333333333333';
@@ -13,33 +13,32 @@ async function connect(page, prepare, openClass = 'Mathematics 10A') {
   await connectTo(page, { prepare, openClass });
   return examsPanel(page);
 }
-const admittingLine = (klass, exam, working) => `Admitting: ${exam} — ${klass} · ${working} working`;
 
 test('the exams of the class are listed with which one students are admitted to', async ({ page }) => {
   const exams = await connect(page);
   await expect(tab(page, 'Exams (3)')).toHaveAttribute('aria-selected', 'true');
-  await expect(exams.locator('tbody tr')).toHaveCount(3);
-  const published = exams.locator('tbody tr', { hasText: 'Databases midterm' });
+  await expect(exams.getByRole('article')).toHaveCount(3);
+  const published = examCard(exams, 'Databases midterm');
   await expect(published).toContainText('Published'); await expect(published).toContainText('Monitoring');
   await expect(published).toContainText('12');
-  await expect(exams.locator('tbody tr', { hasText: 'Practice exam' })).toContainText('Forward only'); await expect(published).toContainText('01:30:00 + 00:00:30 grace'); await expect(published).toContainText('1 working · 90 total');
-  const practice = exams.locator('tbody tr', { hasText: 'Practice exam' });
+  await expect(examCard(exams, 'Practice exam')).toContainText('Forward only'); await expect(published).toContainText('01:30:00 + 00:00:30 grace'); await expect(published).toContainText('1 working / 90 total');
+  const practice = examCard(exams, 'Practice exam');
   await expect(practice).not.toContainText('Published'); await expect(practice).toContainText('Logins are closed now');
-  // The class is the page's own heading; the table does not repeat it, and the bar above says what is admitted.
+  // The class is the page's own heading; the cards do not repeat it, and the bar above says what is admitted.
   await expect(exams).not.toContainText('Class: Mathematics 10A');
   await expect(admitting(page)).toContainText(admittingLine('Mathematics 10A', 'Databases midterm', 1));
 });
 
 test('only the exams of this class are listed', async ({ page }) => {
   const exams = await connect(page, () => window.ProctorHarness.historyExam());
-  await expect(exams.locator('tbody tr')).toHaveCount(3);
+  await expect(exams.getByRole('article')).toHaveCount(3);
   await expect(exams).not.toContainText('History final');
   await page.getByRole('button', { name: 'Classes', exact: true }).first().click(); // the back button
   await card(page, 'History 11B').click();
   await expect(tab(page, 'Exams (1)')).toBeVisible();
   const history = examsPanel(page);
-  await expect(history.locator('tbody tr')).toHaveCount(1);
-  await expect(history.locator('tbody tr')).toContainText('History final');
+  await expect(history.getByRole('article')).toHaveCount(1);
+  await expect(history.getByRole('article')).toContainText('History final');
   await expect(history).not.toContainText('Databases midterm');
 });
 
@@ -48,7 +47,7 @@ test('a class with no exams invites the first import', async ({ page }) => {
   await expect(tab(page, 'Exams (0)')).toBeVisible();
   await expect(exams).toContainText('This class has no exams yet. Import one from its Markdown file.');
   await expect(exams.getByRole('button', { name: 'Import exam…' })).toBeEnabled();
-  await expect(exams.locator('table')).toHaveCount(0);
+  await expect(exams.getByRole('article')).toHaveCount(0);
 });
 
 test('with nothing published, every exam can be published and none can be closed', async ({ page }) => {
@@ -92,7 +91,7 @@ test('an exam file is previewed as students see it, imported into the class with
   await expect(preview.getByLabel(/Focus alert after/)).toHaveCount(0);
   await importButton.click();
   await expect(page.getByRole('status')).toContainText('Imported “Midterm B” into Mathematics 10A. It is stored but not published');
-  const row = exams.locator('tbody tr', { hasText: 'Midterm B' });
+  const row = examCard(exams, 'Midterm B');
   await expect(row).toBeVisible(); await expect(row).not.toContainText('Published'); await expect(row).not.toContainText('Forward only');
   await expect(admitting(page)).toContainText(admittingLine('Mathematics 10A', 'Databases midterm', 1));
   await expect(preview).toHaveCount(0);
@@ -107,7 +106,7 @@ test('an exam is imported into the class that is open, whichever it is', async (
   await exams.getByRole('button', { name: 'Import exam…' }).click();
   await exams.getByLabel('Exam PIN').fill('p');
   await exams.getByRole('button', { name: 'Import exam', exact: true }).click();
-  await expect(exams.locator('tbody tr', { hasText: 'Midterm B' })).toBeVisible();
+  await expect(examCard(exams, 'Midterm B')).toBeVisible();
   await expect(page.getByRole('status')).toContainText('into History 11B');
   expect((await calls(page)).imported[0]).toMatchObject({ classId: HISTORY });
 });
@@ -170,8 +169,8 @@ test('publishing needs no class: it names the students of this class, and over w
   await expect(page.getByRole('status')).toContainText('“Practice exam” is published to Mathematics 10A');
   expect((await calls(page)).publish).toEqual([{ examId: PRACTICE, expectedExam: EXAM, allowActive: true, confirmed: true }]);
   await expect(admitting(page)).toContainText(admittingLine('Mathematics 10A', 'Practice exam', 1));
-  await expect(exams.locator('tbody tr', { hasText: 'Practice exam' })).toContainText('Monitoring');
-  await expect(exams.locator('tbody tr', { hasText: 'Practice exam' })).toContainText('Published');
+  await expect(examCard(exams, 'Practice exam')).toContainText('Monitoring');
+  await expect(examCard(exams, 'Practice exam')).toContainText('Published');
 });
 
 test('cancelling the publish dialog sends nothing', async ({ page }) => {
@@ -223,7 +222,7 @@ test('publishing an exam of another class replaces the admission, naming the exa
   // The exam of the first class is no longer published there.
   await page.getByRole('button', { name: 'Classes', exact: true }).first().click();
   await card(page, 'Mathematics 10A').click();
-  await expect(examsPanel(page).locator('tbody tr', { hasText: 'Databases midterm' })).not.toContainText('Published');
+  await expect(examCard(examsPanel(page), 'Databases midterm')).not.toContainText('Published');
 });
 
 test('closing admission is confirmed and leaves running students alone', async ({ page }) => {
@@ -248,10 +247,10 @@ test('monitoring another exam never publishes it', async ({ page }) => {
 
 test('an exam nobody has taken and that is not published can be deleted, after a confirmation', async ({ page }) => {
   const exams = await connect(page);
-  const draft = exams.locator('tbody tr', { hasText: 'Draft quiz' });
+  const draft = examCard(exams, 'Draft quiz');
   // Only exams nobody took, and that are not published, offer it.
-  await expect(exams.locator('tbody tr', { hasText: 'Databases midterm' }).getByRole('button', { name: /Delete exam/ })).toHaveCount(0);
-  await expect(exams.locator('tbody tr', { hasText: 'Practice exam' }).getByRole('button', { name: /Delete exam/ })).toHaveCount(0);
+  await expect(examCard(exams, 'Databases midterm').getByRole('button', { name: /Delete exam/ })).toHaveCount(0);
+  await expect(examCard(exams, 'Practice exam').getByRole('button', { name: /Delete exam/ })).toHaveCount(0);
   await draft.getByRole('button', { name: 'Delete exam Draft quiz…' }).click();
   const dialog = page.getByRole('dialog', { name: 'Delete exam' });
   await expect(dialog).toContainText('Delete Draft quiz from Mathematics 10A?');
@@ -265,7 +264,7 @@ test('an exam nobody has taken and that is not published can be deleted, after a
   await confirm.click();
   await expect(dialog).toBeHidden();
   await expect(page.getByRole('status')).toContainText('Exam “Draft quiz” deleted.');
-  await expect(exams.locator('tbody tr', { hasText: 'Draft quiz' })).toHaveCount(0);
+  await expect(examCard(exams, 'Draft quiz')).toHaveCount(0);
   await expect(tab(page, 'Exams (2)')).toBeVisible();
   expect((await calls(page)).deleteExam).toEqual([{ examId: DRAFT, confirmed: true }]);
 });
@@ -277,7 +276,7 @@ test('a deletion the server refuses is explained in the dialog and the exam stay
   await dialog.getByRole('checkbox').check(); await dialog.getByRole('button', { name: 'Delete exam', exact: true }).click();
   await expect(dialog.getByRole('alert')).toContainText('published or students have taken it');
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await expect(exams.locator('tbody tr', { hasText: 'Draft quiz' })).toBeVisible();
+  await expect(examCard(exams, 'Draft quiz')).toBeVisible();
 });
 
 test('the exams panel stays inside the window at a narrow width', async ({ page }) => {
@@ -297,9 +296,9 @@ test('row actions are icon-only buttons whose name and tooltip still say what th
   await page.getByLabel('Exam PIN').fill('p');
   await page.getByLabel('Exam PIN').press('Enter');
   const long = 'Manual synthetic exam — no grading with a very long title indeed';
-  const row = exams.locator('tbody tr', { hasText: 'Manual synthetic exam' });
-  const published = exams.locator('tbody tr', { hasText: 'Databases midterm' });
-  const practice = exams.locator('tbody tr', { hasText: 'Practice exam' });
+  const row = examCard(exams, long);
+  const published = examCard(exams, 'Databases midterm');
+  const practice = examCard(exams, 'Practice exam');
   for (const [button, title] of [
     [row.getByRole('button', { name: `Monitor ${long}`, exact: true }), 'Nobody has taken this exam yet; publish it first'],
     [row.getByRole('button', { name: `Publish ${long}…`, exact: true }), `Publish ${long}…`],
@@ -337,9 +336,9 @@ test('when the exams cannot be loaded the panel says so instead of loading forev
 
 test('screenshots are purged from the exam list after grading, with explicit confirmation and partial failures shown', async ({ page }) => {
   const exams = await connect(page);
-  const practice = exams.locator('tbody tr', { hasText: 'Practice exam' });
-  await expect(exams.locator('tbody tr', { hasText: 'Draft quiz' }).getByRole('button', { name: /Purge screenshots/ })).toHaveCount(0);
-  await expect(exams.locator('tbody tr', { hasText: 'Databases midterm' }).getByRole('button', { name: /Purge screenshots/ })).toBeDisabled();
+  const practice = examCard(exams, 'Practice exam');
+  await expect(examCard(exams, 'Draft quiz').getByRole('button', { name: /Purge screenshots/ })).toHaveCount(0);
+  await expect(examCard(exams, 'Databases midterm').getByRole('button', { name: /Purge screenshots/ })).toBeDisabled();
   await practice.getByRole('button', { name: 'Purge screenshots of Practice exam…' }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog).toContainText('Practice exam'); await expect(dialog).toContainText('Downloads, exports and backups require separate deletion');
@@ -354,9 +353,9 @@ test('screenshots are purged from the exam list after grading, with explicit con
 
 test('download submissions is offered only for exams somebody has taken, with an editable default name', async ({ page }) => {
   const exams = await connect(page);
-  const published = exams.locator('tbody tr', { hasText: 'Databases midterm' });
-  const practice = exams.locator('tbody tr', { hasText: 'Practice exam' });
-  const draft = exams.locator('tbody tr', { hasText: 'Draft quiz' });
+  const published = examCard(exams, 'Databases midterm');
+  const practice = examCard(exams, 'Practice exam');
+  const draft = examCard(exams, 'Draft quiz');
   await expect(draft.getByRole('button', { name: 'Download submissions of Draft quiz…' })).toHaveCount(0);
   await expect(published.getByRole('button', { name: 'Download submissions of Databases midterm…' })).toBeVisible();
   await expect(practice.getByRole('button', { name: 'Download submissions of Practice exam…' })).toBeVisible();
@@ -582,16 +581,16 @@ test('the import preview and the exam row say which calculator the exam gives it
     await exams.locator('.actions').getByRole('button', { name: 'Cancel', exact: true }).click();
   }
   // The exam row shows the calculator as a badge on exams that have one.
-  const draft = exams.locator('tbody tr', { hasText: 'Draft quiz' });
+  const draft = examCard(exams, 'Draft quiz');
   await expect(draft.getByText('Calculator: scientific, programmer · radians · 1 function disabled')).toBeVisible();
-  const published = exams.locator('tbody tr', { hasText: 'Databases midterm' });
+  const published = examCard(exams, 'Databases midterm');
   await expect(published.getByText('Calculator:')).toHaveCount(0);
 });
 
 test("the exam row preview action opens the exam; its calculator waits for the tools button and floats", async ({ page, context }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   const exams = await connect(page);
-  const row = exams.locator('tbody tr', { hasText: 'Draft quiz' });
+  const row = examCard(exams, 'Draft quiz');
   // The action sits after the monitor action; the Draft quiz declares the calculator.
   await row.getByRole('button', { name: 'Preview Draft quiz' }).click();
   const dialog = page.getByRole('dialog', { name: 'Preview — Draft quiz' });
@@ -622,7 +621,7 @@ test("the exam row preview action opens the exam; its calculator waits for the t
   await expect(dialog).toBeVisible(); // the preview dialog itself stays open
   // An exam without a calculator offers no tools button.
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
-  const published = exams.locator('tbody tr', { hasText: 'Databases midterm' });
+  const published = examCard(exams, 'Databases midterm');
   await published.getByRole('button', { name: 'Preview Databases midterm' }).click();
   await expect(page.getByRole('dialog', { name: 'Preview — Databases midterm' })).toContainText('This exam has no calculator');
   await expect(page.getByRole('dialog', { name: 'Preview — Databases midterm' }).getByRole('button', { name: 'Open the calculator' })).toHaveCount(0);

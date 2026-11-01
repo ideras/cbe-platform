@@ -7,9 +7,13 @@ export const goTo = (page, label) => nav(page).getByRole('button', { name: label
 export const card = (page, name) => page.getByRole('button', { name: new RegExp(name) });
 // The bar at the top of the dashboard that says what students are being admitted to.
 export const admitting = page => page.getByRole('region', { name: 'Now admitting' });
+// What the bar says while an exam is published: the exam, its class and how many of its students are working.
+export const admittingLine = (klass, exam, working) => `Admitting now ${exam} · ${klass} ${working} working`;
 // The exams of the class that is open, and its tabs.
 export const examsPanel = page => page.getByRole('region', { name: 'Exams', exact: true });
 export const tab = (page, name) => page.getByRole('tab', { name });
+// One exam of the class that is open: its card, an article named after the exam, inside the panel `exams`.
+export const examCard = (exams, title) => exams.getByRole('article', { name: title, exact: true });
 
 // Opens the application and connects through the Server connection dialog, as a person would. It ends on the class list, or,
 // with `openClass`, in that class on its Exams tab.

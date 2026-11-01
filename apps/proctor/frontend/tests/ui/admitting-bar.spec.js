@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { connect, calls, admitting, card, examsPanel, nav, tab } from './helpers.js';
+import { connect, calls, admitting, admittingLine, card, examCard, examsPanel, nav, tab } from './helpers.js';
 
 const EXAM = '11111111-1111-4111-8111-111111111111';
 const PRACTICE = '33333333-3333-4333-8333-333333333333';
@@ -7,7 +7,7 @@ const PRACTICE = '33333333-3333-4333-8333-333333333333';
 test('the bar names the published exam, its class and how many students are working', async ({ page }) => {
   await connect(page);
   const bar = admitting(page);
-  await expect(bar).toContainText('Admitting: Databases midterm — Mathematics 10A · 1 working');
+  await expect(bar).toContainText(admittingLine('Mathematics 10A', 'Databases midterm', 1));
   await expect(bar.getByRole('button', { name: 'Monitor', exact: true })).toBeEnabled();
   await expect(bar.getByRole('button', { name: 'Open class', exact: true })).toBeEnabled();
   // It is the top of the page, above the class list.
@@ -20,7 +20,7 @@ test('with nothing published the bar says admission is closed and offers nothing
   const bar = admitting(page);
   await expect(bar).toContainText('Admission closed');
   await expect(bar.getByRole('button')).toHaveCount(0);
-  await expect(bar).not.toContainText('Admitting:');
+  await expect(bar).not.toContainText('Admitting now');
 });
 
 test('the bar stays on top of every page of the class, and follows what is published', async ({ page }) => {
@@ -59,7 +59,7 @@ test('Open class goes to the class of the published exam, on its Exams tab', asy
   await admitting(page).getByRole('button', { name: 'Open class', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Mathematics 10A', level: 1 })).toBeVisible();
   await expect(tab(page, /^Exams/)).toHaveAttribute('aria-selected', 'true');
-  await expect(examsPanel(page).locator('tbody tr', { hasText: 'Databases midterm' })).toContainText('Published');
+  await expect(examCard(examsPanel(page), 'Databases midterm')).toContainText('Published');
 });
 
 test('Open class leads back to the exams from anywhere: another class, the students, or the list', async ({ page }) => {

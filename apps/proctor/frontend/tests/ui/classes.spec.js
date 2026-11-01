@@ -62,7 +62,7 @@ test('opening a class shows its exams first, and its read-only roster in the oth
   await expect(page.getByRole('heading', { name: 'Mathematics 10A', level: 1 })).toBeVisible();
   // Two tabs with their counts; the exams are the default.
   await expect(page.getByRole('tablist')).toBeVisible();
-  await expect(page.getByRole('tab')).toHaveText(['Exams (3)', 'Students (28)']);
+  await expect(page.getByRole('tab')).toHaveText(['Exams 3', 'Students 28']); // the count is a badge; the accessible name keeps it in parentheses
   await expect(tab(page, 'Exams (3)')).toHaveAttribute('aria-selected', 'true');
   await expect(tab(page, 'Students (28)')).toHaveAttribute('aria-selected', 'false');
   await expect(examsPanel(page)).toBeVisible();
@@ -75,22 +75,25 @@ test('opening a class shows its exams first, and its read-only roster in the oth
   await expect(examsPanel(page)).toHaveCount(0);
   const roster = page.getByRole('region', { name: 'Roster' });
   await expect(roster).toContainText('Read-only');
-  // The count is part of the heading, on the same line: "Roster (28 students)".
+  // The heading is named with the count, "Roster (28 students)", and the toolbar shows the count again beside the search.
   const heading = roster.getByRole('heading', { name: 'Roster (28 students)', level: 2 });
   await expect(heading).toBeVisible();
   expect((await heading.boundingBox()).height).toBeLessThan(32);
-  await expect(roster.getByText('28 students', { exact: true })).toHaveCount(0);
-  await expect(roster.getByRole('columnheader')).toHaveText(['Account number', 'Full name']);
+  await expect(roster.getByText('28 students', { exact: true })).toBeVisible();
+  await expect(roster.getByRole('columnheader')).toHaveText(['#', 'Account number', 'Full name']);
   const rows = roster.locator('tbody tr');
   await expect(rows).toHaveCount(28);
-  await expect(rows.nth(0).getByRole('cell')).toHaveText(['0001', 'Ada Lovelace']);
-  await expect(rows.nth(27).getByRole('cell')).toHaveText(['0028', 'Student 028']);
+  await expect(rows.nth(0).getByRole('cell')).toHaveText(['1', '0001', /Ada Lovelace$/]); // the name follows the student's initials
+  await expect(rows.nth(27).getByRole('cell')).toHaveText(['28', '0028', /Student 028$/]);
   // The roster was loaded once, when the class was opened, and switching tabs does not load it again.
   await tab(page, 'Exams (3)').click(); await tab(page, 'Students (28)').click();
   expect((await calls(page)).classRoster).toEqual([MATH]);
   // The list cannot be edited student by student: the only ways to change it are to replace the whole file or to reload.
-  const buttons = await roster.getByRole('button').allInnerTexts();
-  expect(buttons.map(text => text.trim())).toEqual(['Replace roster…', 'Reload']);
+  const actions = await roster.getByRole('group', { name: 'Roster actions' }).getByRole('button').allInnerTexts();
+  expect(actions.map(text => text.trim())).toEqual(['Replace roster…', 'Reload']);
+  // A row offers only a local selection toggle: never an edit or a removal of that student.
+  await expect(roster.locator('tbody').getByRole('button')).toHaveCount(28);
+  await expect(roster.locator('tbody').getByRole('button', { name: /^Select student / })).toHaveCount(28);
   await expect(roster.getByRole('textbox')).toHaveCount(0);
   await page.getByRole('main').getByRole('button', { name: 'Classes', exact: true }).click(); // the back button
   await expect(card(page, 'History 11B')).toBeVisible();
@@ -137,9 +140,9 @@ test('student names are shown as text, an empty name is marked and a long roster
   await connect(page, { prepare: () => window.ProctorHarness.classRoster('44444444-4444-4444-8444-444444444444', [['0001', '<img src=x onerror=alert(1)> María Ñandú'], ['0002', ''], ...Array.from({ length: 120 }, (_, i) => [String(i + 3).padStart(4, '0'), `Student ${i + 3}`])]) });
   await card(page, 'Mathematics 10A').click();
   const roster = await students(page);
-  await expect(roster.locator('tbody tr').nth(0).getByRole('cell').nth(1)).toHaveText('<img src=x onerror=alert(1)> María Ñandú');
+  await expect(roster.locator('tbody tr').nth(0).locator('.student-name')).toHaveText('<img src=x onerror=alert(1)> María Ñandú');
   await expect(roster.locator('tbody img')).toHaveCount(0);
-  await expect(roster.locator('tbody tr').nth(1).getByRole('cell').nth(1)).toHaveText('—');
+  await expect(roster.locator('tbody tr').nth(1).locator('.student-name')).toHaveText('—');
   const frame = roster.locator('.table-scroll');
   const metrics = await frame.evaluate(element => ({ client: element.clientHeight, scroll: element.scrollHeight }));
   expect(metrics.scroll).toBeGreaterThan(metrics.client); expect(metrics.client).toBeLessThanOrEqual(500);
@@ -222,6 +225,55 @@ test('the classes page stays inside a narrow window', async ({ page }) => {
   await tab(page, /^Students/).click();
   await expect(page.getByRole('region', { name: 'Roster' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test('the roster is searched, sorted and selected on this screen only, and the class is left as it was', async ({ page }) => {
+  await connect(page, { prepare: () => window.ProctorHarness.classRoster('44444444-4444-4444-8444-444444444444', [['20210033', 'Luis Fernando Hernández Rivera'], ['20190001', 'Mariana Isabel López Castro'], ['20200027', 'Ñandú Ortiz'], ['20220052', 'Ana Núñez']]) });
+  await card(page, 'Mathematics 10A').click();
+  const roster = await students(page);
+  const accounts = () => roster.locator('tbody tr td:nth-child(2)').allTextContents();
+  const header = name => roster.getByRole('columnheader', { name });
+  // By account number to begin with; the header says so, and the toolbar counts the whole class.
+  expect(await accounts()).toEqual(['20190001', '20200027', '20210033', '20220052']);
+  await expect(header('Account number')).toHaveAttribute('aria-sort', 'ascending');
+  await expect(header('Full name')).toHaveAttribute('aria-sort', 'none');
+  await expect(roster.getByText('4 students', { exact: true })).toBeVisible();
+  // Names sort as a Spanish reader expects: Ñ after N, accents ignored. A second click reverses.
+  await header('Full name').getByRole('button').click();
+  expect(await accounts()).toEqual(['20220052', '20210033', '20190001', '20200027']);
+  await expect(header('Full name')).toHaveAttribute('aria-sort', 'ascending'); await expect(header('Account number')).toHaveAttribute('aria-sort', 'none');
+  await header('Full name').getByRole('button').click();
+  expect(await accounts()).toEqual(['20200027', '20190001', '20210033', '20220052']);
+  await expect(header('Full name')).toHaveAttribute('aria-sort', 'descending');
+  await header('Account number').getByRole('button').click();
+  await expect(header('Account number')).toHaveAttribute('aria-sort', 'ascending');
+  // The search ignores case and accents, looks at names and accounts, highlights what it found and counts what is left.
+  const search = roster.getByRole('searchbox', { name: 'Search students by name or account' });
+  await search.fill('NUNEZ');
+  expect(await accounts()).toEqual(['20220052']);
+  await expect(roster.getByText('1 of 4 students', { exact: true })).toBeVisible();
+  await expect(roster.locator('tbody mark')).toHaveText('Núñez');
+  await search.fill('2019');
+  expect(await accounts()).toEqual(['20190001']);
+  await expect(roster.locator('tbody mark')).toHaveText('2019');
+  await search.fill('zzz');
+  await expect(roster.getByRole('cell', { name: 'No students match your search.' })).toBeVisible();
+  await expect(roster.getByText('0 of 4 students', { exact: true })).toBeVisible();
+  await search.fill('');
+  expect(await accounts()).toEqual(['20190001', '20200027', '20210033', '20220052']);
+  await expect(roster.locator('tbody mark')).toHaveCount(0);
+  // Selecting a student marks one row, by click or by its button; it is a toggle, and it does not touch the class.
+  const ana = roster.getByRole('button', { name: 'Select student Ana Núñez' }), luis = roster.getByRole('button', { name: 'Select student Luis Fernando Hernández Rivera' });
+  await ana.click();
+  await expect(ana).toHaveAttribute('aria-pressed', 'true'); await expect(roster.locator('tbody tr.sel')).toHaveCount(1);
+  await luis.click();
+  await expect(luis).toHaveAttribute('aria-pressed', 'true'); await expect(ana).toHaveAttribute('aria-pressed', 'false'); await expect(roster.locator('tbody tr.sel')).toHaveCount(1);
+  await roster.getByRole('cell', { name: '20190001' }).click(); // the row itself selects, too
+  await expect(roster.locator('tbody tr.sel')).toHaveCount(1); await expect(luis).toHaveAttribute('aria-pressed', 'false');
+  await roster.getByRole('cell', { name: '20190001' }).click();
+  await expect(roster.locator('tbody tr.sel')).toHaveCount(0);
+  const done = await calls(page);
+  expect(done.classRoster).toEqual([MATH]); expect(done.replaceRoster).toEqual([]); expect(done.renameClass).toEqual([]); expect(done.deleteClass).toEqual([]);
 });
 
 const open = async (page, name = 'Mathematics 10A') => { await card(page, name).click(); await expect(page.getByRole('heading', { name, level: 1 })).toBeVisible(); await expect(tab(page, /^Exams/)).toBeVisible(); };

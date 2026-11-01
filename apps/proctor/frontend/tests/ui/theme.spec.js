@@ -13,14 +13,25 @@ test('theme roles apply to the actual class controls, inline icons, focus and ca
   page.on('request', request => { if (!request.url().startsWith('http://127.0.0.1:4179') && !request.url().startsWith('data:')) external.push(request.url()); });
   await connect(page, { openClass: 'Mathematics 10A' });
   const ink = await token(page, 'text-main'), secondary = await token(page, 'text-muted'), ocean = await token(page, 'action-primary');
-  await expect(page.getByRole('tab', { name: 'Exams (3)' })).toHaveCSS('color', ink);
-  await expect(page.getByRole('tab', { name: 'Exams (3)' })).toHaveCSS('border-bottom-color', ocean);
+  // The chosen tab is raised and blue with a gradient underline; the other keeps the ink (muted text is under 4.5:1 on its ground).
+  await page.mouse.move(0, 0); // the pointer is where the class card was clicked, over a tab; these are the resting colors
+  const exams = page.getByRole('tab', { name: 'Exams (3)' }), students = page.getByRole('tab', { name: 'Students (28)' });
+  await expect(exams).toHaveCSS('color', await token(page, 'action-hover'));
+  await expect(students).toHaveCSS('color', ink);
+  const underline = await exams.evaluate(element => { const after = getComputedStyle(element, '::after'); return { height: after.height, image: after.backgroundImage }; });
+  expect(underline.height).toBe('3px');
+  expect(underline.image).toContain(ocean); expect(underline.image).toContain(await token(page, 'accent-cyan'));
+  expect(await students.evaluate(element => getComputedStyle(element, '::after').content)).toBe('none');
   await expect(page.getByRole('button', { name: 'Import exam…' })).toHaveCSS('background-color', ocean);
-  const monitor = page.getByRole('button', { name: 'Monitor Databases midterm', exact: true });
-  await expect(monitor).toHaveCSS('border-top-color', 'rgba(0, 0, 0, 0)');
+  // The exam being monitored has the one filled action; the others are quiet bordered squares that fill on hover.
+  const monitored = page.getByRole('button', { name: 'Monitor Databases midterm', exact: true });
+  await expect(monitored).toHaveCSS('background-color', ocean);
+  await expect(monitored.locator('svg')).toHaveCSS('color', await token(page, 'bg-primary'));
+  const monitor = page.getByRole('button', { name: 'Monitor Practice exam', exact: true });
+  await expect(monitor).toHaveCSS('border-top-color', await token(page, 'border-subtle'));
   await expect(monitor.locator('svg')).toHaveCSS('color', secondary);
   await monitor.hover();
-  await expect(monitor).toHaveCSS('background-color', await token(page, 'hover-fill'));
+  await expect(monitor).toHaveCSS('background-color', await token(page, 'selection-fill'));
   const door = page.getByRole('button', { name: 'Close admission to Databases midterm…' }).locator('svg');
   await expect(door.locator('rect[x="14"][y="16"]')).toHaveCount(1);
   const sidebar = page.getByRole('navigation', { name: 'Main navigation' }).getByRole('button', { name: 'Classes', exact: true });

@@ -25,11 +25,11 @@ for (const viewport of [{ width: 1280, height: 800 }, { width: 600, height: 700 
     await connect(page);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({ path: info.outputPath('classes.png') });
-    // A class: the bar above it, the tabs and the exams table all stay inside the window.
+    // A class: the bar above it, the tabs and the exam cards all stay inside the window.
     await expect(admitting(page)).toBeInViewport();
     await card(page, 'Mathematics 10A').click();
     for (const name of ['Exams (3)', 'Students (28)']) await expect(tab(page, name)).toBeInViewport();
-    await expect(page.getByRole('region', { name: 'Exams', exact: true }).locator('tbody tr')).toHaveCount(3);
+    await expect(page.getByRole('region', { name: 'Exams', exact: true }).getByRole('article')).toHaveCount(3);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({ path: info.outputPath('class-exams.png') });
   });

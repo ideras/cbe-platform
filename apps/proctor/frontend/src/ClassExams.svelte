@@ -2,7 +2,7 @@
   import { formatTime } from '../../../../shared/exam/timing.js';
   import { onDestroy } from 'svelte';
   import * as api from '$proctor-api';
-  import Panel from './Panel.svelte';
+  import ExamCard from './ExamCard.svelte';
   import Confirmation from './Confirmation.svelte';
   import ExamImport from './ExamImport.svelte';
   import DownloadDialog from './DownloadDialog.svelte';
@@ -60,6 +60,7 @@
   // Whether new students could log in to this exam right now, by the server's clock.
   function admission(entry) {
     const now = new Date(view.catalog.server_time);
+    if (entry.ends_at && now >= new Date(entry.ends_at)) return 'ended';
     if (entry.opens_at && now < new Date(entry.opens_at)) return 'not open yet';
     if (entry.closes_at && now >= new Date(entry.closes_at)) return 'closed';
     return 'open';
@@ -150,13 +151,13 @@
 </script>
 
 <div class="exams">
-<Panel label="Exams">
+<section class="panel" aria-label="Exams">
+  <header class="panel-head"><h2>Exams</h2><span class="sub">Newest first</span><div class="tools"><button class:primary={!examPreview?.valid} disabled={locked} onclick={chooseExam}><Icon name="download" size={16} />Import exam…</button></div></header>
+  <div class="panel-body">
   {#if unreachable}
     <p class="wide" role="alert">Cannot load the exams from the server. {view.error}</p>
   {:else if !view.catalog_loaded}<p class="muted">Loading exams…</p>{/if}
-  <div class="toolbar">
-    <button class:primary={!examPreview?.valid} disabled={locked} onclick={chooseExam}>Import exam…</button>
-  </div>
+  <div class="info"><Icon name="info" size={15} /><span>Monitoring an exam does not let students in; only publishing does.</span></div>
   {#if status}<p role="status">{status}{#if lastFolder} <button type="button" class="open-folder" disabled={working} onclick={openFolder}>Open folder</button>{/if}</p>{/if}
   {#if problem}<p role="alert">{problem}</p>{/if}
 
@@ -172,36 +173,16 @@
     {#if exams.length === 0}
       <p>This class has no exams yet. Import one from its Markdown file.</p>
     {:else}
-      <div class="table-scroll"><table>
-        <caption>Exams of {klass.name} — newest first. Monitoring an exam does not let students in; only publishing does.</caption>
-        <thead><tr><th>Exam</th><th>Exercises</th><th>Time</th><th>Logins allowed</th><th>Sessions</th><th>Actions</th></tr></thead>
-        <tbody>{#each exams as entry (entry.exam_id)}
-          <tr class:published={entry.published}>
-            <td><strong>{entry.title}</strong>{#if entry.ends_at}<div>Ends {new Date(entry.ends_at).toLocaleString()}</div>{/if}
-              {#if entry.published}<span class="badge open">Published</span>{/if}
-              {#if entry.exam_id === view.exam_id}<span class="badge watching">Monitoring</span>{/if}
-              {#if entry.navigation === 'forward_only'}<span class="badge forward" title="Students cannot go back to an exercise once they move on">Forward only</span>{/if}
-              {#if calculatorText(entry.tools?.calculator)}<span class="badge calc" title={calculatorText(entry.tools.calculator)}>{calculatorText(entry.tools.calculator)}</span>{/if}
-              <small>{entry.exam_id}</small></td>
-            <td>{entry.exercise_count}</td>
-            <td>{formatTime(entry.duration_seconds)} + {formatTime(entry.grace_seconds)} grace</td>
-            <td>{span(entry)}{#if admission(entry) !== 'open'}<small class="late">Logins are {admission(entry)} now</small>{/if}</td>
-            <td>{entry.active_sessions} working · {entry.total_sessions} total</td>
-            <td class="row-cell"><div class="row-actions">
-              <button disabled={locked || !monitorable(entry)} aria-label="Monitor {entry.title}" title={monitorable(entry) ? `Open the monitoring window for ${entry.title}` : 'Nobody has taken this exam yet; publish it first'} onclick={() => monitor(entry)}><Icon name="monitor" class="monitor" size="1.35rem" /></button>
-              <button disabled={locked} aria-label="Preview {entry.title}" title={`Preview ${entry.title} as the students see it, calculator included`} onclick={() => { previewExamID = entry.exam_id; }}><Icon name="preview" size="1.35rem" /></button>
-              {#if !entry.published}<button disabled={locked} aria-label="Publish {entry.title}…" title="Publish {entry.title}…" onclick={() => ask('publish', entry)}><Icon name="publish" size="1.35rem" /></button>{/if}
-              {#if entry.published}<button disabled={locked} aria-label="Close admission to {entry.title}…" title="Close admission to {entry.title}…" onclick={() => ask('unpublish', entry)}><Icon name="closeAdmission" class="close-admission" size="1.35rem" /></button>{/if}
-              {#if entry.total_sessions > 0}<button disabled={locked} aria-label="Download submissions of {entry.title}…" title="Download submissions of {entry.title}…" onclick={() => { downloadExam = entry; }}><Icon name="download" class="download" size="1.35rem" /></button>{/if}
-              {#if entry.total_sessions > 0}<button class="purge" disabled={locked || entry.active_sessions > 0} aria-label="Purge screenshots of {entry.title}…" title={entry.active_sessions > 0 ? 'Students are still working in this exam; purge once grades are final' : `Delete the screenshots of ${entry.title} after grading`} onclick={() => ask('purge', entry)}><Icon name="purge" size="1.35rem" /></button>{/if}
-              {#if entry.total_sessions === 0 && !entry.published}<button class="purge" disabled={locked} aria-label="Delete exam {entry.title}…" title="Delete exam {entry.title}…" onclick={() => ask('deleteExam', entry)}><Icon name="deleteExam" class="delete-exam" size="1.35rem" /></button>{/if}
-            </div></td>
-          </tr>
-        {/each}</tbody>
-      </table></div>
+      <div class="exam-list">{#each exams as entry (entry.exam_id)}
+        <ExamCard {entry} monitored={entry.exam_id === view.exam_id} {locked} deemphasized={!!examPreview?.valid}
+          monitorable={monitorable(entry)} calculator={calculatorText(entry.tools?.calculator)} logins={span(entry)} admission={admission(entry)}
+          onMonitor={monitor} onPreview={entry => previewExamID = entry.exam_id} onPublish={entry => ask('publish', entry)} onUnpublish={entry => ask('unpublish', entry)}
+          onDownload={entry => downloadExam = entry} onPurge={entry => ask('purge', entry)} onDelete={entry => ask('deleteExam', entry)} />
+      {/each}</div>
     {/if}
   {/if}
-</Panel>
+  </div>
+</section>
 </div>
 {#if modal}<Confirmation kind={modal.kind} exam={modal.entry?.exam_id ?? ''} details={modal} busy={modalBusy} error={modalError} onCancel={() => modal = null} onConfirm={confirm} />{/if}
 {#if downloadExam}<DownloadDialog exam={downloadExam} onClose={() => downloadExam = null} onDownloaded={downloaded} />{/if}
@@ -210,39 +191,16 @@
 <style>
   .exams { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); min-width: 0; align-content: start; overflow-wrap: anywhere; }
   .wide { white-space: pre-line; }
-  .toolbar { display: flex; justify-content: flex-end; margin: 0 0 var(--space-3); }
-  .toolbar button { margin: 0; }
-  .row-cell { width: 1%; }
-  .row-actions { display: flex; gap: var(--space-1); }
-  /* Icon-only buttons: the tooltip and the accessible name say what each one does. Ghost by default. */
-  .row-actions button { display: inline-flex; align-items: center; justify-content: center; width: 2.3rem; height: 2.3rem; min-height: 0; margin: 0; padding: 0; background: var(--transparent); border-color: var(--transparent); color: var(--text-muted); box-shadow: none; }
-  .row-actions button:hover:not(:disabled) { background: var(--hover-fill); border-color: var(--transparent); color: var(--action-hover); }
-  .row-actions button:disabled { background: var(--transparent); border-color: var(--transparent); color: var(--muted-dot); }
-  .row-actions :global(svg) { flex: none; width: 1.35rem; height: 1.35rem; object-fit: contain; }
-  .row-actions :global(svg.monitor), .row-actions :global(svg.close-admission), .row-actions :global(svg.delete-exam), .row-actions :global(svg.download) { width: 1.6rem; height: 1.6rem; }
-  .row-actions .purge { color: var(--alert-text); }
-  .row-actions .purge:hover:not(:disabled) { background: var(--alert-fill); border-color: var(--transparent); color: var(--alert-text); }
-  .row-actions button:disabled :global(svg) { opacity: .5; }
+  .panel { min-width: 0; overflow: hidden; background: var(--bg-raised); border: 1px solid var(--border-subtle); border-radius: 14px; box-shadow: var(--shadow-card); }
+  .panel-head { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; padding: .8rem 1rem; background: var(--header-soft); border-bottom: 1px solid var(--cyan-border); }
+  h2 { margin: 0; color: var(--action-hover); font-size: 1.05rem; }
+  .sub { color: var(--text-muted); font-size: .82rem; }
+  .tools { margin-left: auto; }
+  .tools button { display: inline-flex; align-items: center; gap: .45rem; min-height: 38px; margin: 0; padding: .3rem 1rem; border-radius: 9px; font-size: .92rem; }
+  .panel-body { display: flex; flex-direction: column; gap: .9rem; padding: 1rem; min-width: 0; }
+  .panel-body > p { margin: 0; }
+  .info { display: flex; align-items: flex-start; gap: .5rem; padding: .5rem .7rem; border: 1px dashed var(--border-subtle); border-radius: 9px; background: var(--bg-primary); color: var(--text-muted); font-size: .85rem; }
+  .info :global(svg) { color: var(--action-primary); margin-top: .12rem; }
+  .exam-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: .9rem; }
   .open-folder { margin: 0 0 0 var(--space-2); padding: .15rem .6rem; font-size: var(--text-sm); }
-  .table-scroll { overflow-x: auto; margin-top: var(--space-3); border: 1px solid var(--border-subtle); border-radius: 10px; }
-  table { width: 100%; border-collapse: collapse; min-width: 760px; background: var(--bg-raised); }
-  caption { padding: var(--space-2) var(--space-3); color: var(--text-muted); font-size: var(--text-sm); text-align: left; border-bottom: 1px solid var(--border-subtle); }
-  th { background: var(--bg-secondary); color: var(--text-main); font-size: .78rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; border-bottom: 1px solid var(--border-subtle); }
-  th, td { text-align: left; vertical-align: top; padding: .5rem .7rem; overflow-wrap: anywhere; }
-  th { white-space: nowrap; }
-  td { border-bottom: 1px solid var(--border-subtle); }
-  tbody tr:last-child td { border-bottom: 0; }
-  tbody tr:hover { background: var(--hover-fill); }
-  /* The published exam is the open one: a green edge, besides its Published badge. */
-  tr.published td:first-child { box-shadow: inset 3px 0 0 var(--ok); }
-  small { display: block; margin-top: .15rem; color: var(--text-muted); }
-  .late { display: inline-block; margin-top: .15rem; padding: .05rem .5rem; border-radius: 999px; background: var(--warn-fill); color: var(--warn-text); font-weight: 600; }
-  .badge { display: inline-flex; align-items: center; gap: .3rem; margin-left: var(--space-1); padding: .05rem .5rem; font-size: .8rem; font-weight: 700; line-height: 1.5; border: 1px solid; border-radius: 999px; vertical-align: .1em; }
-  .open { background: var(--ok-fill); color: var(--ok-text); border-color: var(--ok-border); }
-  .open::before { content: ''; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 2px var(--ok-glow); }
-  .watching { background: var(--selection-fill); color: var(--action-hover); border-color: var(--cyan-border); }
-  .watching::before { content: ''; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--accent-cyan); }
-  .forward { background: var(--bg-secondary); color: var(--text-main); border-color: var(--border-subtle); }
-  /* The dash marks an optional enabled feature, independently of its color. */
-  .calc { background: var(--hover-fill); color: var(--action-hover); border-color: var(--action-border); border-style: dashed; border-radius: var(--radius-ctl); }
 </style>

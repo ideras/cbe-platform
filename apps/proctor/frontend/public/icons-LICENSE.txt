@@ -18,12 +18,14 @@ Tabler Icons (github.com/tabler/tabler-icons/blob/main/LICENSE):
   exams.svg: file-text
   eye.svg: eye
   eye-off.svg: eye-off
+  file-check.svg: file-check
   folder.svg: folder-open
   gear.svg: settings
   grip.svg: grip-vertical
   info.svg: info-circle
   lock.svg: lock
   login.svg: login-2
+  pencil.svg: pencil
   plus.svg: plus
   power.svg: power
   preview.svg: eye
