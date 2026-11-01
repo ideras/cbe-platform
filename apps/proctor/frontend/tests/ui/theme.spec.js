@@ -8,11 +8,11 @@ async function token(page, name) {
   }, name);
 }
 
-test('warm roles apply to the actual class controls, inline icons, focus and calculator preview', async ({ page }) => {
+test('theme roles apply to the actual class controls, inline icons, focus and calculator preview', async ({ page }) => {
   const external = [];
   page.on('request', request => { if (!request.url().startsWith('http://127.0.0.1:4179') && !request.url().startsWith('data:')) external.push(request.url()); });
   await connect(page, { openClass: 'Mathematics 10A' });
-  const ink = await token(page, 'ink'), secondary = await token(page, 'ink-2'), ocean = await token(page, 'ocean');
+  const ink = await token(page, 'text-main'), secondary = await token(page, 'text-muted'), ocean = await token(page, 'action-primary');
   await expect(page.getByRole('tab', { name: 'Exams (3)' })).toHaveCSS('color', ink);
   await expect(page.getByRole('tab', { name: 'Exams (3)' })).toHaveCSS('border-bottom-color', ocean);
   await expect(page.getByRole('button', { name: 'Import exam…' })).toHaveCSS('background-color', ocean);
@@ -20,12 +20,16 @@ test('warm roles apply to the actual class controls, inline icons, focus and cal
   await expect(monitor).toHaveCSS('border-top-color', 'rgba(0, 0, 0, 0)');
   await expect(monitor.locator('svg')).toHaveCSS('stroke', secondary);
   await monitor.hover();
-  await expect(monitor).toHaveCSS('background-color', await token(page, 'hover'));
+  await expect(monitor).toHaveCSS('background-color', await token(page, 'hover-fill'));
   const door = page.getByRole('button', { name: 'Close admission to Databases midterm…' }).locator('svg');
   await expect(door.locator('rect[x="14"][y="16"]')).toHaveCount(1);
   const sidebar = page.getByRole('navigation', { name: 'Main navigation' }).getByRole('button', { name: 'Classes', exact: true });
-  await sidebar.focus();
-  await expect(sidebar).toHaveCSS('outline-color', await token(page, 'sidebar-ink'));
+  // Reached by keyboard, so :focus-visible applies (a programmatic focus after the hover above would not show it).
+  await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('button', { name: 'Server connection' }).focus();
+  await page.keyboard.press('Tab');
+  await expect(sidebar).toBeFocused();
+  await expect(sidebar).toHaveCSS('outline-style', 'solid');
+  await expect(sidebar).toHaveCSS('outline-color', await token(page, 'accent-cyan-soft'));
   await page.getByRole('button', { name: 'Preview Draft quiz' }).click();
   await page.getByRole('button', { name: 'Open the calculator' }).click();
   const calculator = page.getByRole('dialog', { name: 'Calculator', exact: true });
@@ -40,7 +44,7 @@ test('warm roles apply to the actual class controls, inline icons, focus and cal
   expect(four.y).toBeGreaterThan(seven.y);
   expect(divide.x).toBeGreaterThan(nine.x);
   await calculator.getByRole('tab', { name: 'Programmer' }).click();
-  await expect(calculator.locator('.seg button[aria-pressed="true"]').first()).toHaveCSS('background-color', ink);
+  await expect(calculator.locator('.seg button[aria-pressed="true"]').first()).toHaveCSS('background-color', await token(page, 'action-hover'));
   expect(external).toEqual([]);
 });
 

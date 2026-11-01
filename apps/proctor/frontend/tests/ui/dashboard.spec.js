@@ -15,9 +15,9 @@ test('full classroom remains visible with independent warnings and readable fiel
   await expect(page.getByRole('list', { name: 'Students without a session' }).getByRole('listitem')).toHaveCount(30);
   const row = sessionRows(page).first();
   for (const value of ['Student 000', '0001', 'desk-0', '10.0.0.1', 'Network overdue', 'Sustained focus loss', 'Current focus: unknown', 'Heartbeat age: 35.0s', 'Sound: muted (35%)', 'Remaining: 00:01:29']) await expect(row).toContainText(value);
-  // The network warning is a sand pill, never a filled row (color budget); the focus pill stays white.
+  // The network warning is a warn-fill pill, never a filled row (color budget); the focus pill uses the alert fill.
   expect(await row.evaluate(el => getComputedStyle(el).backgroundColor)).toBe('rgba(0, 0, 0, 0)');
-  expect(await row.locator('.network').evaluate(el => getComputedStyle(el).backgroundColor)).toBe('rgb(241, 231, 210)');
+  expect(await row.locator('.network').evaluate(el => getComputedStyle(el).backgroundColor)).toBe('rgb(245, 233, 196)');
   expect(await row.locator('.network').evaluate(el => getComputedStyle(el).backgroundColor)).not.toBe(await row.locator('.focus').evaluate(el => getComputedStyle(el).backgroundColor));
   await expect(page.getByRole('region', { name: 'Live roster' }).getByText('Student 089', { exact: true })).toBeAttached(); await expect(page.getByText('Missing 029', { exact: true })).toBeAttached();
   await page.setViewportSize({ width: 600, height: 700 }); await expect(sessionRows(page)).toHaveCount(90);
@@ -41,10 +41,10 @@ test('the roster shows the sound level each student computer reported', async ({
 
 test('the dashboard theme applies to the roster, warning fields and confirmation dialog whatever the OS preference', async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'dark' }); await connect(page);
-  await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(247, 246, 242)');
-  await expect(sessionRows(page).first()).toHaveCSS('color', 'rgb(29, 43, 51)');
+  await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(253, 246, 227)');
+  await expect(sessionRows(page).first()).toHaveCSS('color', 'rgb(10, 35, 66)');
   await page.getByRole('button', { name: 'Force-submit 0001…', exact: true }).click();
-  await expect(page.getByRole('dialog')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+  await expect(page.getByRole('dialog')).toHaveCSS('background-color', 'rgb(255, 251, 242)');
 });
 
 test('stale data remains visibly historical without invented countdown or focus', async ({ page }) => {

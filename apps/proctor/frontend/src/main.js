@@ -1,5 +1,5 @@
 import { mount } from 'svelte';
-import '../../../../shared/theme/warm.css';
+import '../../../../shared/theme/theme.css';
 import './dashboard.css';
 import App from './App.svelte';
 import MonitorWindow from './MonitorWindow.svelte';

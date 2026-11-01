@@ -1,5 +1,5 @@
 import { mount } from 'svelte';
-import '../../../../shared/theme/warm.css';
+import '../../../../shared/theme/theme.css';
 import App from './App.svelte';
 
 mount(App, { target: document.getElementById('app') });

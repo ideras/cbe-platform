@@ -6,11 +6,12 @@ import { relative, resolve, sep } from 'node:path';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const read = path => readFileSync(resolve(root, path), 'utf8');
-const themePath = 'shared/theme/warm.css';
+const themePath = 'shared/theme/theme.css';
 const theme = read(themePath);
+// The first :root block is the palette and its derived roles.
 const rootBlock = theme.match(/:root\s*\{([^}]+)\}/)[1];
-const tokens = new Map([...rootBlock.matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)].map(m => [m[1], m[2].trim()]));
 const uncomment = text => text.replace(/\/\*[\s\S]*?\*\/|<!--[\s\S]*?-->/g, '');
+const tokens = new Map([...uncomment(rootBlock).matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)].map(m => [m[1], m[2].trim()]));
 
 export function composite([r, g, b, a = 1], background) {
   return [r, g, b].map((c, i) => c * a + background[i] * (1 - a)).concat(1);
@@ -50,13 +51,18 @@ export function contrast(foreground, background) {
   return (values[1] + .05) / (values[0] + .05);
 }
 
+// The sidebar is a gradient: every text and mark on it is checked against each of its stops.
+const sideStops = [...tokens.get('--side-bg').matchAll(/#[\da-f]{6}/gi)].map(m => color(m[0]));
+
 const proctor = name => `apps/proctor/frontend/src/${name}`;
 const student = name => `apps/student/frontend/src/${name}`;
-function property(path, selector, name) {
+const styleOf = path => {
   const text = uncomment(read(path));
-  const source = path.endsWith('.svelte') ? text.match(/<style>([\s\S]*?)<\/style>/)[1] : text;
+  return path.endsWith('.svelte') ? text.match(/<style>([\s\S]*?)<\/style>/)?.[1] ?? '' : text;
+};
+export function property(path, selector, name) {
   const values = [];
-  for (const rule of source.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+  for (const rule of styleOf(path).matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
     if (!rule[1].split(',').map(s => s.trim()).includes(selector)) continue;
     for (const declaration of rule[2].matchAll(/([\w-]+)\s*:\s*([^;]+);/g)) {
       if (declaration[1] === name) values.push(declaration[2].trim());
@@ -72,6 +78,8 @@ function files(directory) {
     return entry.isDirectory() ? files(path) : [path];
   });
 }
+const themed = () => [proctor(''), student(''), 'shared/theme'].flatMap(directory => files(resolve(root, directory)))
+  .map(path => relative(root, path).split(sep).join('/'));
 
 // All CSS named colors, not just the former blue palette. Paint keywords such as
 // currentColor/inherit/none remain contextual; transparent must use its theme token.
@@ -88,6 +96,32 @@ export function rawColors(source) {
   return found;
 }
 
+// Selectors checked per area; each commit of the theme adds its own.
+const selectorChecks = [
+  [themePath, 'body', 'background', 'var(--canvas-wash) fixed, var(--bg-primary)'],
+  [themePath, 'button', 'background', 'var(--bg-secondary)'],
+  [themePath, 'button:hover:not(:disabled)', 'background', 'var(--selection-fill)'],
+  [themePath, 'button.primary', 'background', 'var(--action-primary)'],
+  [themePath, 'button.primary', 'color', 'var(--bg-primary)'],
+  [themePath, 'button.primary:hover:not(:disabled)', 'background', 'var(--action-hover)'],
+  [themePath, 'button:disabled', 'color', 'var(--muted-dot)'],
+  [themePath, 'button:disabled', 'box-shadow', 'none'],
+  [themePath, 'input:not([type="checkbox"]):not([type="radio"]):focus-visible', 'border-color', 'var(--action-primary)'],
+  [themePath, 'input:not([type="checkbox"]):not([type="radio"]):focus-visible', 'box-shadow', '0 0 0 3px var(--focus-halo)'],
+  [themePath, ':focus-visible', 'outline', '2px solid var(--action-primary)'],
+  [themePath, '::selection', 'background', 'var(--selection-fill)'],
+  [themePath, '.eyebrow', 'color', 'var(--action-primary)'],
+  [themePath, '.callout.warning', '--callout-text', 'var(--warn-text)'],
+  ['shared/theme/Card.svelte', '.card', 'background', 'var(--bg-raised)'],
+  ['shared/theme/Card.svelte', '.deep', '--band', 'var(--header-strong)'],
+  ['shared/theme/Card.svelte', '.card-head', 'color', 'var(--band-ink)'],
+  ['shared/theme/calculator/Calculator.svelte', '.calc-actions .equals', 'background', 'var(--action-primary)'],
+  ['shared/theme/calculator/Programmer.svelte', '.key.equals', 'background', 'var(--action-primary)'],
+  ['shared/theme/calculator/Programmer.svelte', '.nibble .one', 'background', 'var(--action-hover)'],
+  ['shared/theme/calculator/Programmer.svelte', '.key.fn', 'background', 'var(--hover-fill)'],
+  ['shared/theme/calculator/Programmer.svelte', '.key.sym', 'background', 'var(--transparent)'],
+];
+
 export function registerThemeTests() {
   test('contrast calculation uses WCAG luminance and alpha compositing', () => {
     assert.equal(contrast([0, 0, 0, 1], [255, 255, 255, 1]), 21);
@@ -96,137 +130,120 @@ export function registerThemeTests() {
     assert.throws(() => color('--not-a-token'));
   });
 
-  test('all section-4 and student/calculator text pairs reach 4.5:1', () => {
+  test('the palette is the mockups’ own, verbatim', () => {
+    const palette = {
+      '--bg-primary': '#fdf6e3', '--bg-secondary': '#eee8d5', '--bg-raised': '#fffbf2', '--border-subtle': '#ddd6c1',
+      '--text-main': '#0a2342', '--text-muted': '#586e75', '--ocean-deep': '#03045e', '--action-primary': '#0077b6',
+      '--action-hover': '#023e8a', '--accent-cyan': '#00b4d8', '--accent-cyan-soft': '#48cae4', '--selection-fill': '#caf0f8',
+      '--hover-fill': '#e3f6fa', '--warn': '#b58900', '--warn-fill': '#f5e9c4', '--warn-text': '#6b5200', '--alert': '#cb4b16',
+      '--alert-fill': '#fbefe6', '--ok': '#859900', '--ok-fill': '#f6f6dc', '--ok-text': '#4f5c00', '--success-badge': '#1d7a73',
+      '--side-text': '#d8e4ef', '--side-text-dim': '#8fa6bd',
+    };
+    for (const [name, value] of Object.entries(palette)) assert.equal(tokens.get(name), value, name);
+    // Every other token is either one of the mockups' two remaining literals or derived from the palette.
+    const literals = [...tokens].filter(([name, value]) => /#[\da-f]{3,8}\b/i.test(value) && !(name in palette));
+    assert.deepEqual(literals.map(([name]) => name).sort(), ['--muted-dot', '--paper', '--side-bg']);
+  });
+
+  test('every text pair the apps paint reaches 4.5:1', () => {
     const pairs = [
-      // Page/title, exam titles, ids, headers, neutral banners, control text, selections.
-      ...['page', 'surface', 'hover', 'sea', 'sand', 'coral-tint'].flatMap(bg => [['ink', bg], ['ink-2', bg]]),
-      ['sea-ink', 'sea'], ['sea-ink', 'surface'], // success, Published, calculator feature
-      ['sand-ink', 'sand'], ['sand-ink', 'surface'], // Monitoring, Forward only, pending/network
-      ['coral', 'surface'], ['coral', 'coral-tint'], // danger normal/hover; focus-loss badges
-      ['surface', 'ocean'], ['surface', 'ocean-strong'], // primary, calculator mode/equals
-      ['surface', 'ink'], // exercise pills, programmer segments and set bits
-      ['sidebar-ink', 'sidebar'], ['sidebar-ink', 'sidebar-raised'], ['sidebar-ink', 'sidebar-status'],
-      ['sidebar-ink-2', 'sidebar'],
+      // Body text and headings on every ground; muted text where it is used (never on --bg-secondary, --selection-fill
+      // or --warn-fill, where it falls under 4.5:1).
+      ...['bg-primary', 'bg-raised', 'bg-secondary', 'selection-fill', 'hover-fill', 'warn-fill', 'ok-fill', 'alert-fill'].map(bg => ['text-main', bg]),
+      ...['bg-primary', 'bg-raised', 'hover-fill', 'ok-fill', 'alert-fill'].map(bg => ['text-muted', bg]),
+      ['action-primary', 'bg-primary'], ['action-primary', 'bg-raised'], // eyebrows, links, the toggle hint
+      ...['bg-raised', 'bg-secondary', 'selection-fill', 'hover-fill'].map(bg => ['action-hover', bg]), // soft headers, pills, ghost hover
+      ['bg-primary', 'action-primary'], ['bg-primary', 'action-hover'], ['bg-primary', 'success-badge'], // primary buttons, Validated
+      ['warn-text', 'warn-fill'], ['warn-text', 'bg-raised'], ['ok-text', 'ok-fill'], ['ok-text', 'bg-raised'],
+      ['alert-text', 'alert-fill'], ['alert-text', 'bg-raised'], ['alert-text', 'bg-primary'], ['alert-text', 'bg-secondary'],
+      ['on-dark', 'ocean-deep'], ['on-dark', 'action-hover'], ['accent-cyan-soft', 'ocean-deep'], ['accent-cyan-soft', 'action-hover'],
     ];
     for (const [fg, bg] of pairs) {
       const ratio = contrast(color(`--${fg}`), color(`--${bg}`));
       assert(ratio >= 4.5, `${fg} on ${bg}: ${ratio.toFixed(3)}:1 < 4.5`);
     }
+    // The dim sidebar text (inactive icons, the server address) never sits on the active item, which turns white.
+    for (const stop of sideStops) {
+      const grounds = { plain: stop, hover: composite(color('--side-hover'), stop), active: composite(color('--side-active'), stop) };
+      for (const [fg, on] of [['side-text', ['plain', 'hover', 'active']], ['on-dark', ['plain', 'hover', 'active']],
+        ['accent-cyan-soft', ['plain', 'hover', 'active']], ['side-text-dim', ['plain', 'hover']]]) {
+        for (const ground of on) {
+          const ratio = contrast(color(`--${fg}`), grounds[ground]);
+          assert(ratio >= 4.5, `${fg} on the sidebar (${ground}): ${ratio.toFixed(3)}:1 < 4.5`);
+        }
+      }
+    }
   });
 
-  test('section-4 control borders, icons, focus and labelled dots reach 3:1', () => {
+  test('focus rings, control edges, status edges and dots reach 3:1', () => {
     const pairs = [
-      ...['surface', 'hover', 'page', 'sea', 'sand', 'coral-tint'].flatMap(bg => [['ink-2', bg], ['ocean', bg]]),
-      ['sea-ink', 'sea'], ['sand-ink', 'sand'], ['coral', 'surface'], ['coral', 'coral-tint'],
-      ['ocean', 'page'], ['ocean-strong', 'surface'],
-      ...['sidebar', 'sidebar-raised', 'sidebar-status'].flatMap(bg => [['sidebar-ink', bg], ['sidebar-ink-2', bg]]),
-      ['ok', 'surface'], ['ok', 'sea'],
-      ...['sidebar', 'sidebar-raised', 'sidebar-status'].flatMap(bg => [['ok-on-dark', bg], ['sand', bg], ['coral-tint', bg]]),
+      ...['bg-primary', 'bg-raised', 'bg-secondary'].map(bg => ['action-primary', bg]), // focus outline, spinner on a disabled button
+      ['control-border', 'bg-primary'], ['control-border', 'bg-raised'], // form-control edges (WCAG 1.4.11)
+      ...['warn', 'alert', 'ok'].map(fg => [fg, 'bg-raised']), // callout and card edges, row bars
     ];
     for (const [fg, bg] of pairs) {
       const ratio = contrast(color(`--${fg}`), color(`--${bg}`));
       assert(ratio >= 3, `${fg} on ${bg}: ${ratio.toFixed(3)}:1 < 3`);
     }
-    // A dot is adjacent to its halo too, not just the panel behind the halo.
-    for (const bg of ['sidebar', 'sidebar-raised', 'sidebar-status']) {
-      const adjacent = composite(color('--sidebar-dot-halo'), color(`--${bg}`));
-      assert(contrast(color('--ok-on-dark'), adjacent) >= 3, `connected dot against halo on ${bg}`);
+    for (const stop of sideStops) {
+      for (const fg of ['accent-cyan-soft', 'ok', 'warn', 'alert', 'muted-dot', 'accent-cyan']) {
+        const ratio = contrast(color(`--${fg}`), stop);
+        assert(ratio >= 3, `${fg} on the sidebar: ${ratio.toFixed(3)}:1 < 3`);
+      }
     }
-    assert(contrast(color('--ok'), composite(color('--status-dot-halo'), color('--sea'))) >= 3, 'admitting dot against halo');
-    const pulse = Number(read(proctor('Sidebar.svelte')).match(/@keyframes pulse\s*\{\s*50%\s*\{\s*opacity:\s*([\d.]+)/)[1]);
-    for (const bg of ['sidebar', 'sidebar-raised', 'sidebar-status']) {
-      const dot = color('--sidebar-ink'); dot[3] = pulse;
-      assert(contrast(dot, color(`--${bg}`)) >= 3, `connecting pulse minimum on ${bg}`);
-    }
-    // Connecting disables the primary button, so the spinner is on a muted surface.
-    const spinner = property(proctor('ConnectionDialog.svelte'), '.spinner', 'border-top-color');
-    assert(contrast(color(spinner), color('--surface')) >= 3, 'connecting spinner on disabled button');
   });
 
-  test('the component selectors actually use the approved semantic roles', () => {
-    const checks = [
-      [themePath, 'button', 'color', 'var(--ink)'],
-      [themePath, 'button', 'border', '1px solid var(--ink-2)'],
-      [themePath, 'button.primary', 'background', 'var(--ocean)'],
-      [themePath, 'button.primary:hover:not(:disabled)', 'background', 'var(--ocean-strong)'],
-      [themePath, '::selection', 'background', 'var(--selected)'],
-      [proctor('Sidebar.svelte'), '.sidebar', 'background', 'var(--sidebar)'],
-      [proctor('Sidebar.svelte'), '.item:focus-visible', 'outline', '3px solid var(--nav-accent)'],
-      [proctor('Sidebar.svelte'), '.dot.connected', 'background', 'var(--ok-on-dark)'],
-      [proctor('Sidebar.svelte'), '.dot.connecting', 'background', 'var(--sidebar-ink)'],
-      [proctor('Sidebar.svelte'), '.dot.failed', 'background', 'var(--coral-tint)'],
-      [proctor('AdmittingBar.svelte'), '.admitting.closed', 'background', 'var(--surface)'],
-      [proctor('AdmittingBar.svelte'), '.closed .dot', 'background', 'var(--ink-2)'],
-      [proctor('ClassDetail.svelte'), '.tabs button[aria-selected="true"]', 'color', 'var(--ink)'],
-      [proctor('ClassDetail.svelte'), '.tabs button[aria-selected="true"]', 'border-bottom-color', 'var(--ocean)'],
-      [proctor('ClassExams.svelte'), 'th', 'color', 'var(--ink-2)'],
-      [proctor('ClassExams.svelte'), 'td', 'border-bottom', '1px solid var(--line)'],
-      [proctor('ClassExams.svelte'), '.calc', 'background', 'var(--sea)'],
-      [proctor('ClassExams.svelte'), '.calc', 'color', 'var(--sea-ink)'],
-      [proctor('ClassExams.svelte'), '.calc', 'border-style', 'dashed'],
-      [proctor('ClassExams.svelte'), '.watching', 'background', 'var(--transparent)'],
-      [proctor('Monitoring.svelte'), '.pending', 'background', 'var(--transparent)'],
-      [student('CodeEditor.svelte'), '.editor:focus-within', 'border-color', 'var(--ocean)'],
-      ['shared/theme/Card.svelte', '.card-head', 'color', 'var(--band-ink)'],
-      ['shared/theme/calculator/Calculator.svelte', '.calc-actions .equals', 'background', 'var(--ocean)'],
-      ['shared/theme/calculator/Programmer.svelte', '.key.equals', 'background', 'var(--ocean)'],
-      ['shared/theme/calculator/Programmer.svelte', '.nibble .one', 'background', 'var(--ink)'],
-      ['shared/theme/calculator/Programmer.svelte', '.key.fn', 'background', 'var(--sea)'],
-      ['shared/theme/calculator/Programmer.svelte', '.key.sym', 'background', 'var(--transparent)'],
-    ];
-    for (const [path, selector, name, expected] of checks) assert.equal(property(path, selector, name), expected, `${path}: ${selector} ${name}`);
-    assert.equal(tokens.get('--nav-accent'), 'var(--sidebar-ink)');
-    assert.equal(tokens.get('--color-focus'), 'var(--coral)');
-    assert.equal(tokens.get('--color-success'), 'var(--sea-ink)');
-    assert.equal(tokens.get('--color-control-border'), 'var(--ink-2)');
-    assert.notDeepEqual(color('--color-focus-bg'), color('--color-warning-bg'));
+  test('the component selectors actually use the approved roles', () => {
+    for (const [path, selector, name, expected] of selectorChecks) assert.equal(property(path, selector, name), expected, `${path}: ${selector} ${name}`);
   });
 
-  test('both apps and shared components define no raw colors outside warm.css', () => {
+  test('--ok, --warn and --alert are never a background behind text, only behind dots and edges', () => {
+    for (const path of themed().filter(name => /\.(css|svelte)$/.test(name))) {
+      for (const rule of styleOf(path).matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+        if (!/\bbackground(?:-color)?\s*:\s*var\(--(?:ok|warn|alert)\)/.test(rule[2])) continue;
+        for (const selector of rule[1].split(',').map(s => s.trim())) {
+          assert(/dot|::?before|::?after|bar\b/.test(selector), `${path}: solid status color behind ${selector}`);
+        }
+      }
+    }
+  });
+
+  test('both apps and shared components define no raw colors outside theme.css', () => {
     const failures = [];
     const logo = student('assets/cbe-portal-logo.svg'); // sole owner-approved literal exception
     // The logo palette is frozen (owner decision): token value changes do not recolor it.
     const allowedLogoPaints = new Set(['#FFFFFF', '#F6F3EC', '#DFF0EB', '#1E5E58', '#F1E7D2', '#56656E', '#DCD5C8']);
-    for (const directory of [proctor(''), student(''), 'shared/theme']) {
-      for (const path of files(resolve(root, directory))) {
-        const name = relative(root, path).split(sep).join('/');
-        if (!/\.(?:css|svelte|js|mjs|svg)$/.test(name) || name === themePath) continue;
-        const text = readFileSync(path, 'utf8');
-        if (name === logo) {
-          for (const paint of rawColors(text)) assert(allowedLogoPaints.has(paint.toUpperCase()), `Unapproved logo paint ${paint}`);
-          continue;
-        }
-        const raw = rawColors(text);
-        if (raw.length) failures.push(`${name}: ${raw.join(', ')}`);
-        assert(!/--ocean-\d/.test(text), `${name}: obsolete numeric ocean token`);
+    for (const name of themed()) {
+      if (!/\.(?:css|svelte|js|mjs|svg)$/.test(name) || name === themePath) continue;
+      const text = read(name);
+      if (name === logo) {
+        for (const paint of rawColors(text)) assert(allowedLogoPaints.has(paint.toUpperCase()), `Unapproved logo paint ${paint}`);
+        continue;
       }
+      const raw = rawColors(text);
+      if (raw.length) failures.push(`${name}: ${raw.join(', ')}`);
     }
     assert.deepEqual(failures, []);
-    assert(!/--(?:brand|nav|page-bg|panel|title-ink)[\w-]*\s*:/.test(read(proctor('dashboard.css'))), 'Dashboard must not own color tokens');
+    assert(!/--[\w-]+\s*:/.test(uncomment(read(proctor('dashboard.css'))).replace(/--radius-[\w-]+\s*:/g, '')), 'Dashboard must not own color tokens');
   });
 
-  test('ocean is used only by the approved primary, tab, focus and calculator selectors', () => {
-    for (const directory of [proctor(''), student(''), 'shared/theme']) {
-      for (const path of files(resolve(root, directory))) {
-        if (!/\.(css|svelte)$/.test(path)) continue;
-        const text = uncomment(readFileSync(path, 'utf8'));
-        const css = path.endsWith('.svelte') ? text.match(/<style>([\s\S]*?)<\/style>/)?.[1] || '' : text;
-        for (const rule of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
-          if (!/var\(--ocean(?:-strong)?\)/.test(rule[2])) continue;
-          for (const selector of rule[1].split(',').map(s => s.trim())) {
-            const approved = selector === ':root' || /\.primary\b|:focus-visible|:focus-within/.test(selector)
-              || /\.calc-tabs button\[aria-selected|\.calc-actions \.equals|\.key\.equals/.test(selector)
-              || selector === '.tabs button[aria-selected="true"]';
-            assert(approved, `${relative(root, path)}: ocean on ${selector}`);
-          }
-        }
+  test('every token a component names is defined by the theme or by the component itself', () => {
+    // The theme defines the palette; the proctor's dashboard.css adds only its two radii.
+    const defined = new Set([...uncomment(theme + read(proctor('dashboard.css'))).matchAll(/(--[\w-]+)\s*:/g)].map(m => m[1]));
+    const failures = [];
+    for (const name of themed().filter(path => /\.(?:css|svelte|js)$/.test(path) && path !== themePath)) {
+      const text = uncomment(read(name));
+      const local = new Set([...text.matchAll(/(--[\w-]+)\s*[:=]/g)].map(m => m[1]));
+      for (const m of text.matchAll(/var\((--[\w-]+)\s*(,)?/g)) {
+        if (!m[2] && !defined.has(m[1]) && !local.has(m[1])) failures.push(`${name}: ${m[1]}`);
       }
     }
+    assert.deepEqual([...new Set(failures)], []);
   });
 
   test('the raw-color guard catches fallback, functional, named and SVG paints', () => {
     for (const source of ['color: #abc;', 'color: var(--danger, #b3261e);', 'fill="rgb(1 2 3)"', "backgroundColor: 'hsl(0 0% 0%)'", 'border: 1px solid rebeccapurple;', 'background: transparent;', 'color: var(--ink, red);', "backgroundImage: 'linear-gradient(red, blue)'"]) assert(rawColors(source).length, source);
-    assert.deepEqual(rawColors('color: var(--ink); stroke="currentColor"; fill="none";'), []);
+    assert.deepEqual(rawColors('color: var(--text-main); stroke="currentColor"; fill="none";'), []);
   });
 
   test('Lucide action icons are local, inherit color and include the approved locked door', () => {

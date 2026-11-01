@@ -16,6 +16,12 @@ async function openImport(page, { longFile = false, scheduled = false, withCalcu
 }
 
 async function paint(locator, property) { return locator.evaluate((el, prop) => getComputedStyle(el)[prop], property); }
+async function token(page, name) {
+  return page.evaluate(name => {
+    const probe = document.createElement('span'); probe.style.color = `var(--${name})`;
+    document.body.append(probe); const color = getComputedStyle(probe).color; probe.remove(); return color;
+  }, name);
+}
 
 test('PIN, navigation flag and preview dialog are accessible, keyboard operable and preserve the typed PIN', async ({ page }) => {
   const stack = await openImport(page);
@@ -59,7 +65,7 @@ test('PIN, navigation flag and preview dialog are accessible, keyboard operable 
   const neutral = await paint(helper, 'color');
   await helper.click(); // The whole label, including the helper, is clickable.
   await expect(flag).toBeChecked();
-  await expect(helper).toHaveCSS('color', 'rgb(176, 69, 44)');
+  await expect(helper).toHaveCSS('color', await token(page, 'alert-text'));
   await expect(helper).toHaveCSS('font-weight', '600');
   await flag.focus();
   await flag.press('Space');

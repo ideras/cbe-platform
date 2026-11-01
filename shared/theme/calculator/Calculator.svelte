@@ -327,40 +327,40 @@
 
 <style>
   .calc-floating { position: fixed; top: 1rem; right: 1rem; width: min(30rem, 44vw); z-index: 60; box-shadow: var(--shadow-dialog); }
-  .calc-backdrop { position: fixed; inset: 0; background: var(--backdrop-calculator); display: grid; place-items: center; z-index: 40; }
-  .calc-modal { width: min(34rem, 94vw); max-height: 90vh; overflow-y: auto; padding: var(--space-3) var(--space-4); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); box-shadow: var(--shadow-card); display: grid; gap: var(--space-2); }
+  .calc-backdrop { position: fixed; inset: 0; background: var(--backdrop); display: grid; place-items: center; z-index: 40; }
+  .calc-modal { width: min(34rem, 94vw); max-height: 90vh; overflow-y: auto; padding: var(--space-3) var(--space-4); background: var(--bg-raised); border: 1px solid var(--border-subtle); border-radius: var(--radius); box-shadow: var(--shadow-raised); display: grid; gap: var(--space-2); }
   .calc-move { flex: 1; margin: 0 var(--space-2) 0 0; padding: .15rem .4rem; text-align: left; cursor: grab; touch-action: none; user-select: none; }
   .calc-move:active { cursor: grabbing; }
   .calc-head { display: flex; align-items: center; justify-content: space-between; }
   .calc-tabs { display: inline-flex; gap: var(--space-1); }
   .calc-tabs button { margin: 0; padding: .1rem .55rem; font-size: var(--text-sm); }
-  .calc-tabs button[aria-selected='true'] { background: var(--ocean); border-color: var(--ocean); color: var(--surface); }
-  .calc-angle { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--color-heading); font-weight: 600; }
+  .calc-tabs button[aria-selected='true'] { background: var(--action-primary); border-color: var(--action-primary); color: var(--bg-primary); }
+  .calc-angle { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--text-main); font-weight: 600; }
   .calc-angle button { margin: 0; padding: .1rem .5rem; font-size: var(--text-sm); }
   .calc-close { margin: 0; padding: .1rem .55rem; }
-  .calc-input { background: var(--page); font-family: var(--font-mono, monospace); font-size: 1.05rem; }
+  .calc-input { background: var(--bg-primary); font-family: var(--font-mono, monospace); font-size: 1.05rem; }
   .calc-output { display: flex; align-items: center; }
-  .calc-result { flex: 1; min-width: 0; background: var(--page); min-height: 1.6rem; margin: 0; overflow-wrap: anywhere; }
-  .calc-result .display { font-family: var(--font-mono, monospace); font-weight: 600; color: var(--color-heading); }
-  .calc-result .matrix-line { display: inline-flex; align-items: center; gap: var(--space-2); font-family: var(--font-mono, monospace); font-weight: 600; color: var(--color-heading); }
+  .calc-result { flex: 1; min-width: 0; background: var(--bg-primary); min-height: 1.6rem; margin: 0; overflow-wrap: anywhere; }
+  .calc-result .display { font-family: var(--font-mono, monospace); font-weight: 600; color: var(--text-main); }
+  .calc-result .matrix-line { display: inline-flex; align-items: center; gap: var(--space-2); font-family: var(--font-mono, monospace); font-weight: 600; color: var(--text-main); }
   .calc-result .matrix { display: inline-grid; column-gap: 1.5ch; padding: 0 .4rem; border-inline: 2px solid currentColor; border-radius: 4px; }
   .calc-result .matrix span { text-align: right; }
-  .calc-result .error { color: var(--coral); }
-  .calc-result .hint { display: block; color: var(--color-text-muted); font-size: var(--text-sm); }
+  .calc-result .error { color: var(--alert-text); }
+  .calc-result .hint { display: block; color: var(--text-muted); font-size: var(--text-sm); }
   .calc-pad { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: var(--space-1); }
   .calc-functions { display: flex; flex-wrap: wrap; gap: var(--space-1); }
   .calc-pad button, .calc-functions button, .calc-actions button { margin: 0; min-width: 2.6rem; padding: .25rem .45rem; }
   .calc-pad button { min-width: 0; padding-inline: 0; }
-  .calc-functions button { font-size: var(--text-sm); background: var(--sea); color: var(--sea-ink); }
-  .calc-pad button.fn { background: var(--sea); color: var(--sea-ink); }
+  .calc-functions button { font-size: var(--text-sm); background: var(--hover-fill); color: var(--action-hover); }
+  .calc-pad button.fn { background: var(--hover-fill); color: var(--action-hover); }
   .calc-pad button.sym { background: var(--transparent); }
-  .calc-actions button:not(.equals) { color: var(--coral); }
-  .calc-actions button:not(.equals):hover { background: var(--coral-tint); }
-  .calc-neural { padding-top: var(--space-1); border-top: 1px dashed var(--color-border); }
+  .calc-actions button:not(.equals) { color: var(--alert-text); }
+  .calc-actions button:not(.equals):hover { background: var(--alert-fill); border-color: var(--alert); color: var(--alert-text); }
+  .calc-neural { padding-top: var(--space-1); border-top: 1px dashed var(--border-subtle); }
   .calc-actions { display: flex; gap: var(--space-2); }
-  .calc-actions .equals { flex: 1; font-weight: 700; background: var(--ocean); border-color: var(--ocean); color: var(--surface); }
-  .calc-actions .equals:hover, .calc-tabs button[aria-selected='true']:hover { background: var(--ocean-strong); border-color: var(--ocean-strong); }
-  .calc-history { max-height: 7rem; overflow-y: auto; border-top: 1px solid var(--color-border); padding-top: var(--space-2); font-size: var(--text-sm); }
+  .calc-actions .equals { flex: 1; font-weight: 700; background: var(--action-primary); border-color: var(--action-primary); color: var(--bg-primary); box-shadow: var(--shadow-action); }
+  .calc-actions .equals:hover, .calc-tabs button[aria-selected='true']:hover { background: var(--action-hover); border-color: var(--action-hover); color: var(--bg-primary); }
+  .calc-history { max-height: 7rem; overflow-y: auto; border-top: 1px solid var(--border-subtle); padding-top: var(--space-2); font-size: var(--text-sm); }
   .calc-history p { margin: 0 0 var(--space-1); font-family: var(--font-mono, monospace); overflow-wrap: anywhere; }
-  .calc-note { margin: 0; padding-top: var(--space-2); border-top: 1px solid var(--color-border); color: var(--color-text-muted); font-size: var(--text-sm); }
+  .calc-note { margin: 0; padding-top: var(--space-2); border-top: 1px solid var(--border-subtle); color: var(--text-muted); font-size: var(--text-sm); }
 </style>

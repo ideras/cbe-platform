@@ -90,9 +90,9 @@ test('lost submission response disables repeat action and retry preserves captur
 
 test('Ocean Blue stays light with native-looking controls and editor even with dark OS preference', async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'dark' }); await page.goto('/');
-  await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(247, 246, 242)');
-  await expect(page.getByLabel('Account number')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
-  await login(page); await expect(page.locator('.cm-editor')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+  await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(253, 246, 227)');
+  await expect(page.getByLabel('Account number')).toHaveCSS('background-color', 'rgb(253, 246, 227)');
+  await login(page); await expect(page.locator('.cm-editor')).toHaveCSS('background-color', 'rgb(255, 251, 242)');
   await expect(page.locator('.cm-gutters')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
 });
 
