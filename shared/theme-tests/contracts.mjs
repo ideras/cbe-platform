@@ -120,6 +120,31 @@ const selectorChecks = [
   ['shared/theme/calculator/Programmer.svelte', '.nibble .one', 'background', 'var(--action-hover)'],
   ['shared/theme/calculator/Programmer.svelte', '.key.fn', 'background', 'var(--hover-fill)'],
   ['shared/theme/calculator/Programmer.svelte', '.key.sym', 'background', 'var(--transparent)'],
+  // Proctor dashboard
+  [proctor('Sidebar.svelte'), '.sidebar', 'background', 'var(--side-bg)'],
+  [proctor('Sidebar.svelte'), '.item.active', 'background', 'var(--side-active)'],
+  [proctor('Sidebar.svelte'), '.item.active::before', 'background', 'var(--accent-bar-side)'],
+  [proctor('Sidebar.svelte'), '.item:focus-visible', 'outline', '2px solid var(--accent-cyan-soft)'],
+  [proctor('Sidebar.svelte'), '.dot.connected', 'background', 'var(--ok)'],
+  [proctor('Sidebar.svelte'), '.dot.connecting', 'background', 'var(--accent-cyan)'],
+  [proctor('Sidebar.svelte'), '.dot.failed', 'background', 'var(--alert)'],
+  [proctor('AdmittingBar.svelte'), '.admitting', 'background', 'var(--ok-fill)'],
+  [proctor('AdmittingBar.svelte'), '.admitting.closed', 'background', 'var(--bg-raised)'],
+  [proctor('AdmittingBar.svelte'), '.closed .dot', 'background', 'var(--muted-dot)'],
+  [proctor('Classes.svelte'), '.card', 'border-radius', 'var(--radius-card)'],
+  [proctor('Classes.svelte'), '.card::before', 'background', 'var(--accent-bar)'],
+  [proctor('Classes.svelte'), '.card:hover:not(:disabled)', 'border-color', 'var(--accent-cyan-soft)'],
+  [proctor('Classes.svelte'), '.pill.students', 'background', 'var(--bg-secondary)'],
+  [proctor('Classes.svelte'), '.pill.exams', 'color', 'var(--warn-text)'],
+  [proctor('ClassDetail.svelte'), '.tabs button[aria-selected="true"]', 'border-bottom-color', 'var(--action-primary)'],
+  [proctor('Panel.svelte'), '.panel-head', 'background', 'var(--header-soft)'],
+  [proctor('ClassExams.svelte'), 'th', 'background', 'var(--bg-secondary)'],
+  [proctor('ClassExams.svelte'), '.calc', 'border-style', 'dashed'],
+  [proctor('ExamImport.svelte'), '.card-header', 'background', 'var(--header-soft)'],
+  [proctor('ExamImport.svelte'), '.validated', 'background', 'var(--success-badge)'],
+  [proctor('ExamImport.svelte'), '.duration', 'background', 'var(--warn-fill)'],
+  [proctor('DownloadDialog.svelte'), '.progress .bar', 'background', 'var(--bar-fill)'],
+  [proctor('ConnectionDialog.svelte'), '.spinner', 'border-top-color', 'var(--action-primary)'],
 ];
 
 export function registerThemeTests() {
@@ -190,6 +215,12 @@ export function registerThemeTests() {
         const ratio = contrast(color(`--${fg}`), stop);
         assert(ratio >= 3, `${fg} on the sidebar: ${ratio.toFixed(3)}:1 < 3`);
       }
+    }
+    // The connecting dot pulses; at its faintest it still reaches 3:1 on every stop of the sidebar.
+    const pulse = Number(read(proctor('Sidebar.svelte')).match(/@keyframes pulse\s*\{\s*50%\s*\{\s*opacity:\s*([\d.]+)/)[1]);
+    for (const stop of sideStops) {
+      const dot = color('--accent-cyan'); dot[3] = pulse;
+      assert(contrast(dot, stop) >= 3, `connecting pulse minimum on the sidebar: ${contrast(dot, stop).toFixed(3)}:1`);
     }
   });
 

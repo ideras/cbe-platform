@@ -31,15 +31,17 @@
   {/if}
 </section>
 <style>
-  .admitting { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); padding: .55rem 1rem; background: var(--color-success-bg); border: 1px solid var(--color-success); border-radius: 12px; color: var(--title-ink); }
-  .admitting.closed { background: var(--surface); border-color: var(--line); color: var(--color-text-muted); }
-  .dot { flex: none; width: .7rem; height: .7rem; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px var(--status-dot-halo); }
-  .closed .dot { background: var(--ink-2); box-shadow: none; }
+  /* Open admission is the mockups' success state; closed is a neutral raised strip with a grey dot. */
+  .admitting { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); padding: .55rem 1rem; background: var(--ok-fill); border: 1px solid var(--ok-border); border-radius: 10px; color: var(--ok-text); }
+  .admitting strong { color: inherit; }
+  .admitting.closed { background: var(--bg-raised); border-color: var(--border-subtle); color: var(--text-muted); box-shadow: var(--shadow-card); }
+  .dot { flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px var(--ok-glow); }
+  .closed .dot { background: var(--muted-dot); box-shadow: none; }
   .line { flex: 1 1 18rem; min-width: 0; margin: 0; overflow-wrap: anywhere; }
   .buttons { display: flex; gap: var(--space-2); margin-left: auto; }
   .buttons button { margin: 0; min-height: 2.3rem; padding-block: .2rem; }
-  .problem { flex: 1 1 100%; margin: 0; color: var(--color-danger); }
-  /* The working count is a labelled status: ink-2 at zero, ok above it. */
-  .count { color: var(--ink-2); }
-  .count.live { color: var(--ok); font-weight: 600; }
+  .problem { flex: 1 1 100%; margin: 0; }
+  /* The working count is a labelled status: muted at zero, bold above it. */
+  .count { color: var(--text-muted); }
+  .count.live { color: var(--ok-text); font-weight: 700; }
 </style>

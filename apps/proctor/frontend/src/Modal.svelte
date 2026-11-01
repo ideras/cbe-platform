@@ -15,14 +15,15 @@
   <div class="body">{@render children()}</div>
 </dialog>
 <style>
-  dialog { width: min(var(--modal-width), calc(100% - 2rem)); max-height: calc(100% - 2rem); padding: 0; color: var(--color-text); background: var(--color-surface); border: 1px solid var(--panel-border); border-radius: 16px; box-shadow: var(--shadow-dialog); overflow: auto; }
-  dialog::backdrop { background: var(--backdrop-dialog); }
-  dialog.danger { border-top: 5px solid var(--color-danger); }
-  dialog.warning { border-top: 5px solid var(--color-warning-border); }
-  dialog.info { border-top: 5px solid var(--sea-ink); }
+  dialog { width: min(var(--modal-width), calc(100% - 2rem)); max-height: calc(100% - 2rem); padding: 0; color: var(--text-main); background: var(--bg-raised); border: 1px solid var(--border-subtle); border-radius: 14px; box-shadow: var(--shadow-dialog); overflow: auto; }
+  dialog::backdrop { background: var(--backdrop); }
+  dialog.danger { border-top: 5px solid var(--alert); }
+  dialog.warning { border-top: 5px solid var(--warn); }
+  dialog.info { border-top: 5px solid var(--action-primary); }
   header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-4) var(--space-5) 0; }
-  h2 { margin: 0; color: var(--title-ink); font-size: 1.3rem; font-weight: 750; }
-  .close { display: inline-flex; align-items: center; justify-content: center; width: 2.2rem; min-height: 2.2rem; padding: 0; border-color: var(--transparent); background: var(--transparent); color: var(--color-text-muted); }
-  .close:hover:not(:disabled) { background: var(--brand-soft); border-color: var(--transparent); color: var(--brand-strong); }
+  h2 { margin: 0; color: var(--text-main); font-size: 1.3rem; font-weight: 750; }
+  .close { display: inline-flex; align-items: center; justify-content: center; width: 2.2rem; min-height: 2.2rem; padding: 0; border-color: var(--transparent); background: var(--transparent); color: var(--text-muted); box-shadow: none; }
+  .close:hover:not(:disabled) { background: var(--hover-fill); border-color: var(--transparent); color: var(--action-hover); }
+  .close:disabled { background: var(--transparent); border-color: var(--transparent); color: var(--muted-dot); }
   .body { padding: var(--space-3) var(--space-5) var(--space-5); }
 </style>

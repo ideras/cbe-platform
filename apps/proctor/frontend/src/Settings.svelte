@@ -167,12 +167,13 @@
 <style>
   .settings { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); min-width: 0; }
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr)); gap: var(--space-3); margin: var(--space-3) 0; }
-  label { display: grid; gap: var(--space-1); font-weight: 600; color: var(--title-ink); }
+  /* A label that wraps to two lines keeps its field level with the others in the row. */
+  label { display: grid; align-content: end; gap: var(--space-1); font-weight: 600; color: var(--text-main); }
   input { font-weight: 400; }
-  .problems { margin: var(--space-3) 0; padding-inline-start: 1.2rem; color: var(--color-danger); }
+  .problems { margin: var(--space-3) 0; padding-inline-start: 1.6rem; }
   .problems li { margin-bottom: var(--space-1); }
-  input[aria-invalid="true"] { border-color: var(--color-danger); box-shadow: 0 0 0 2px var(--coral-tint); }
+  input[aria-invalid="true"] { border-color: var(--alert); box-shadow: 0 0 0 3px var(--alert-halo); }
   .actions { display: flex; justify-content: flex-end; margin-top: var(--space-3); }
   .actions button { margin: 0; }
-  .muted { color: var(--color-text-muted); }
+  .muted { color: var(--text-muted); }
 </style>

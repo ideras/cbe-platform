@@ -30,9 +30,9 @@
   </form>
 </Modal>
 <style>
-  label { display: block; margin: 0 0 var(--space-1); color: var(--title-ink); font-weight: 600; }
+  label { display: block; margin: 0 0 var(--space-1); color: var(--text-main); font-weight: 600; }
   input { width: 100%; }
-  .hint { margin: var(--space-2) 0 0; color: var(--color-text-muted); font-size: var(--text-sm); }
+  .hint { margin: var(--space-2) 0 0; color: var(--text-muted); font-size: var(--text-sm); }
   .actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-5); }
   .actions button { margin: 0; min-width: 6.5rem; }
 </style>

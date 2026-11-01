@@ -93,20 +93,17 @@
 <style>
   .detail { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); }
   .page-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3) var(--space-4); }
-  h1 { margin: 0; font-size: clamp(1.7rem, 3vw, 2.4rem); font-weight: 800; letter-spacing: -.01em; overflow-wrap: anywhere; }
-  .back { display: inline-flex; align-items: center; gap: .4rem; margin: 0; background: var(--transparent); border-color: var(--transparent); color: var(--ink-2); }
-  .back:hover:not(:disabled) { background: var(--hover); border-color: var(--transparent); }
+  h1 { margin: 0; font-size: clamp(1.7rem, 3vw, 2.3rem); font-weight: 800; letter-spacing: -.02em; overflow-wrap: anywhere; }
+  .back { display: inline-flex; align-items: center; gap: .4rem; margin: 0; background: var(--transparent); border-color: var(--transparent); color: var(--text-muted); }
+  .back:hover:not(:disabled) { background: var(--hover-fill); border-color: var(--transparent); color: var(--action-hover); }
   .head-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-left: auto; }
   .head-actions button { margin: 0; }
-  .head-actions .outline { border-color: var(--line-strong); color: var(--ink); }
-  .head-actions .outline:hover:not(:disabled) { background: var(--hover); border-color: var(--line-strong); }
-  .head-actions .outline:disabled { background: var(--transparent); border-color: var(--line-strong); }
-  .delete { background: var(--transparent); border-color: var(--transparent); color: var(--color-danger); }
-  .delete:hover:not(:disabled) { background: var(--color-danger-bg); border-color: var(--transparent); color: var(--color-danger-strong); }
+  .delete:not(:disabled) { background: var(--transparent); border-color: var(--transparent); color: var(--alert-text); }
+  .delete:hover:not(:disabled) { background: var(--alert-fill); border-color: var(--alert-border); color: var(--alert-text); }
   p { margin: 0; }
-  .tabs { display: flex; flex-wrap: wrap; gap: var(--space-1); border-bottom: 1px solid var(--panel-border); }
-  .tabs button { margin: 0 0 -1px; padding: .6rem 1.3rem; border: 0; border-bottom: 3px solid var(--transparent); border-radius: var(--radius-control) var(--radius-control) 0 0; background: var(--transparent); color: var(--color-text-muted); font-size: 1.05rem; font-weight: 600; }
-  .tabs button:hover:not(:disabled) { background: var(--brand-soft); color: var(--brand-strong); }
-  .tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--ocean); }
+  .tabs { display: flex; flex-wrap: wrap; gap: var(--space-1); border-bottom: 1px solid var(--border-subtle); }
+  .tabs button { margin: 0 0 -1px; padding: .6rem 1.3rem; border: 0; border-bottom: 3px solid var(--transparent); border-radius: var(--radius-control) var(--radius-control) 0 0; background: var(--transparent); color: var(--text-muted); font-size: 1.05rem; font-weight: 600; box-shadow: none; }
+  .tabs button:hover:not(:disabled) { background: var(--hover-fill); border-color: var(--transparent); border-bottom-color: var(--accent-cyan-soft); color: var(--action-hover); }
+  .tabs button[aria-selected="true"], .tabs button[aria-selected="true"]:hover:not(:disabled) { color: var(--text-main); border-bottom-color: var(--action-primary); }
   [role="tabpanel"][hidden] { display: none; }
 </style>
