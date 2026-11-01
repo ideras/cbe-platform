@@ -1,5 +1,5 @@
 <script>
-  import { remainingTime } from '../../../../shared/exam/timing.js';
+  import ExamToolbar from './ExamToolbar.svelte';
   import { onMount, onDestroy, untrack } from 'svelte';
   import * as api from '$student-api';
   import ExercisePage from './ExercisePage.svelte';
@@ -28,6 +28,9 @@
   let answers = $state({});
   let revision = $state(0);
   let selected = $state(0);
+  const scales = [0.9, 1, 1.15, 1.3, 1.5];
+  let scaleIndex = $state(1);
+  function changeScale(delta) { scaleIndex = Math.max(0, Math.min(scales.length - 1, scaleIndex + delta)); requestAnimationFrame(() => window.dispatchEvent(new Event('exam-text-size'))); }
   let busy = $state(false);
   let bridgeError = $state('');
   let answerBridgeError = $state('');
@@ -57,6 +60,8 @@
   // What the submit confirmation reports: fields with an answer of their own, across every exercise.
   let answeredFields = $derived(exercises.reduce((sum, item) => sum + answeredCount(item, answers), 0));
   let totalFields = $derived(exercises.reduce((sum, item) => sum + exerciseSlots(item).length, 0));
+  let incomplete = $derived(exercises.map((item, index) => ({ index, done: answeredCount(item, answers), total: exerciseSlots(item).length }))
+    .filter(item => item.done < item.total && (!forwardOnly || item.index === page)));
   // Errors and warnings are toasts, fixed to the window so they are seen wherever the page is scrolled. One-off results
   // (a failed login, a volume correction) are posted when they happen; the conditions that last are listed here and synced
   // on every snapshot, which shows each once. What the student must do about them stays on the page: the save status, the
@@ -67,6 +72,7 @@
     const list = [];
     const add = (key, text, kind = 'warning', sticky = false) => { if (text) list.push({ key, text, kind, sticky }); };
     const monitoring = view.monitoring;
+    add('grace', view.status?.status === 'grace' && view.phase !== 'complete' && 'Time is up. You are in the grace period: save and submit now.', 'warning', true);
     add('bridge', bridgeError, 'error');
     add('answer-transfer', answerBridgeError && `Local answer transfer failed. Your visible text is retained here. ${answerBridgeError}`, 'error', true);
     if (view.phase === 'exam') {
@@ -96,6 +102,23 @@
     lastVolumeNotice = notice.sequence;
     const { text, options } = volumeNotice(notice);
     notifier.post('volume', text, options);
+  });
+  let lastTimeNotice = 0;
+  $effect(() => {
+    for (const notice of view.time_notices ?? []) {
+      if (!(notice.sequence > lastTimeNotice)) continue;
+      lastTimeNotice = notice.sequence;
+      const time = notice.ends_at ? new Date(notice.ends_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+      const text = notice.kind === 'grace' ? `Your instructor extended the grace period by ${notice.added_seconds / 60} minutes.`
+        : time ? `The exam now ends at ${time}.` : 'The exam no longer has an end time.';
+      notifier.post(`time-change-${notice.sequence}`, text, { kind: 'info' });
+    }
+  });
+  let lastUnlockNote = '';
+  $effect(() => {
+    const note = view.unlock_note || '';
+    if (note && note !== lastUnlockNote) notifier.post('unlock', `${note}${view.added_seconds ? ` — ${addedTime(view.added_seconds)}` : ''}.`, { kind: 'info' });
+    lastUnlockNote = note;
   });
   function fail(problem) { notifier.post('action', describeProblem(problem), { kind: 'error', sticky: true }); }
   const queue = new AnswerQueue(async (snapshot, sequence) => { await api.UpdateAnswers(snapshot, sequence); answerBridgeError = ''; }, problem => answerBridgeError = String(problem));
@@ -250,6 +273,15 @@
 </script>
 <h1 class="visually-hidden">CBE Portal</h1>
 <main>
+  {#if view.phase !== 'login' && view.phase !== 'loading'}
+    <ExamToolbar title={exam?.title || 'Exam'} position={exercises.length ? `Exercise ${page + 1} of ${exercises.length}` : ''}
+      status={view.status} statusObservation={view.status_observation} ageMillis={view.status_age_millis ?? 0}
+      stale={view.timing_stale || !!bridgeError} locked={examLocked} complete={view.phase === 'complete'}
+      saveText={view.save_error ? 'Not saved' : view.save_state === 'saving' || revision > view.acknowledged_revision ? 'Saving…' : 'Saved'}
+      {scaleIndex} onSmaller={() => changeScale(-1)} onLarger={() => changeScale(1)} calculator={calcAvailable} onCalculator={openCalculator} bind:calcButton
+      onWarning={notice => notifier.post(notice.key, notice.text, { kind: 'warning' })} />
+    {#if view.status && view.phase !== 'complete'}<details class="timing-details"><summary>Timing details</summary><p>State: {view.status.status}. Server report: {view.status.server_time}.</p><p>Deadline: {view.status.deadline_at}. Grace ends: {view.status.grace_until}.</p></details>{/if}
+  {/if}
   {#if view.phase === 'login'}
     <div class="login-layout">
       <section class="rules" aria-label="Participation rules">
@@ -299,33 +331,20 @@
       </Card>
     </div>
   {:else if examLocked}
-    <h2 class="exam-title">{exam?.title || 'Exam'}</h2>
     <div class="exam-main">
       <LockScreen lock={view.locked} policy={view.monitoring?.policy} status={view.status} timingStale={view.timing_stale || !!bridgeError} />
       <p class="muted">Unacknowledged text is retained only while this process stays open. Closing or crashing can lose it. Only server-acknowledged work is durable.</p>
     </div>
   {:else}
-    <div class="title-row">
-      <h2 class="exam-title">{exam?.title || 'Exam finished'}</h2>
-      {#if calcAvailable}<button class="calc-open" bind:this={calcButton} onclick={openCalculator}><Icon name="calculator" size={18} />Calculator</button>{/if}
-    </div>
     {#if view.phase === 'complete'}
       <Card label="Submission closed" title="Submission closed" icon="done" level={3} tone="success">
         <p>Server state: {view.final?.status || view.status?.status || 'submitted'}.</p>
         {#if view.final}<p>Selected final version: {view.final.version_seq}.</p>{/if}
+        {#if view.status?.reason === 'end_time_reached'}<p>Submitted at the exam's end time ({new Date(view.status.ends_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}).</p>{/if}
         <p>Your exam is finished. Questions and answers are no longer shown.</p>
         {#if view.capture?.pending}<p role="status" class="callout pending">A screenshot is still being uploaded ({view.capture.pending} pending). Keep this window open until it finishes; closing cancels it.</p>{/if}
         <p>Fullscreen and always-on-top have been released. You can close this window; closing cancels any pending screenshot upload.</p>
         <button class="primary" onclick={closeWindow}>Close exam window</button>
-      </Card>
-    {:else if view.status}
-      <Card label="Server timing" title="Server timing" icon="clock" level={3} tone="info">
-        <div class="timing">
-          <p>{view.status.status === 'grace' ? 'Grace time remaining' : 'Remaining time'} (last server report): <strong>{remainingTime(view.status)}</strong>.</p>
-          <p>State: {view.status.status}. Server report: {view.status.server_time}.</p>
-          <p>Deadline: {view.status.deadline_at}. Grace ends: {view.status.grace_until}.</p>
-        </div>
-        {#if view.status.status === 'grace'}<p role="alert">Grace period — continue editing and saving, or submit now. The grace timer shows how long you have left.</p>{/if}
       </Card>
     {/if}
     {#if view.phase === 'exam'}
@@ -336,10 +355,10 @@
         {/if}
         <p aria-label="Save status" role="status" class="callout" class:danger={!!view.save_error}
           class:pending={!view.save_error && (view.save_state === 'saving' || revision > view.acknowledged_revision)}>{saveLabel(view, revision)}</p>
-        {#if view.unlock_note}<p role="status">{view.unlock_note}{view.added_seconds ? ` — ${addedTime(view.added_seconds)}` : ''}.</p>{/if}
         {#if view.submitting}<p role="status" class="callout pending">Submission awaiting server confirmation. Editing is locked; ambiguous failures retry the same snapshot.</p>{/if}
         {#if view.advancing}<p role="status" class="callout pending">Moving to the next exercise — waiting for the server to confirm. Editing is locked.</p>{/if}
         {#if view.save_error || view.submit_error || view.advance_error || view.timing_stale || answerBridgeError}<button onclick={retry}><Icon name="refresh" size={18} />Retry connection / pending work</button>{/if}
+        <div class="exam-content" style:--exam-scale={scales[scaleIndex]}>
         {#if exam && exercise}
           {#if exam.content.instructions}
             <details class="instructions" open>
@@ -354,7 +373,7 @@
               {@const closed = forwardOnly && index < page}
               <button aria-current={page === index ? 'step' : undefined} disabled={forwardOnly && index !== page} class:closed title={item.title}
                 aria-label="Exercise {index + 1}: {item.title}. {closed ? 'Closed' : `${done} of ${total} answered`}" onclick={() => go(index)}>
-                {index + 1}<small>{closed ? 'closed' : `${done}/${total}`}</small>
+                {index + 1}{#if !closed && total > 0 && done === total}<Icon name="check" size={16} />{/if}<small>{closed ? 'closed' : `${done}/${total}`}</small>
               </button>
             {/each}
           </nav>
@@ -372,6 +391,7 @@
           </div>
         {/if}
         {#if view.phase === 'exam'}<button class="submit" class:primary={!forwardOnly || lastPage} onclick={() => { confirmingAdvance = false; confirmingSubmit = true; }} disabled={!canSubmit}>Submit current answers — final</button>{/if}
+        </div>
         <p class="muted">Unacknowledged text is retained only while this process stays open. Closing or crashing can lose it. Only server-acknowledged work is durable.</p>
     </div>
     {/if}
@@ -388,6 +408,7 @@
   <ConfirmDialog title="Submit your exam now?" confirmLabel="Submit my exam" cancelLabel="Keep working" disabled={!canSubmit} onConfirm={submit} onCancel={() => confirmingSubmit = false}>
     <p>This is final: you will not be able to change any answer afterwards.</p>
     <p>You have answered {answeredFields} of {totalFields} fields.</p>
+    {#if incomplete.length}<p>Still unanswered: {incomplete.slice(0, 5).map(item => `Exercise ${item.index + 1} (${item.done} of ${item.total})`).join(', ')}{incomplete.length > 5 ? `, and ${incomplete.length - 5} more` : ''}.</p>{/if}
   </ConfirmDialog>
 {/if}
 {#if calcAvailable || calcOpen}
@@ -406,13 +427,11 @@
   /* Addresses and PINs are monospace. */
   input.mono { font-family: var(--font-mono); }
   button { margin: var(--space-1) var(--space-1) var(--space-1) 0; }
-  .exam-title { margin: 0 0 var(--space-3); }
-  /* The exam's title bar is the mockups' navy header; the calculator button sits in it like the timer chip. */
-  .title-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; margin-bottom: var(--space-3); padding: .65rem 1.1rem; background: var(--header-strong); border-radius: var(--radius-ctl); box-shadow: var(--shadow-raised); }
-  .title-row .exam-title { margin: 0; color: var(--accent-cyan-soft); font-size: 1.25rem; font-weight: 700; overflow-wrap: anywhere; }
-  .title-row .calc-open { display: inline-flex; align-items: center; gap: .45rem; margin: 0; background: var(--chip-on-dark); border-color: var(--cyan-chip-border); border-radius: 999px; color: var(--on-dark); box-shadow: none; }
-  .title-row .calc-open:hover:not(:disabled) { background: var(--side-active); border-color: var(--accent-cyan-soft); color: var(--on-dark); }
-  .title-row .calc-open:focus-visible { outline-color: var(--accent-cyan-soft); }
+  :global(html) { scroll-padding-top: calc(var(--toolbar-h, 7rem) + 1rem); }
+  .exam-content { display: grid; gap: var(--space-3); min-width: 0; font-size: calc(1rem * var(--exam-scale)); --text-base: calc(1rem * var(--exam-scale)); --text-sm: calc(.875rem * var(--exam-scale)); --text-xs: calc(.75rem * var(--exam-scale)); }
+  .exam-content :global(input), .exam-content :global(textarea), .exam-content :global(.cm-editor) { font-size: var(--text-sm); }
+  .timing-details { margin-top: var(--space-2); color: var(--text-muted); font-size: var(--text-sm); overflow-wrap: anywhere; }
+  .timing-details summary { cursor: pointer; }
 
   /* Login: rules stack on the left, brand + credentials on the right */
   .login-layout { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(19rem, 1fr); gap: 1.25rem; align-items: start; max-width: 72rem; margin: 0 auto; }
@@ -442,10 +461,6 @@
   .exam-main { display: grid; gap: var(--space-3); min-width: 0; margin-top: var(--space-3); }
   .exam-main > :global(*) { margin-top: 0; margin-bottom: 0; }
   .exam-main > button { display: inline-flex; align-items: center; justify-content: center; gap: .45rem; justify-self: start; }
-  .timing p { margin: var(--space-1) 0; color: var(--text-muted); font-size: var(--text-sm); }
-  .timing p:first-child { color: var(--text-main); font-size: var(--text-base); }
-  /* The remaining time is a monospace chip on the warm fill. */
-  .timing p:first-child strong { display: inline-block; padding: .05rem .55rem; font-family: var(--font-mono); font-size: 1.35rem; color: var(--warn-text); background: var(--warn-fill); border: 1px solid var(--warn-border); border-radius: 6px; }
   nav { display: flex; flex-wrap: wrap; gap: var(--space-2); }
   nav button { display: inline-flex; align-items: baseline; gap: var(--space-2); margin: 0; border-radius: 999px; padding-inline: var(--space-4); font-weight: 600; }
   nav button small { font-family: var(--font-mono); font-weight: 400; font-size: var(--text-xs); opacity: .85; }

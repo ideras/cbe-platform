@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { formatTime, remainingTime } from '../../../../shared/exam/timing.js';
+import { formatTime, remainingTime, effectiveRemaining, timeChip, TimeWarnings } from '../../../../shared/exam/timing.js';
 
 test('duration formatting clamps expired times, preserves hours and handles missing data', () => {
   for (const [seconds, expected] of [[0, '00:00:00'], [59, '00:00:59'], [60, '00:01:00'], [3661, '01:01:01'], [90061, '25:01:01'], [-2, '00:00:00'], [null, 'unknown'], [NaN, 'unknown']]) {

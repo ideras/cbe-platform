@@ -58,7 +58,9 @@
         }, { dark: false }),
       ] }),
     });
-    return () => { editor.destroy(); editor = null; };
+    const measure = () => editor?.requestMeasure();
+    window.addEventListener('exam-text-size', measure);
+    return () => { window.removeEventListener('exam-text-size', measure); editor.destroy(); editor = null; };
   });
 
   $effect(() => {

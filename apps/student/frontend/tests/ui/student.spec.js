@@ -66,7 +66,7 @@ test('failed/stale feedback retains edits and reconnect does not replace local t
 test('grace keeps editing and force submission locks the loaded view without fetching exam', async ({ page }) => {
   await page.goto('/'); await login(page);
   await page.evaluate(() => window.__studentHarness.status({ status: 'grace', seconds_remaining: 0 }));
-  await expect(page.getByText('Grace period — continue editing', { exact: false })).toBeVisible();
+  await expect(page.getByText('Time is up. You are in the grace period: save and submit now.')).toBeVisible();
   const editor = page.getByRole('textbox', { name: 'Answer for q1' }); await editor.fill('local grace work');
   await page.evaluate(() => window.__studentHarness.status({ status: 'force_submitted', seconds_remaining: 0 }));
   await expect(page.getByRole('heading', { name: 'Submission closed' })).toBeVisible();
@@ -233,11 +233,11 @@ test('Tab indents code, Shift+Tab unindents, and submission preserves the edit',
 
 test('exam and grace clocks use server observations, including while locked and stale', async ({ page }) => {
   await page.goto('/'); await login(page);
-  await expect(page.getByRole('region', { name: 'Server timing' })).toContainText('00:01:00');
+  await expect(page.getByLabel('Remaining time')).toContainText('00:01:00');
   await page.evaluate(() => window.__studentHarness.status({ status: 'grace', seconds_remaining: 0, server_time: '2035-01-02T03:05:05Z' }));
-  await expect(page.getByRole('region', { name: 'Server timing' })).toContainText('Grace time remaining (last server report): 00:00:30');
+  await expect(page.getByLabel('Remaining time')).toContainText('Grace 00:00:30');
   await page.evaluate(() => window.__studentHarness.status({ status: 'grace', seconds_remaining: 0, server_time: '2035-01-02T03:05:16Z' }));
-  await expect(page.getByRole('region', { name: 'Server timing' })).toContainText('00:00:19');
+  await expect(page.getByLabel('Remaining time')).toContainText('00:00:19');
   await page.evaluate(() => window.__studentHarness.lock('away'));
   const lock = page.getByRole('region', { name: 'Exam locked' });
   await expect(lock).toContainText('Grace time remaining (last server report): 00:00:19');

@@ -327,7 +327,7 @@
 {/if}
 
 <style>
-  .calc-floating { position: fixed; top: 1rem; right: 1rem; width: min(30rem, 44vw); z-index: 60; box-shadow: var(--shadow-dialog); }
+  .calc-floating { position: fixed; top: calc(var(--toolbar-h, 0px) + 1rem); right: 1rem; width: min(30rem, 44vw); z-index: 60; box-shadow: var(--shadow-dialog); }
   .calc-backdrop { position: fixed; inset: 0; background: var(--backdrop); display: grid; place-items: center; z-index: 40; }
   .calc-modal { width: min(34rem, 94vw); max-height: 90vh; overflow-y: auto; padding: var(--space-3) var(--space-4); background: var(--bg-raised); border: 1px solid var(--border-subtle); border-radius: var(--radius); box-shadow: var(--shadow-raised); display: grid; gap: var(--space-2); }
   .calc-move { display: inline-flex; align-items: center; gap: .35rem; flex: 1; margin: 0 var(--space-2) 0 0; padding: .15rem .4rem; text-align: left; cursor: grab; touch-action: none; user-select: none; }
