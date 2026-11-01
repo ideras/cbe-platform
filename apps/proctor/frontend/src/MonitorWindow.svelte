@@ -30,5 +30,6 @@
   {:else}<Monitoring {view} {bridgeError} onRefresh={refreshNow} />{/if}
 </main>
 <style>
-  .window { padding: var(--space-4); }
+  .window { max-width: calc(1240px + 2.5rem); min-width: 0; margin: 0 auto; padding: 1.25rem; }
+  @media (max-width: 520px) { .window { padding: .75rem; } }
 </style>

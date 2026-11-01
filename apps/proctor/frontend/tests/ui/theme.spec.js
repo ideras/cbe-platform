@@ -57,7 +57,8 @@ test('multiple locked students do not create competing primary row actions', asy
     await expect(unlock).toBeVisible();
     await expect(unlock).not.toHaveClass(/primary/);
   }
-  await expect(page.locator('button.primary')).toHaveCount(0);
+  await expect(page.locator('table button.primary')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Extend grace for everyone…', exact: true })).toHaveClass(/primary/);
   await page.getByRole('button', { name: 'Unlock 0001…', exact: true }).click();
   await expect(page.getByRole('dialog').getByRole('button', { name: 'Unlock', exact: true })).toHaveClass(/primary/);
 });

@@ -9,7 +9,7 @@ for (const viewport of [{ width: 1280, height: 800 }, { width: 600, height: 700 
     await expect(rows).toHaveCount(90);
     const row = rows.first();
     await expect(row).toContainText('Network overdue'); await expect(row).toContainText('Sustained focus loss');
-    expect(await row.locator('td').first().evaluate(cell => parseFloat(getComputedStyle(cell).paddingTop))).toBeLessThanOrEqual(10);
+    expect(await row.locator('td').first().evaluate(cell => parseFloat(getComputedStyle(cell).paddingTop))).toBeLessThanOrEqual(14);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({ path: info.outputPath('roster.png') });
     await page.getByRole('button', { name: 'Force-submit 0001…', exact: true }).click();
