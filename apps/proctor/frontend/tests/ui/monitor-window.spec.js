@@ -112,3 +112,19 @@ test('a window the native side cannot answer says so at once instead of spinning
   const log = await seen(page);
   for (const warning of WARNINGS) expect(log).not.toHaveProperty([warning]);
 });
+
+test('the settings row gives the exam duration beside its grace, and extending the grace leaves the duration alone', async ({ page }) => {
+  await page.goto('/#/monitoring');
+  await expect(table(page)).toBeVisible();
+  const chips = page.locator('.settings .chip');
+  // Duration first, then what is added to it: the exam's 90 minutes and its 30 seconds of grace.
+  await expect(chips).toHaveText(['Duration: 1 h 30 min', 'Grace: 30 s', 'No exam end time', /^Not logged in \d+$/]);
+  await expect(chips.first().locator('svg')).toBeVisible();
+  await page.getByRole('button', { name: 'Extend grace for everyone…', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Extend grace for everyone', exact: true });
+  await dialog.getByLabel('Reason').fill('Class interruption');
+  await dialog.getByRole('checkbox').check();
+  await dialog.getByRole('button', { name: 'Extend grace by 5 min', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expect(chips).toHaveText(['Duration: 1 h 30 min', 'Grace: 30 s + 5 min added', 'No exam end time', /^Not logged in \d+$/]);
+});

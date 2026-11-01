@@ -8,7 +8,7 @@
   import MonitoringRow from './MonitoringRow.svelte';
   import Icon from '../../../../shared/theme/Icon.svelte';
   import { localTime } from './dates.js';
-  import { rosterFilters, rosterCounts, sortRoster, filterRoster, initials, duration, spoken, lockRule } from './roster.js';
+  import { rosterFilters, rosterCounts, sortRoster, filterRoster, initials, duration, spoken, examLength, lockRule } from './roster.js';
   // Inlined on purpose: WebKitGTK cannot play audio through the wails:// scheme.
   import alertURL from './assets/lock-alert.wav?inline';
   let { view, bridgeError = '', disabled = false, onRefresh } = $props();
@@ -35,6 +35,7 @@
   // told it is loading, and the stale warning waits for a failure (view.error, or a native side that does not answer) to report.
   const waiting = $derived(Boolean(view.loading && !view.loaded));
   const quietStale = $derived(waiting && !view.error && !bridgeError);
+  const lengthText = $derived(monitored ? examLength(monitored.duration_seconds) : 'unknown');
   const graceText = $derived(monitored ? `${spoken(monitored.grace_seconds * 1000)}${monitored.extra_grace_seconds ? ` + ${spoken(monitored.extra_grace_seconds * 1000)} added` : ''}` : 'unknown');
   const title = $derived(monitored ? `${monitored.title} (${monitored.class_name})` : view.exam_id);
 
@@ -115,6 +116,7 @@
           <div class="stat done" data-stat="submitted"><dt>submitted</dt><dd class="num">{counts.submitted}</dd></div>
         </dl>
         <div class="settings">
+          <span class="chip length"><Icon name="clock" size={15} /><span>Duration: <b>{lengthText}</b></span></span>
           <span class="chip time"><Icon name="clock" size={15} /><span>Grace: <b>{graceText}</b></span></span>
           <span class="chip"><Icon name="clock" size={15} /><b>{monitored?.ends_at ? `Ends ${localTime(monitored.ends_at)}` : 'No exam end time'}</b></span>
           <span class="chip">Not logged in <b>{missing.length}</b></span>
@@ -190,7 +192,7 @@
   .stat.done { border-top-color: var(--ok); } .done .num { color: var(--ok-text); }
   .settings { display: flex; align-items: center; flex-wrap: wrap; gap: .6rem; padding: .7rem .8rem; background: var(--bg-primary); border: 1px solid var(--border-subtle); border-radius: 10px; }
   .chip { display: inline-flex; align-items: center; gap: .35rem; padding: .2rem .6rem; border-radius: 7px; background: var(--bg-secondary); color: var(--text-main); font-size: .85rem; }
-  .chip b { color: inherit; } .chip.time { background: var(--warn-fill); color: var(--warn-text); } .time b { font-family: var(--font-mono); }
+  .chip b { color: inherit; } .chip.time { background: var(--warn-fill); color: var(--warn-text); } .time b, .chip.length b { font-family: var(--font-mono); }
   .settings-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-left: auto; }
   .settings-actions button { display: inline-flex; align-items: center; justify-content: center; gap: .4rem; min-height: 36px; padding: .3rem .9rem; border-radius: 8px; font-size: .9rem; }
   .outline { background: var(--bg-raised); color: var(--action-hover); border-color: var(--action-border); }

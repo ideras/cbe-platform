@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { rosterCounts, filterRoster, sortRoster, needsAttention, inProgress, isSubmitted, canForce, initials, lockLabel, lowTime, networkBadge, focusBadge, lifecycleBadge, sound } from '../src/roster.js';
+import { rosterCounts, filterRoster, sortRoster, needsAttention, inProgress, isSubmitted, canForce, initials, lockLabel, lowTime, networkBadge, focusBadge, lifecycleBadge, sound, examLength } from '../src/roster.js';
 
 const row = (name, status = 'active', extra = {}) => ({ student_name: name, account_number: name, status,
   presence: { monitoring: status === 'active', connectivity: 'healthy', focus: { state: 'focused' } }, ...extra });
@@ -57,4 +57,20 @@ test('remaining time and lock age never use a local ticking clock', () => {
   assert.equal(lowTime(row('Ada', 'grace', { grace_until: '2035-01-01T00:03:00Z' }), observation), true);
   assert.equal(lifecycleBadge({ ...locked, finalization_pending: true }, {}, observation).text, 'Finalizing');
   assert.equal(lifecycleBadge(row('Ada', 'force_submitted'), {}, observation).text, 'Force-submitted');
+});
+
+test('an exam length is told in hours, minutes and seconds, leaving out what is zero', () => {
+  assert.equal(examLength(7200), '2 h');
+  assert.equal(examLength(5400), '1 h 30 min');
+  assert.equal(examLength(1800), '30 min');
+  assert.equal(examLength(60), '1 min');
+  assert.equal(examLength(90), '1 min 30 s');
+  assert.equal(examLength(45), '45 s');
+  assert.equal(examLength(3661), '1 h 1 min 1 s');
+  assert.equal(examLength(100 * 3600), '100 h'); // no wrap at a day
+  assert.equal(examLength(0), '0 s');
+});
+
+test('an exam length that is not known says so instead of showing a number', () => {
+  for (const value of [null, undefined, NaN, Infinity, -5]) assert.equal(examLength(value), 'unknown');
 });

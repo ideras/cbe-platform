@@ -27,6 +27,13 @@ export function filterRoster(rows, filter) {
 export function initials(name) { return name.trim().split(/\s+/).slice(0, 2).map(part => Array.from(part)[0] ?? '').join('').toUpperCase(); }
 export const duration = ms => ms == null ? 'unknown' : `${(ms / 1000).toFixed(1)}s`;
 export const spoken = ms => ms == null ? 'unknown' : ms < 60000 ? `${Math.round(ms / 1000)} s` : `${Math.round(ms / 60000)} min`;
+// An exam's length in the units `spoken` uses for its grace, but in whole hours when there are some: 2 h, 1 h 30 min, 45 min, 90 s.
+export function examLength(seconds) {
+  if (seconds == null || !Number.isFinite(seconds) || seconds < 0) return 'unknown';
+  const whole = Math.round(seconds);
+  const parts = [[Math.floor(whole / 3600), 'h'], [Math.floor(whole / 60) % 60, 'min'], [whole % 60, 's']].filter(([amount]) => amount > 0).map(([amount, unit]) => `${amount} ${unit}`);
+  return parts.length ? parts.join(' ') : '0 s';
+}
 export function lockRule(rules) {
   const away = rules.lock_away_after_ms, contact = rules.lock_no_contact_after_ms;
   if (away && contact) return `locks after ${spoken(away)} away or ${spoken(contact)} without contact`;
