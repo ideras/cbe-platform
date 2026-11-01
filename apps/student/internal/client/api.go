@@ -84,13 +84,15 @@ type Lock struct {
 }
 
 type Status struct {
-	Policy              *Policy   `json:"telemetry_policy,omitempty"`
-	State               string    `json:"status"`
-	ServerTime          time.Time `json:"server_time"`
-	DeadlineAt          time.Time `json:"deadline_at"`
-	GraceUntil          time.Time `json:"grace_until"`
-	SecondsRemaining    int64     `json:"seconds_remaining"`
-	FinalizationPending bool      `json:"finalization_pending,omitempty"`
+	EndsAt              *time.Time `json:"ends_at"`
+	Reason              string     `json:"reason,omitempty"`
+	Policy              *Policy    `json:"telemetry_policy,omitempty"`
+	State               string     `json:"status"`
+	ServerTime          time.Time  `json:"server_time"`
+	DeadlineAt          time.Time  `json:"deadline_at"`
+	GraceUntil          time.Time  `json:"grace_until"`
+	SecondsRemaining    int64      `json:"seconds_remaining"`
+	FinalizationPending bool       `json:"finalization_pending,omitempty"`
 	// CurrentExercise is the exercise the server has a forward-only student on.
 	CurrentExercise int `json:"current_exercise"`
 	// Locked says that the exam is locked, since when and why; absent while it is not.
@@ -184,7 +186,7 @@ func requestJSON(ctx context.Context, httpClient *http.Client, base, token, meth
 }
 func finalStatus(value string) bool { return value == "submitted" || value == "force_submitted" }
 func validateStatus(status Status) error {
-	if status.State != "active" && status.State != "grace" && !finalStatus(status.State) || status.CurrentExercise < 0 || status.ServerTime.IsZero() || status.DeadlineAt.IsZero() || !status.GraceUntil.After(status.DeadlineAt) || status.SecondsRemaining < 0 || status.FinalizationPending {
+	if status.State != "active" && status.State != "grace" && !finalStatus(status.State) || status.CurrentExercise < 0 || status.ServerTime.IsZero() || status.DeadlineAt.IsZero() || (status.GraceUntil.Before(status.DeadlineAt) || status.GraceUntil.Equal(status.DeadlineAt) && (status.EndsAt == nil || !status.DeadlineAt.Equal(*status.EndsAt))) || status.SecondsRemaining < 0 || status.FinalizationPending {
 		return &apiFailure{message: "Server timing response is invalid. Editing is not enabled."}
 	}
 	if status.State != "active" && status.SecondsRemaining != 0 {

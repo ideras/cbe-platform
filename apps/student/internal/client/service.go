@@ -31,6 +31,9 @@ func DefaultOptions() Options {
 }
 
 type View struct {
+	StatusAgeMillis      int64             `json:"status_age_millis"`
+	StatusObservation    uint64            `json:"status_observation"`
+	TimeNotices          []TimeNotice      `json:"time_notices,omitempty"`
 	RulesAccepted        bool              `json:"rules_accepted"`
 	Monitoring           MonitoringView    `json:"monitoring"`
 	Capture              CaptureView       `json:"capture"`
@@ -89,6 +92,10 @@ type Service struct {
 	observation                             uint64
 	saved                                   *Saved
 	status                                  *Status
+	statusObservedAt                        time.Time
+	statusObservation                       uint64
+	timeNoticeSequence                      uint64
+	timeNotices                             []TimeNotice
 	stale                                   bool
 	statusError, saveError, submitError     string
 	advanceError                            string
@@ -216,6 +223,11 @@ func (s *Service) viewLocked(loaded bool) View {
 	if s.status != nil {
 		copy := *s.status
 		v.Status = &copy
+		v.StatusObservation = s.statusObservation
+		if !s.statusObservedAt.IsZero() {
+			v.StatusAgeMillis = max(0, time.Since(s.statusObservedAt).Milliseconds())
+		}
+		v.TimeNotices = slices.Clone(s.timeNotices)
 	}
 	if s.final != nil {
 		copy := *s.final
@@ -347,6 +359,7 @@ func (s *Service) load(ctx context.Context) (View, error) {
 	var reply examReply
 	examErr := requestJSON(ctx, s.http, base, token, http.MethodGet, "/exam", nil, &reply)
 	var status Status
+	observedAt := time.Now()
 	statusErr := requestJSON(ctx, s.http, base, token, http.MethodGet, "/session-status", nil, &status)
 	if statusErr == nil {
 		statusErr = validateStatus(status)
@@ -358,7 +371,7 @@ func (s *Service) load(ctx context.Context) (View, error) {
 		s.statusError = statusErr.Error()
 		return s.viewLocked(true), statusErr
 	}
-	s.status = &status
+	s.observeStatus(status, observedAt)
 	s.monitor.setPolicy(status.Policy)
 	if finalStatus(status.State) {
 		s.monitor.stop("Session finalized; ordinary telemetry stopped.")
@@ -713,6 +726,7 @@ func (s *Service) pollOnce() {
 		s.capture.permission(false)
 	}
 	var status Status
+	observedAt := time.Now()
 	err := requestJSON(s.ctx, s.http, base, token, http.MethodGet, "/session-status", nil, &status)
 	if err == nil {
 		err = validateStatus(status)
@@ -731,7 +745,7 @@ func (s *Service) pollOnce() {
 	if s.status != nil {
 		previousDeadline = s.status.DeadlineAt
 	}
-	s.status = &status
+	s.observeStatus(status, observedAt)
 	s.monitor.setPolicy(status.Policy)
 	s.stale = false
 	s.statusError = ""

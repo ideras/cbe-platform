@@ -133,10 +133,11 @@ func lockInfo(session domain.Session) *LockInfo {
 }
 
 type Principal struct {
-	Policy     ClientPolicy
-	Session    domain.Session
-	Lifecycle  domain.Lifecycle
-	ServerTime time.Time
+	FinalReason string
+	Policy      ClientPolicy
+	Session     domain.Session
+	Lifecycle   domain.Lifecycle
+	ServerTime  time.Time
 	// Locked says that the exam is locked, since when and why; nil while it is not.
 	Locked *LockInfo
 }
@@ -284,7 +285,23 @@ func (s *Sessions) reconcileSession(ctx context.Context, tx SessionTransaction, 
 		}
 		lifecycle = domain.EvaluateSession(session, now)
 	}
-	return Principal{Policy: clientPolicy(session.Policy), Session: session, Lifecycle: lifecycle, ServerTime: now, Locked: lockInfo(session)}, changed, nil
+	var reason string
+	if terminal(session) {
+		event, err := tx.FinalizationEvent(ctx, session.ID)
+		if err != nil && !errors.Is(err, domain.ErrNotFound) {
+			return Principal{}, false, err
+		}
+		if err == nil {
+			var detail struct {
+				Reason string `json:"reason"`
+			}
+			if err := json.Unmarshal(event.Detail, &detail); err != nil {
+				return Principal{}, false, err
+			}
+			reason = detail.Reason
+		}
+	}
+	return Principal{Policy: clientPolicy(session.Policy), Session: session, Lifecycle: lifecycle, ServerTime: now, Locked: lockInfo(session), FinalReason: reason}, changed, nil
 }
 
 func examTiming(exam domain.Exam) (time.Duration, time.Duration, error) {

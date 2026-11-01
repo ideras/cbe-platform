@@ -45,6 +45,7 @@ type loginResponse struct {
 }
 
 type statusResponse struct {
+	Reason              string               `json:"reason,omitempty"`
 	Policy              service.ClientPolicy `json:"telemetry_policy"`
 	Status              domain.SessionStatus `json:"status"`
 	ServerTime          time.Time            `json:"server_time"`
@@ -82,7 +83,7 @@ func statusHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	deadline, grace := principal.Session.EffectiveTimes()
 	writeJSON(w, http.StatusOK, statusResponse{
-		Policy: principal.Policy,
+		Policy: principal.Policy, Reason: principal.FinalReason,
 		Status: principal.Lifecycle.Status, ServerTime: principal.ServerTime, DeadlineAt: deadline,
 		GraceUntil: grace, EndsAt: principal.Session.EndsAt, SecondsRemaining: principal.Lifecycle.SecondsRemaining,
 		FinalizationPending: principal.Lifecycle.FinalizationPending, CurrentExercise: principal.Session.CurrentExercise,
