@@ -61,6 +61,10 @@
   /* --alert is 4.1–4.5:1 as text on these grounds; error text uses it darkened toward the navy text, as the mockups
    * do for --warn-text and --ok-text. */
   --alert-text: color-mix(in srgb, var(--alert) 75%, var(--text-main));
+  /* The irreversible-action tones of the purge mockup, derived rather than new hues: --alert-deep is the dark end of its
+   * header and bar; --alert-strong is --alert darkened a tenth toward the text, which white text reaches 4.5:1 on. */
+  --alert-deep: color-mix(in srgb, var(--alert) 55%, var(--text-main));
+  --alert-strong: color-mix(in srgb, var(--alert) 88%, var(--text-main));
   /* Form-control edges must reach 3:1 against the card (WCAG 1.4.11); --border-subtle alone is 1.3:1. */
   --control-border: color-mix(in srgb, var(--text-muted) 70%, var(--border-subtle));
 
@@ -74,6 +78,7 @@
   --action-border: rgba(0, 119, 182, 0.25);
   --side-border: rgba(72, 202, 228, 0.18);
   --chip-on-dark: rgba(253, 246, 227, 0.12);
+  --alarm-chip-border: rgba(253, 246, 227, 0.35);
   --focus-halo: rgba(0, 180, 216, 0.2);
   --focus-halo-strong: rgba(0, 180, 216, 0.35);
   --alert-halo: rgba(203, 75, 22, 0.2);
@@ -82,9 +87,11 @@
 
   /* Gradients of the component patterns. */
   --header-strong: linear-gradient(120deg, var(--ocean-deep), var(--action-hover));
+  --header-alarm: linear-gradient(120deg, var(--alert-deep), var(--alert));
   --header-soft: linear-gradient(90deg, var(--selection-fill), var(--hover-fill));
   --tile-fill: linear-gradient(135deg, var(--selection-fill), var(--hover-fill));
   --bar-fill: linear-gradient(90deg, var(--action-primary), var(--accent-cyan));
+  --bar-alarm: linear-gradient(90deg, var(--alert-deep), var(--alert));
   --accent-bar: linear-gradient(180deg, var(--accent-cyan), var(--action-primary));
   --accent-bar-side: linear-gradient(180deg, var(--accent-cyan-soft), var(--action-primary));
 

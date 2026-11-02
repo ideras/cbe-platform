@@ -6,6 +6,7 @@
   import Confirmation from './Confirmation.svelte';
   import ExamImport from './ExamImport.svelte';
   import DownloadDialog from './DownloadDialog.svelte';
+  import PurgeDialog from './PurgeDialog.svelte';
   import PreviewDialog from './PreviewDialog.svelte';
   import { parseTime } from './dates.js';
   import { monitorExam } from './monitor.js';
@@ -27,6 +28,8 @@
   let modalError = $state('');
   // The exam whose submissions are being downloaded, and the folder of the last download for the Open folder button.
   let downloadExam = $state(null);
+  // The exam whose screenshots are being purged.
+  let purgeExam = $state(null);
   let previewExamID = $state(null);
   let lastFolder = $state('');
 
@@ -114,6 +117,13 @@
     problem = '';
     try { await api.OpenDownloadFolder(); } catch (err) { problem = String(err); }
   }
+  // A purge finished: the status line, which stays after the dialog closes, says what was deleted and, if some images could not
+  // be, which to retry. The exam list is read again to show the exam as it is now.
+  async function purged(result) {
+    lastFolder = '';
+    status = `Screenshots of “${purgeExam.title}”: ${result.deleted} deleted. ${result.complete ? 'Complete; this exam accepts no more images.' : `PARTIAL: retry for image IDs ${result.failed_screenshot_ids.join(', ')}.`} Delete downloaded copies, exports and backups separately.`;
+    await onRefresh().catch(() => {});
+  }
   function ask(kind, exam = null) {
     modalError = '';
     modal = { kind, entry: exam, klass, current, currentClass: view.catalog?.current_class_name ?? '', serverTime: view.catalog?.server_time, admission: exam ? admission(exam) : 'open' };
@@ -133,11 +143,6 @@
       } else if (kind === 'deleteExam') {
         await api.DeleteExam(entry.exam_id, true);
         status = `Exam “${entry.title}” deleted.`;
-        modal = null;
-        await onRefresh();
-      } else if (kind === 'purge') {
-        const value = await api.PurgeScreenshots(entry.exam_id, true);
-        status = `Screenshots of “${entry.title}”: ${value.deleted} deleted. ${value.complete ? 'Complete; this exam accepts no more images.' : `PARTIAL: retry for image IDs ${value.failed_screenshot_ids.join(', ')}.`} Delete downloaded copies, exports and backups separately.`;
         modal = null;
         await onRefresh();
       } else {
@@ -178,15 +183,16 @@
         <ExamCard {entry} monitored={entry.exam_id === view.exam_id} {locked} deemphasized={!!examPreview?.valid}
           monitorable={monitorable(entry)} calculator={calculatorText(entry.tools?.calculator)} logins={span(entry)} admission={admission(entry)}
           onMonitor={monitor} onPreview={entry => previewExamID = entry.exam_id} onPublish={entry => ask('publish', entry)} onUnpublish={entry => ask('unpublish', entry)}
-          onDownload={entry => downloadExam = entry} onPurge={entry => ask('purge', entry)} onDelete={entry => ask('deleteExam', entry)} />
+          onDownload={entry => downloadExam = entry} onPurge={entry => purgeExam = entry} onDelete={entry => ask('deleteExam', entry)} />
       {/each}</div>
     {/if}
   {/if}
   </div>
 </section>
 </div>
-{#if modal}<Confirmation kind={modal.kind} exam={modal.entry?.exam_id ?? ''} details={modal} busy={modalBusy} error={modalError} onCancel={() => modal = null} onConfirm={confirm} />{/if}
+{#if modal}<Confirmation kind={modal.kind} details={modal} busy={modalBusy} error={modalError} onCancel={() => modal = null} onConfirm={confirm} />{/if}
 {#if downloadExam}<DownloadDialog exam={downloadExam} onClose={() => downloadExam = null} onDownloaded={downloaded} />{/if}
+{#if purgeExam}<PurgeDialog exam={purgeExam} onClose={() => purgeExam = null} onPurged={purged} onFailed={() => onRefresh().catch(() => {})} />{/if}
 {#if previewExamID}<PreviewDialog examID={previewExamID} onClose={() => previewExamID = null} />{/if}
 
 <style>

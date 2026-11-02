@@ -62,7 +62,7 @@
     reviewError = '';
     try { await api.OpenReview(row.session_id); } catch (err) { reviewError = String(err); }
   }
-  function ask(kind, student = null) { modal = { kind, student, exam: view.exam_id }; actionError = ''; }
+  function ask(kind, student = null) { modal = { kind, student }; actionError = ''; }
   async function action({ reason }) {
     if (actionBusy) return;
     actionBusy = true; actionError = ''; outcome = '';
@@ -177,7 +177,7 @@
     </section>
   {/if}
 </div>
-{#if modal}<Confirmation kind={modal.kind} student={modal.student} exam={modal.exam} busy={actionBusy} error={actionError} onCancel={() => modal = null} onConfirm={action} />{/if}
+{#if modal}<Confirmation kind={modal.kind} student={modal.student} busy={actionBusy} error={actionError} onCancel={() => modal = null} onConfirm={action} />{/if}
 {#if unlockModal}<UnlockDialog student={unlockModal} busy={unlockBusy} error={unlockError} onCancel={() => unlockModal = null} onConfirm={unlock} />{/if}
 {#if releaseModal}<ReleaseLoginDialog student={releaseModal} busy={releaseBusy} error={releaseError} onCancel={() => releaseModal = null} onConfirm={release} />{/if}
 {#if timingModal?.kind === 'grace'}<ExtendGraceDialog student={timingModal.student} {sessions} exam={monitored} busy={timingBusy} error={timingError} onCancel={() => timingModal = null} onConfirm={changeTiming} />{:else if timingModal}<EndTimeDialog exam={monitored} serverTime={view.catalog?.server_time} clear={timingModal.kind === 'clear'} busy={timingBusy} error={timingError} onCancel={() => timingModal = null} onConfirm={changeTiming} />{/if}

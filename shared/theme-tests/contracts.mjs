@@ -198,6 +198,8 @@ export function registerThemeTests() {
       ['warn-text', 'warn-fill'], ['warn-text', 'bg-raised'], ['ok-text', 'ok-fill'], ['ok-text', 'bg-raised'],
       ['alert-text', 'alert-fill'], ['alert-text', 'bg-raised'], ['alert-text', 'bg-primary'], ['alert-text', 'bg-secondary'],
       ['on-dark', 'ocean-deep'], ['on-dark', 'action-hover'], ['accent-cyan-soft', 'ocean-deep'], ['accent-cyan-soft', 'action-hover'],
+      // The purge dialog: white on its solid button and marks and across its header gradient, and its pale eyebrow on the dark end.
+      ['on-dark', 'alert'], ['on-dark', 'alert-deep'], ['on-dark', 'alert-strong'], ['alert-fill', 'alert-deep'],
     ];
     for (const [fg, bg] of pairs) {
       const ratio = contrast(color(`--${fg}`), color(`--${bg}`));
@@ -221,6 +223,7 @@ export function registerThemeTests() {
       ...['bg-primary', 'bg-raised', 'bg-secondary'].map(bg => ['action-primary', bg]), // focus outline, spinner on a disabled button
       ['control-border', 'bg-primary'], ['control-border', 'bg-raised'], // form-control edges (WCAG 1.4.11)
       ...['warn', 'alert', 'ok'].map(fg => [fg, 'bg-raised']), // callout and card edges, row bars
+      ['alert-fill', 'alert'], // the purge header's close mark at the light end of its gradient
     ];
     for (const [fg, bg] of pairs) {
       const ratio = contrast(color(`--${fg}`), color(`--${bg}`));
