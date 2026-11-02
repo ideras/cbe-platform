@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"os"
 	"path"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -150,9 +151,65 @@ func (s *Screenshots) delete(ctx context.Context, record domain.Screenshot) erro
 	return s.repository.WithScreenshotTransaction(ctx, func(tx ScreenshotTransaction) error { return tx.DeleteScreenshot(ctx, record.ID) })
 }
 
+// deletedFileName is the shape of a screenshot file name this server writes: <session>/<event>-<capture>.jpg.
+var deletedFileName = regexp.MustCompile(`^[0-9]+-[0-9]+\.jpg$`)
+
+// RemoveDeletedFiles removes the files of screenshots whose exam was deleted. Their paths stay listed in the database until the
+// file is gone, so whatever cannot be removed now is tried again by the next pass and nothing is left behind for good. It
+// returns how many paths are still listed, or -1 when that could not be told, and the first reason a file stayed.
+func (s *Screenshots) RemoveDeletedFiles(ctx context.Context) (int, error) {
+	if err := s.lock(ctx); err != nil {
+		return -1, err
+	}
+	defer s.unlock()
+	return s.removeDeletedFiles(ctx)
+}
+
+// removeDeletedFiles is RemoveDeletedFiles for a caller that holds the lock.
+func (s *Screenshots) removeDeletedFiles(ctx context.Context) (int, error) {
+	var names []string
+	if err := s.repository.WithScreenshotTransaction(ctx, func(tx ScreenshotTransaction) error {
+		var err error
+		names, err = tx.DeletedFiles(ctx)
+		return err
+	}); err != nil {
+		return -1, err
+	}
+	var first error
+	pending := 0
+	for i, name := range names {
+		if err := ctx.Err(); err != nil {
+			return pending + len(names) - i, err
+		}
+		if err := s.removeDeletedFile(ctx, name); err != nil {
+			pending++
+			if first == nil {
+				first = err
+			}
+		}
+	}
+	return pending, first
+}
+
+// removeDeletedFile removes one listed file and forgets its path. A name that is not a file this server writes cannot be
+// addressed safely, so it is only forgotten: the orphan scan of Reconcile still removes the images of earlier versions.
+func (s *Screenshots) removeDeletedFile(ctx context.Context, name string) error {
+	dir := path.Dir(name)
+	if validProctorID(dir) && deletedFileName.MatchString(path.Base(name)) {
+		if err := s.remove(name); err != nil {
+			return err
+		}
+		// The session is gone, so nothing writes to its folder again; an empty one is removed, a folder that is not empty stays.
+		_ = s.root.Remove(dir)
+	}
+	return s.repository.WithScreenshotTransaction(ctx, func(tx ScreenshotTransaction) error { return tx.ForgetDeletedFile(ctx, name) })
+}
+
 type ScreenshotReconcileReport struct {
 	RemovedRows    int
 	RemovedOrphans int
+	// RemovedDeleted counts files of deleted exams that were removed.
+	RemovedDeleted int
 }
 
 func (s *Screenshots) Reconcile(ctx context.Context) (ScreenshotReconcileReport, error) {
@@ -161,6 +218,24 @@ func (s *Screenshots) Reconcile(ctx context.Context) (ScreenshotReconcileReport,
 		return report, err
 	}
 	defer s.unlock()
+	// Files of deleted exams first: they have no rows left to be found by the scan below.
+	var listed int
+	if err := s.repository.WithScreenshotTransaction(ctx, func(tx ScreenshotTransaction) error {
+		names, err := tx.DeletedFiles(ctx)
+		listed = len(names)
+		return err
+	}); err != nil {
+		return report, err
+	}
+	// A file that cannot be removed is reported at the end, so it does not stop the rest of the pass.
+	var stuck error
+	if listed > 0 {
+		pending, err := s.removeDeletedFiles(ctx)
+		if pending >= 0 {
+			report.RemovedDeleted = listed - pending
+		}
+		stuck = err
+	}
 	var rows []domain.Screenshot
 	if err := s.repository.WithScreenshotTransaction(ctx, func(tx ScreenshotTransaction) error {
 		var err error
@@ -233,6 +308,9 @@ func (s *Screenshots) Reconcile(ctx context.Context) (ScreenshotReconcileReport,
 		}
 		return nil
 	})
+	if err == nil {
+		err = stuck
+	}
 	return report, err
 }
 func (s *Screenshots) RunWorker(ctx context.Context, interval time.Duration, onReport func(ScreenshotReconcileReport), onError func(error)) error {

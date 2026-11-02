@@ -77,9 +77,15 @@ func examInsert(exam domain.Exam, navigation domain.Navigation, content []byte, 
 	return `INSERT INTO exams (` + columns + `) VALUES (` + marks + `)`, values
 }
 
-// DeleteExam removes an exam nobody has taken and that is not the one students are being admitted to. An exam that has
-// sessions is never removed, because its answers and history belong to it.
-func (s *Store) DeleteExam(ctx context.Context, id string) (domain.DeletedExam, error) {
+// DeleteExam removes an exam and, with it, every session students had in it: their answers, their events and their screenshot
+// records. It is one transaction, so an exam is either gone with all of that or untouched. The exam is refused (domain.ErrExamInUse)
+// while it is the one students are admitted to or while any student is still working in it or being finalized.
+//
+// An exam that students took is deleted only for a caller who says how many sessions it has: submissions is that number, and
+// anything else is domain.ErrSubmissionsChanged, so nobody deletes answers they have not been told about. 0 means "nobody took
+// it". The screenshot files cannot be removed inside the transaction; their paths are listed in deleted_screenshot_files, which
+// the screenshot service empties.
+func (s *Store) DeleteExam(ctx context.Context, id string, submissions int) (domain.DeletedExam, error) {
 	deleted := domain.DeletedExam{ID: id}
 	err := s.withTx(ctx, func(tx *sql.Tx) error {
 		if err := tx.QueryRowContext(ctx, `SELECT title FROM exams WHERE exam_id = ?`, id).Scan(&deleted.Title); errors.Is(err, sql.ErrNoRows) {
@@ -87,15 +93,46 @@ func (s *Store) DeleteExam(ctx context.Context, id string) (domain.DeletedExam, 
 		} else if err != nil {
 			return err
 		}
-		var inUse bool
-		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM current_exam WHERE exam_id = ?1) OR EXISTS(SELECT 1 FROM sessions WHERE exam_id = ?1)`, id).Scan(&inUse); err != nil {
+		var published bool
+		var open int
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM current_exam WHERE exam_id = ?1),
+			(SELECT count(*) FROM sessions WHERE exam_id = ?1 AND status IN ('active', 'grace')),
+			(SELECT count(*) FROM sessions WHERE exam_id = ?1)`, id).Scan(&published, &open, &deleted.Sessions); err != nil {
 			return err
 		}
-		if inUse {
+		if published || open > 0 {
 			return domain.ErrExamInUse
 		}
-		// Purging screenshots of an exam nobody took still leaves a retention mark behind.
-		for _, statement := range []string{`DELETE FROM screenshot_retention WHERE exam_id = ?`, `DELETE FROM exams WHERE exam_id = ?`} {
+		if deleted.Sessions != submissions {
+			return domain.ErrSubmissionsChanged
+		}
+		// A session names its final version and a version names its session, so neither can go first: the references are
+		// checked when the transaction commits, by when both are gone.
+		if _, err := tx.ExecContext(ctx, `PRAGMA defer_foreign_keys = ON`); err != nil {
+			return err
+		}
+		// Answer versions are append-only except for this: the guard on them lets them go while their exam is listed here, and
+		// the list is emptied below, so the permission cannot outlive the transaction.
+		if _, err := tx.ExecContext(ctx, `INSERT INTO exam_being_deleted(exam_id) VALUES (?)`, id); err != nil {
+			return err
+		}
+		mine := `(SELECT session_id FROM sessions WHERE exam_id = ?)`
+		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO deleted_screenshot_files(file_path) SELECT file_path FROM screenshots WHERE session_id IN `+mine, id); err != nil {
+			return err
+		}
+		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM screenshots WHERE session_id IN `+mine, id).Scan(&deleted.Screenshots); err != nil {
+			return err
+		}
+		// Purging the screenshots of an exam leaves a retention mark behind, with or without sessions.
+		for _, statement := range []string{
+			`DELETE FROM screenshots WHERE session_id IN ` + mine,
+			`DELETE FROM event_log WHERE session_id IN ` + mine,
+			`DELETE FROM submission_versions WHERE session_id IN ` + mine,
+			`DELETE FROM sessions WHERE exam_id = ?`,
+			`DELETE FROM screenshot_retention WHERE exam_id = ?`,
+			`DELETE FROM exam_being_deleted WHERE exam_id = ?`,
+			`DELETE FROM exams WHERE exam_id = ?`,
+		} {
 			if _, err := tx.ExecContext(ctx, statement, id); err != nil {
 				return err
 			}

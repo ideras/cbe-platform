@@ -195,8 +195,8 @@ func pruneStudents(ctx context.Context, tx *sql.Tx, accounts []string) (int, err
 	return pruned, nil
 }
 
-// DeleteClass removes a class and its roster. It refuses a class that has exams (domain.ErrClassHasExams): exams stay with
-// their class for good, and the ones students have taken cannot be deleted. Sessions and answers are untouched.
+// DeleteClass removes a class and its roster. It refuses a class that has exams (domain.ErrClassHasExams): an exam stays with
+// its class until it is deleted itself. Sessions and answers are untouched.
 func (s *Store) DeleteClass(ctx context.Context, id string) (domain.DeletedClass, error) {
 	var deleted domain.DeletedClass
 	err := s.withTx(ctx, func(tx *sql.Tx) error {

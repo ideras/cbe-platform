@@ -619,24 +619,52 @@ func TestADeletedExamIsConfirmedListedAndReportedBackByTheServer(t *testing.T) {
 		if r.Method != "DELETE" || !strings.HasPrefix(r.URL.Path, "/admin/exam/") {
 			return false
 		}
-		reply(w, map[string]string{"exam_id": strings.TrimPrefix(r.URL.Path, "/admin/exam/"), "title": "Never given"})
+		id := strings.TrimPrefix(r.URL.Path, "/admin/exam/")
+		if id == otherExam {
+			reply(w, map[string]any{"exam_id": id, "title": "Exam two", "sessions": 4, "screenshots": 214, "files_pending": 3})
+			return true
+		}
+		reply(w, map[string]any{"exam_id": id, "title": "Never given", "sessions": 0, "screenshots": 0, "files_pending": 0})
 		return true
 	}
-	if _, err := f.DeleteExam(unusedExam, false); err == nil || len(f.server.seen("DELETE", "/admin/exam/")) != 0 {
+	if _, err := f.DeleteExam(unusedExam, 0, false); err == nil || len(f.server.seen("DELETE", "/admin/exam/")) != 0 {
 		t.Fatalf("unconfirmed deletion sent: %v", err)
 	}
-	if _, err := f.DeleteExam("nope", true); err == nil || len(f.server.seen("DELETE", "/admin/exam/")) != 0 {
+	if _, err := f.DeleteExam("nope", 0, true); err == nil || len(f.server.seen("DELETE", "/admin/exam/")) != 0 {
 		t.Fatalf("an invalid exam id was sent: %v", err)
 	}
-	if _, err := f.DeleteExam("77777777-7777-4777-8777-777777777777", true); err == nil || !strings.Contains(err.Error(), "not on the server's list") || len(f.server.seen("DELETE", "/admin/exam/")) != 0 {
+	if _, err := f.DeleteExam(unusedExam, -1, true); err == nil || len(f.server.seen("DELETE", "/admin/exam/")) != 0 {
+		t.Fatalf("a negative count was sent: %v", err)
+	}
+	if _, err := f.DeleteExam("77777777-7777-4777-8777-777777777777", 0, true); err == nil || !strings.Contains(err.Error(), "not on the server's list") || len(f.server.seen("DELETE", "/admin/exam/")) != 0 {
 		t.Fatalf("an exam the list does not show was sent: %v", err)
 	}
-	deleted, err := f.DeleteExam(unusedExam, true)
+	// The exam list says four students took the other exam: a confirmation for any other number is no confirmation, and nothing
+	// is sent. An exam nobody took cannot be confirmed as having submissions either.
+	for _, wrong := range []int{0, 3, 5} {
+		if _, err := f.DeleteExam(otherExam, wrong, true); err == nil || !strings.Contains(err.Error(), "changed since you were shown") || len(f.server.seen("DELETE", "/admin/exam/")) != 0 {
+			t.Fatalf("a confirmation for %d submissions of an exam with 4 was sent: %v", wrong, err)
+		}
+	}
+	if _, err := f.DeleteExam(unusedExam, 2, true); err == nil || len(f.server.seen("DELETE", "/admin/exam/")) != 0 {
+		t.Fatalf("a confirmation of submissions the exam does not have was sent: %v", err)
+	}
+
+	deleted, err := f.DeleteExam(unusedExam, 0, true)
 	if err != nil || deleted != (DeletedExam{ID: unusedExam, Title: "Never given"}) {
 		t.Fatalf("deleted = %+v, %v", deleted, err)
 	}
 	sent := f.server.seen("DELETE", "/admin/exam/"+unusedExam)
-	if len(sent) != 1 || sent[0].Authorization != "Bearer "+secret {
+	if len(sent) != 1 || sent[0].Authorization != "Bearer "+secret || sent[0].Target != "/admin/exam/"+unusedExam {
+		t.Fatalf("request = %+v (an exam nobody took is deleted without the submissions query)", sent)
+	}
+	// An exam students took is deleted naming how many submissions go with it, and the answer says what went.
+	deleted, err = f.DeleteExam(otherExam, 4, true)
+	if err != nil || deleted != (DeletedExam{ID: otherExam, Title: "Exam two", Sessions: 4, Screenshots: 214, FilesPending: 3}) {
+		t.Fatalf("deleted = %+v, %v", deleted, err)
+	}
+	sent = f.server.seen("DELETE", "/admin/exam/"+otherExam)
+	if len(sent) != 1 || sent[0].Target != "/admin/exam/"+otherExam+"?submissions=4" {
 		t.Fatalf("request = %+v", sent)
 	}
 	wait(t, func() bool { return !f.Snapshot().Busy })
@@ -649,13 +677,13 @@ func TestDeletingTheMonitoredExamStopsMonitoringIt(t *testing.T) {
 	f := newPublishFixture(t, examID)
 	f.server.reply = func(w http.ResponseWriter, r *http.Request, body []byte) bool {
 		if r.Method == "DELETE" {
-			reply(w, map[string]string{"exam_id": examID, "title": "Exam one"})
+			reply(w, map[string]any{"exam_id": examID, "title": "Exam one", "sessions": 1, "screenshots": 0, "files_pending": 0})
 			return true
 		}
 		return false
 	}
 	wait(t, func() bool { return f.Snapshot().Loaded })
-	if _, err := f.DeleteExam(examID, true); err != nil {
+	if _, err := f.DeleteExam(examID, 1, true); err != nil {
 		t.Fatal(err)
 	}
 	if v := f.Snapshot(); v.ExamID != "" || v.Loaded {
@@ -665,31 +693,57 @@ func TestDeletingTheMonitoredExamStopsMonitoringIt(t *testing.T) {
 
 func TestDeleteRefusalsAndUnclearOutcomesAreExplained(t *testing.T) {
 	f := newPublishFixture(t, examID)
-	status := http.StatusConflict
+	status, words := http.StatusConflict, "the exam is published or students are still working in it, so it cannot be deleted"
 	f.server.reply = func(w http.ResponseWriter, r *http.Request, body []byte) bool {
 		if r.Method != "DELETE" {
 			return false
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(status)
-		reply(w, map[string]string{"error": "the server's own words"})
+		reply(w, map[string]string{"error": words})
 		return true
 	}
-	_, err := f.DeleteExam(otherExam, true)
-	if err == nil || !strings.Contains(err.Error(), "published or students have taken it") || strings.Contains(err.Error(), "own words") {
+	_, err := f.DeleteExam(otherExam, 4, true)
+	if err == nil || !strings.Contains(err.Error(), "published or students are still working in it") || !strings.Contains(err.Error(), "Close admission") || strings.Contains(err.Error(), "own words") {
 		t.Fatalf("a refused exam = %v", err)
 	}
+	words = "the exam's submissions are not the ones you confirmed deleting; look at the exam again"
+	if _, err := f.DeleteExam(otherExam, 4, true); err == nil || !strings.Contains(err.Error(), "submissions changed") || !strings.Contains(err.Error(), "nothing was deleted") {
+		t.Fatalf("submissions that moved = %v", err)
+	}
+	words = "the server's own words"
 	_, err = f.DeleteClass(classID, true)
-	if err == nil || !strings.Contains(err.Error(), "still has exams") || !strings.Contains(err.Error(), "Delete its exams first") || !strings.Contains(err.Error(), "taken cannot be deleted") {
+	if err == nil || !strings.Contains(err.Error(), "still has exams") || !strings.Contains(err.Error(), "Delete its exams first") || strings.Contains(err.Error(), "taken cannot be deleted") {
 		t.Fatalf("a class with exams = %v", err)
 	}
 	status = http.StatusInternalServerError
-	if _, err := f.DeleteExam(otherExam, true); err == nil || !strings.Contains(err.Error(), "Look at the exam list") {
+	if _, err := f.DeleteExam(otherExam, 4, true); err == nil || !strings.Contains(err.Error(), "Look at the exam list") {
 		t.Fatalf("an unclear failure = %v", err)
 	}
 	status = http.StatusNotFound
-	if _, err := f.DeleteExam(otherExam, true); err == nil || !strings.Contains(err.Error(), "does not have that exam or class") {
+	if _, err := f.DeleteExam(otherExam, 4, true); err == nil || !strings.Contains(err.Error(), "does not have that exam or class") {
 		t.Fatalf("an exam that is already gone = %v", err)
+	}
+}
+
+func TestADeletionAnswerThatDoesNotAddUpIsNotBelieved(t *testing.T) {
+	f := newPublishFixture(t, examID)
+	for name, answer := range map[string]map[string]any{
+		"another exam":              {"exam_id": unusedExam, "title": "x", "sessions": 4},
+		"a negative count":          {"exam_id": otherExam, "title": "x", "sessions": -1},
+		"more files than pictures":  {"exam_id": otherExam, "title": "x", "sessions": 4, "screenshots": 2, "files_pending": 3},
+		"a negative pending number": {"exam_id": otherExam, "title": "x", "sessions": 4, "screenshots": 2, "files_pending": -1},
+	} {
+		f.server.reply = func(w http.ResponseWriter, r *http.Request, body []byte) bool {
+			if r.Method != "DELETE" {
+				return false
+			}
+			reply(w, answer)
+			return true
+		}
+		if _, err := f.DeleteExam(otherExam, 4, true); err == nil || !strings.Contains(err.Error(), "invalid") {
+			t.Errorf("%s: %v", name, err)
+		}
 	}
 }
 
@@ -747,7 +801,7 @@ func TestAdministratorActionsNeedAConnection(t *testing.T) {
 	if _, err := s.Unpublish(examID, false, true); err == nil {
 		t.Error("Unpublish")
 	}
-	if _, err := s.DeleteExam(examID, true); err == nil {
+	if _, err := s.DeleteExam(examID, 1, true); err == nil {
 		t.Error("DeleteExam")
 	}
 	if _, err := s.SelectExam(examID); err == nil {

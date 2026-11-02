@@ -10,7 +10,7 @@
   import { message } from './errors.js';
   // One class, in two tabs: its exams (the default) and its roster, which is loaded from the server. The exams are imported into
   // the class and stay there. The roster is read-only; it changes by replacing the whole file. The class can be renamed, and
-  // deleted once it has no exams: the ones students have taken can never be deleted.
+  // deleted once it has no exams, so each of its exams is deleted first.
   let { view, entry, onBack, onChanged, onSelected, onDeleted } = $props();
   let tab = $state('exams');
   let roster = $state(null);
@@ -81,7 +81,7 @@
         <button type="button" class="outline" onclick={() => { status = ''; renaming = true; }}><Icon name="pencil" size={15} />Rename…</button>
         <button type="button" class="delete" disabled={hasExams} aria-describedby={hasExams ? 'delete-hint' : undefined} onclick={askDelete}><Icon name="deleteExam" size={15} />Delete class…</button>
       </div>
-      {#if hasExams}<p class="hint" id="delete-hint"><Icon name="lock" size={13} /><span>Delete its exams first. Exams students have taken cannot be deleted.</span></p>{/if}
+      {#if hasExams}<p class="hint" id="delete-hint"><Icon name="lock" size={13} /><span>Delete its exams first.</span></p>{/if}
     </div>
   </header>
   {#if status}<p role="status">{status}</p>{/if}

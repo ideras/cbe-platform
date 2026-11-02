@@ -298,7 +298,7 @@ func TestDeleteClassIsRefusedWhileItHasExamsAndOtherwiseKeepsHistoryAndSharedPeo
 	}
 	// Once its exams are deleted a class can go too.
 	publishNothing(t, s)
-	if _, err := s.DeleteExam(ctx, spare); err != nil {
+	if _, err := s.DeleteExam(ctx, spare, 0); err != nil {
 		t.Fatal(err)
 	}
 	if deleted, err := s.DeleteClass(ctx, classB); err != nil || deleted.Name != "History 11B" || deleted.Students != 1 || deleted.Pruned != 0 {

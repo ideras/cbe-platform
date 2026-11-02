@@ -13,13 +13,22 @@ var ErrClassExists = errors.New("a class with this name already exists")
 // ErrClassHasExams means the class still has exams, so it cannot be deleted.
 var ErrClassHasExams = errors.New("the class still has exams")
 
-// ErrExamInUse means the exam is published or students have taken it, so it cannot be deleted.
-var ErrExamInUse = errors.New("the exam is published or students have taken it")
+// ErrExamInUse means the exam is published or students are still working in it, so it cannot be deleted yet.
+var ErrExamInUse = errors.New("the exam is published or students are still working in it")
 
-// DeletedExam is the exam that was removed.
+// ErrSubmissionsChanged means the exam has submissions other than the number the caller confirmed deleting: students took it
+// and the caller did not say so, or the number moved since it was counted.
+var ErrSubmissionsChanged = errors.New("the exam's submissions are not the ones confirmed for deletion")
+
+// DeletedExam is the exam that was removed, and what went with it: the sessions students had in it (each with its answers and
+// events) and the screenshots they held. The screenshot files are removed after the records; FilesPending is how many of them
+// could not be removed yet and are left for the server to remove later.
 type DeletedExam struct {
-	ID    string
-	Title string
+	ID           string
+	Title        string
+	Sessions     int
+	Screenshots  int
+	FilesPending int
 }
 
 // DeletedClass says what removing a class took with it. Pruned counts the people removed because they belonged to no other

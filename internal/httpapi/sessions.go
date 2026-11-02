@@ -175,9 +175,11 @@ func serviceError(w http.ResponseWriter, logger *slog.Logger, operation string, 
 	case errors.Is(err, domain.ErrClassExists):
 		writeError(w, http.StatusConflict, "a class with this name already exists")
 	case errors.Is(err, domain.ErrClassHasExams):
-		writeError(w, http.StatusConflict, "the class has exams; delete its exams first (exams students have taken cannot be deleted)")
+		writeError(w, http.StatusConflict, "the class has exams; delete its exams first")
 	case errors.Is(err, domain.ErrExamInUse):
-		writeError(w, http.StatusConflict, "the exam is published or students have taken it, so it cannot be deleted")
+		writeError(w, http.StatusConflict, "the exam is published or students are still working in it, so it cannot be deleted")
+	case errors.Is(err, domain.ErrSubmissionsChanged):
+		writeError(w, http.StatusConflict, "the exam's submissions are not the ones you confirmed deleting; look at the exam again")
 	case errors.Is(err, service.ErrSelectionChanged):
 		writeError(w, http.StatusConflict, "the current exam changed; refresh and retry")
 	case errors.Is(err, service.ErrSettingsChanged):

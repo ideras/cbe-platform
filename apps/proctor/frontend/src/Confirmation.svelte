@@ -1,8 +1,9 @@
 <script>
   import { untrack } from 'svelte';
   import Modal from './Modal.svelte';
-  // kind: force | deleteExam | deleteClass (irreversible) or unpublish. details carries what the proctor saw: the exam (entry), its
-  // class (klass), and the exam published now (current). Publishing has its own dialog; onConfirm receives { reason, allowActive }.
+  // kind: force | deleteClass (irreversible) or unpublish. details carries what the proctor saw: the exam (entry), its class
+  // (klass), and the exam published now (current). Publishing and deleting an exam have their own dialogs; onConfirm receives
+  // { reason, allowActive }.
   // working is how many students are working in the published exam as the dashboard last heard it; without it the count in details,
   // taken when the dialog opened, is used.
   let { kind, student = null, details = null, working: live = null, busy, error, onCancel, onConfirm } = $props();
@@ -11,7 +12,7 @@
   // Closing admission while students are still working needs its own tick, apart from the plain confirmation.
   let override = $state(false);
   function plural(n, noun) { return `${n} ${noun}${n === 1 ? '' : 's'}`; }
-  const titles = { force: 'Confirm force-submit', deleteExam: 'Delete exam', deleteClass: 'Delete class', unpublish: 'Close admission' };
+  const titles = { force: 'Confirm force-submit', deleteClass: 'Delete class', unpublish: 'Close admission' };
   const working = $derived(live ?? details?.current?.active_sessions ?? 0);
   // The override is given for the students working when it is ticked. If the count changes, the tick is asked for again.
   let counted = untrack(() => working);
@@ -19,8 +20,8 @@
     const now = working;
     if (now !== counted) { counted = now; override = false; }
   });
-  const danger = $derived(kind === 'force' || kind === 'deleteExam' || kind === 'deleteClass');
-  const action = $derived(kind === 'deleteClass' ? 'Delete class' : kind === 'deleteExam' ? 'Delete exam' : danger ? 'Confirm irreversible action' : 'Close admission');
+  const danger = $derived(kind === 'force' || kind === 'deleteClass');
+  const action = $derived(kind === 'deleteClass' ? 'Delete class' : danger ? 'Confirm irreversible action' : 'Close admission');
   const allowActive = $derived(kind === 'unpublish' && working > 0 && override);
   const ready = $derived(confirmed && !(kind === 'force' && !reason.trim()) && !(kind === 'unpublish' && working > 0 && !override));
 </script>
@@ -35,10 +36,6 @@
       <p>Delete <strong>{details.entry.name}</strong> ({plural(details.entry.student_count, 'student')})?</p>
       <p>The class and its roster are removed and this cannot be undone. It has no exams. Students who are in no other class and have never logged in are removed from the server; anyone who has logged in is kept, so the exam history still shows their name.</p>
       <label class="check"><input type="checkbox" bind:checked={confirmed} disabled={busy} /> I want to delete the class “{details.entry.name}”.</label>
-    {:else if kind === 'deleteExam'}
-      <p>Delete <strong>{details.entry.title}</strong> from <strong>{details.klass.name}</strong>?</p>
-      <p>The exam is removed and this cannot be undone. Nobody has taken it, so no answers or screenshots are lost; its PIN stops working. To give this class the same exam again, import its file again.</p>
-      <label class="check"><input type="checkbox" bind:checked={confirmed} disabled={busy} /> I want to delete the exam “{details.entry.title}”.</label>
     {:else}
       <p>Nobody new will be able to log in. Students already in <strong>{details.current.title}</strong> keep their sessions.</p>
       {#if working > 0}

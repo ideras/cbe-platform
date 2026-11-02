@@ -326,37 +326,39 @@ test('monitoring another exam never publishes it', async ({ page }) => {
   expect(c.select).toEqual([PRACTICE]); expect(c.publish).toEqual([]);
 });
 
-test('an exam nobody has taken and that is not published can be deleted, after a confirmation', async ({ page }) => {
+test('an exam nobody has taken is deleted after one tick, and the page says so', async ({ page }) => {
   const exams = await connect(page);
   const draft = examCard(exams, 'Draft quiz');
-  // Only exams nobody took, and that are not published, offer it.
+  // A published exam cannot be deleted, so it has no button; any other exam has one, taken or not (see delete-exam-dialog.spec.js).
   await expect(examCard(exams, 'Databases midterm').getByRole('button', { name: /Delete exam/ })).toHaveCount(0);
-  await expect(examCard(exams, 'Practice exam').getByRole('button', { name: /Delete exam/ })).toHaveCount(0);
+  await expect(examCard(exams, 'Practice exam').getByRole('button', { name: 'Delete exam Practice exam…' })).toBeEnabled();
   await draft.getByRole('button', { name: 'Delete exam Draft quiz…' }).click();
   const dialog = page.getByRole('dialog', { name: 'Delete exam' });
-  await expect(dialog).toContainText('Delete Draft quiz from Mathematics 10A?');
-  await expect(dialog).toContainText('cannot be undone'); await expect(dialog).toContainText('no answers or screenshots are lost');
+  await expect(dialog).toContainText('Cannot be undone'); await expect(dialog).toContainText('Never taken'); await expect(dialog).toContainText('Nothing is lost');
   const confirm = dialog.getByRole('button', { name: 'Delete exam', exact: true });
   await expect(confirm).toBeDisabled();
-  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Keep exam', exact: true }).click();
   expect((await calls(page)).deleteExam).toEqual([]);
   await draft.getByRole('button', { name: 'Delete exam Draft quiz…' }).click();
-  await dialog.getByRole('checkbox').check();
+  await dialog.locator('label.confirm').click();
   await confirm.click();
+  await expect(dialog.getByRole('status')).toContainText('Exam deleted');
+  await expect(dialog).toContainText('Removed from Mathematics 10A');
+  await closeResult(dialog).click();
   await expect(dialog).toBeHidden();
   await expect(page.getByRole('status')).toContainText('Exam “Draft quiz” deleted.');
   await expect(examCard(exams, 'Draft quiz')).toHaveCount(0);
   await expect(tab(page, 'Exams (2)')).toBeVisible();
-  expect((await calls(page)).deleteExam).toEqual([{ examId: DRAFT, confirmed: true }]);
+  expect((await calls(page)).deleteExam).toEqual([{ examId: DRAFT, submissions: 0, confirmed: true }]);
 });
 
 test('a deletion the server refuses is explained in the dialog and the exam stays', async ({ page }) => {
-  const exams = await connect(page, () => window.ProctorHarness.deleteExamFails('The exam is published or students have taken it, so it cannot be deleted.'));
+  const exams = await connect(page, () => window.ProctorHarness.deleteExamFails('The exam is published or students are still working in it, so it cannot be deleted. Close admission and let them finish first.'));
   await exams.getByRole('button', { name: 'Delete exam Draft quiz…' }).click();
   const dialog = page.getByRole('dialog', { name: 'Delete exam' });
-  await dialog.getByRole('checkbox').check(); await dialog.getByRole('button', { name: 'Delete exam', exact: true }).click();
-  await expect(dialog.getByRole('alert')).toContainText('published or students have taken it');
-  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await dialog.locator('label.confirm').click(); await dialog.getByRole('button', { name: 'Delete exam', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toContainText('students are still working in it');
+  await dialog.getByRole('button', { name: 'Keep exam', exact: true }).click();
   await expect(examCard(exams, 'Draft quiz')).toBeVisible();
 });
 

@@ -53,19 +53,19 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	exams := service.NewExams(store, timekeeper, sessions)
 	publisher := service.NewPublisher(store, timekeeper)
 	images, err := service.NewScreenshots(store, sessions, cfg.Screenshots)
 	if err != nil {
 		return err
 	}
 	defer images.Close()
+	exams := service.NewExams(store, timekeeper, sessions).RemovingFilesWith(images)
 	imageReport, err := images.Reconcile(ctx)
 	if err != nil {
 		return fmt.Errorf("screenshot startup reconciliation: %w", err)
 	}
-	if imageReport.RemovedRows > 0 || imageReport.RemovedOrphans > 0 {
-		logger.Warn("screenshot startup reconciliation removed unavailable/orphan images", "rows", imageReport.RemovedRows, "orphans", imageReport.RemovedOrphans)
+	if imageReport.RemovedRows > 0 || imageReport.RemovedOrphans > 0 || imageReport.RemovedDeleted > 0 {
+		logger.Warn("screenshot startup reconciliation removed unavailable/orphan images", "rows", imageReport.RemovedRows, "orphans", imageReport.RemovedOrphans, "deleted_exams", imageReport.RemovedDeleted)
 	}
 	if _, err := sessions.Reconcile(ctx); err != nil {
 		return fmt.Errorf("startup reconciliation: %w", err)
@@ -100,8 +100,8 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	go func() {
 		defer close(imageWorkerDone)
 		workerErrors <- images.RunWorker(workerCtx, time.Minute, func(report service.ScreenshotReconcileReport) {
-			if report.RemovedRows > 0 || report.RemovedOrphans > 0 {
-				logger.Warn("screenshot reconciliation removed unavailable/orphan images", "rows", report.RemovedRows, "orphans", report.RemovedOrphans)
+			if report.RemovedRows > 0 || report.RemovedOrphans > 0 || report.RemovedDeleted > 0 {
+				logger.Warn("screenshot reconciliation removed unavailable/orphan images", "rows", report.RemovedRows, "orphans", report.RemovedOrphans, "deleted_exams", report.RemovedDeleted)
 			}
 		}, func(err error) {
 			logger.Error("screenshot cleanup incomplete; will retry, instructor action required", "error", err)
