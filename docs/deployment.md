@@ -485,6 +485,16 @@ Student startup flags:
 | `--autosave-interval` | `20s` | Periodic saving during continuous editing |
 | `--status-interval` | `3s` | Server status polling interval |
 
+### One computer per student account
+
+An account is open on one computer at a time. The exam PIN is the same for the whole class and account numbers are not secret, so this rule, not the PIN, is what keeps a student from opening a classmate's exam from another computer.
+
+- While the application that logged in is still being heard from, a second login for the same account is refused. The student sees "This account is already open on another computer" and how long to wait. "Still being heard from" means a heartbeat, or the login itself, within the exam's **connection lost** threshold (30 seconds by default; the dashboard's Settings page shows it, and an exam keeps the value it was published with).
+- A student who quits the application and opens it again does not wait: a clean close tells the server at once. After a crash or a power cut the student waits for the threshold, or a proctor releases the account.
+- Every refused login is kept in the student's history, with the address it came from. On the live roster the row shows **Login refused ×N** with the time and address of the last attempt, counts under *Needs attention*, and offers **Allow new login…**.
+- **Allow new login…** asks for a reason and lets the next login in at once, whatever the heartbeat says. That login replaces the session's token: the application that had the account loses it, cannot save, and tells the student to call the instructor. Compare the address in the notice with the computer shown on the row before allowing it. A release is used by one login; the row says "Next login allowed" until the student logs in.
+- Logging in again after being let in resumes the same session: the same deadline and the last saved answers.
+
 ### Native desktop checks
 
 Run these checks on every supported lab OS and display setup:
@@ -493,6 +503,7 @@ Run these checks on every supported lab OS and display setup:
 - On macOS, grant Screen Recording permission to the final student application in **System Settings > Privacy & Security**, then fully quit and reopen it if requested. Retest after relaunch.
 - Verify the default sound output can be read and changed. The Linux sound integration uses `pactl` or `amixer`; provide a working command and audio session on student computers. Every heartbeat checks the volume and raises it to the exam's minimum (the student sees a notice); the check also runs every 5 seconds. Only Linux (PulseAudio or PipeWire, through `pactl subscribe`) is told of a change at once — measured about 30 ms until the notification, including the time `pactl` itself takes to run; Windows and macOS rely on the heartbeat and the 5-second check, so a lowered volume can stay low for up to 5 seconds. Lower, mute and switch the output during a practice exam to confirm the notice and the correction.
 - Verify focus loss, return to the app, lock handling and proctor unlocks.
+- Open one account on two computers: the second login is refused with the time to wait, the first keeps saving, the roster shows the refused login, and **Allow new login…** lets the second computer in and cuts the first off. Quit the application cleanly and open it again: it logs in at once.
 - Submit a practice exam and confirm the final answers can be reviewed and downloaded.
 
 Fullscreen and always-on-top behavior are deterrents and can be bypassed. Evaluate the native monitoring behavior on the actual exam computers before relying on it operationally.
@@ -569,6 +580,8 @@ To rotate the admin token, replace it with a new private token, restart the serv
 | Local health check succeeds but another computer cannot connect | Check the LAN listen address, firewall, server IP and access-point isolation. |
 | Dashboard cannot authenticate | Confirm the credential matches the server file, is a regular file, and is private. Reconnect after token rotation. |
 | Students cannot sign in | Check class membership, account number, exam PIN, exam schedule and that the intended exam is admitting students. |
+| A student is told the account is already open on another computer | Another computer, or a copy of the application that was not closed, has the account open. Close it, or wait for the time shown, then log in again; after a crash the wait is the connection lost threshold. If the student has no other computer open, check the address on the roster's **Login refused** notice, and use **Allow new login…** once it is the student's own computer. |
+| An application says its session is no longer valid and answers are not being saved | The account was opened on another computer after a release or a long silence. Call the instructor: the work is saved up to the last acknowledged save, and the student continues on the computer that took over. |
 | Exam import fails | Review the dashboard validation messages and check the Markdown with `examc`. The compiled request must fit the server's JSON limit. |
 | Go cannot resolve a shared module | Build from the full repository checkout and preserve the relative module layout. |
 | Desktop build cannot embed `frontend/dist` | Run the full desktop build so bindings and frontend assets exist before native compilation. |
