@@ -7,8 +7,10 @@ import (
 	"errors"
 	"exam-platform/shared/calc"
 	"exam-platform/shared/clientwire"
+	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"time"
 	"unicode/utf8"
 )
@@ -169,8 +171,20 @@ func requestJSON(ctx context.Context, httpClient *http.Client, base, token, meth
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
+		// The server answers a login for an account that is open on another computer with a conflict that carries how long to
+		// wait; it is the only conflict that does, which is how it is told from the others.
+		if response.StatusCode == http.StatusConflict {
+			if seconds, err := strconv.Atoi(response.Header.Get("Retry-After")); err == nil && seconds > 0 {
+				return &apiFailure{code: response.StatusCode, message: openElsewhereMessage(seconds)}
+			}
+		}
 		messages := map[int]string{400: "The server rejected the request. Check your input or contact the proctor.", 401: "Credentials were rejected. Check account/PIN or contact the proctor.", 403: "The session is locked or admission is closed.", 410: "This exam has ended. Contact your instructor.", 409: "This session has already been submitted, or it is no longer on that exercise.", 413: "Answer size exceeds the server limit. Shorten the answer and try again.", 423: "Your exam is locked. Call your instructor.", 503: "No exam is available. Contact the proctor."}
 		message := messages[response.StatusCode]
+		if response.StatusCode == http.StatusUnauthorized && token != "" {
+			// A request that carried a session token and was not recognised: another login replaced it, which only happens when
+			// the account was opened on another computer (a proctor released it, or this one went quiet for too long).
+			message = "This computer's session is no longer valid: the account was opened on another computer. Your answers here are not being saved. Call your instructor."
+		}
 		if message == "" {
 			message = "Server request failed. Contact the proctor if it persists."
 		}
@@ -185,6 +199,19 @@ func requestJSON(ctx context.Context, httpClient *http.Client, base, token, meth
 		return &apiFailure{message: "Server response is invalid. Confirmation is unavailable."}
 	}
 	return nil
+}
+
+// openElsewhereMessage is what the student reads when the account is open on another computer: when to try again, and who
+// to call if it is a mistake.
+func openElsewhereMessage(seconds int) string {
+	wait := fmt.Sprintf("%d seconds", seconds)
+	switch {
+	case seconds == 1:
+		wait = "1 second"
+	case seconds > 90:
+		wait = fmt.Sprintf("%d minutes", (seconds+59)/60)
+	}
+	return "This account is already open on another computer. If that is a mistake, try again in " + wait + ", or call your instructor."
 }
 func finalStatus(value string) bool { return value == "submitted" || value == "force_submitted" }
 func validateStatus(status Status) error {

@@ -49,13 +49,15 @@ type fixture struct {
 	writes                          []writeRecord
 	active, maxActive               int
 	loginCode, statusCode, examCode int
-	logins                          int // requests to /login
-	onWrite                         func(http.ResponseWriter, *http.Request, writeRecord, int) bool
-	onStatus                        func(*http.Request)
-	final                           Final
-	minVolume                       *int // the exam volume the login reply advertises; nil like an older server
-	navigation                      string
-	examTools                       *calc.Tools // the exam's tools configuration the /exam reply carries; nil like an exam without the key
+	// loginRetryAfter is sent with a refused login, as the server does when the account is open on another computer.
+	loginRetryAfter string
+	logins          int // requests to /login
+	onWrite         func(http.ResponseWriter, *http.Request, writeRecord, int) bool
+	onStatus        func(*http.Request)
+	final           Final
+	minVolume       *int // the exam volume the login reply advertises; nil like an older server
+	navigation      string
+	examTools       *calc.Tools // the exam's tools configuration the /exam reply carries; nil like an exam without the key
 }
 
 // sampleContent has two exercises: q1, a text answer whose body carries markup to keep inert, and q2, a code answer.
@@ -80,10 +82,13 @@ func (f *fixture) handle(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	if r.URL.Path == "/login" {
 		f.logins++
-		code := f.loginCode
+		code, retryAfter := f.loginCode, f.loginRetryAfter
 		login := loginReply{Policy: f.status.Policy, Token: f.token, SessionID: "session", ServerTime: f.status.ServerTime, DeadlineAt: f.status.DeadlineAt, MinVolumePercent: f.minVolume}
 		f.mu.Unlock()
 		if code != 0 {
+			if retryAfter != "" {
+				w.Header().Set("Retry-After", retryAfter)
+			}
 			http.Error(w, "do not echo credentials", code)
 			return
 		}
