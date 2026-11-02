@@ -28,6 +28,8 @@ type ExamRepository interface {
 	DeleteExam(context.Context, string) (domain.DeletedExam, error)
 	// ExamDetail reads an exam with its class name and stored Markdown source (domain.ErrNotFound otherwise).
 	ExamDetail(context.Context, string) (domain.ExamDetail, error)
+	// ExamPIN reads the PIN students log in to the exam with (domain.ErrNotFound otherwise).
+	ExamPIN(context.Context, string) (string, error)
 }
 
 type Exams struct {
@@ -149,6 +151,25 @@ func (s *Exams) Detail(ctx context.Context, examID string) (ExamDetail, error) {
 		entry.Tools = &effective
 	}
 	return entry, nil
+}
+
+// ExamPIN is the PIN of one exam. It is the only answer that carries a PIN, so the proctor can read it out to the class when
+// publishing; listings, details and previews never do.
+type ExamPIN struct {
+	ExamID string `json:"exam_id"`
+	PIN    string `json:"pin"`
+}
+
+// PIN reads the PIN of one exam for the proctor; an unknown exam is domain.ErrNotFound.
+func (s *Exams) PIN(ctx context.Context, examID string) (ExamPIN, error) {
+	if !validProctorID(examID) {
+		return ExamPIN{}, ErrInvalidInput
+	}
+	pin, err := s.repository.ExamPIN(ctx, examID)
+	if err != nil {
+		return ExamPIN{}, err
+	}
+	return ExamPIN{ExamID: examID, PIN: pin}, nil
 }
 
 // DeletedExam is the exam that was removed.

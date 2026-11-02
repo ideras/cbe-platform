@@ -1,22 +1,31 @@
 <script>
+  import { untrack } from 'svelte';
   import Modal from './Modal.svelte';
-  import EndTimeField from './EndTimeField.svelte';
-  // kind: force | deleteExam | deleteClass (irreversible) or publish | unpublish. details carries what the proctor saw: the exam
-  // (entry), its class (klass), and the exam published now (current) with its class (currentClass). Publishing admits the
-  // students of the exam's class; onConfirm receives { reason }.
-  let { kind, student = null, details = null, busy, error, onCancel, onConfirm } = $props();
+  // kind: force | deleteExam | deleteClass (irreversible) or unpublish. details carries what the proctor saw: the exam (entry), its
+  // class (klass), and the exam published now (current). Publishing has its own dialog; onConfirm receives { reason, allowActive }.
+  // working is how many students are working in the published exam as the dashboard last heard it; without it the count in details,
+  // taken when the dialog opened, is used.
+  let { kind, student = null, details = null, working: live = null, busy, error, onCancel, onConfirm } = $props();
   let reason = $state('');
-  let endTime = $state('');
   let confirmed = $state(false);
+  // Closing admission while students are still working needs its own tick, apart from the plain confirmation.
+  let override = $state(false);
   function plural(n, noun) { return `${n} ${noun}${n === 1 ? '' : 's'}`; }
-  const titles = { force: 'Confirm force-submit', deleteExam: 'Delete exam', deleteClass: 'Delete class', publish: 'Publish exam', unpublish: 'Close admission' };
-  const working = $derived(details?.current?.active_sessions ?? 0);
+  const titles = { force: 'Confirm force-submit', deleteExam: 'Delete exam', deleteClass: 'Delete class', unpublish: 'Close admission' };
+  const working = $derived(live ?? details?.current?.active_sessions ?? 0);
+  // The override is given for the students working when it is ticked. If the count changes, the tick is asked for again.
+  let counted = untrack(() => working);
+  $effect(() => {
+    const now = working;
+    if (now !== counted) { counted = now; override = false; }
+  });
   const danger = $derived(kind === 'force' || kind === 'deleteExam' || kind === 'deleteClass');
-  const action = $derived(kind === 'deleteClass' ? 'Delete class' : kind === 'deleteExam' ? 'Delete exam' : danger ? 'Confirm irreversible action' : kind === 'publish' ? 'Publish exam' : 'Close admission');
-  const ready = $derived(confirmed && !(kind === 'force' && !reason.trim()));
+  const action = $derived(kind === 'deleteClass' ? 'Delete class' : kind === 'deleteExam' ? 'Delete exam' : danger ? 'Confirm irreversible action' : 'Close admission');
+  const allowActive = $derived(kind === 'unpublish' && working > 0 && override);
+  const ready = $derived(confirmed && !(kind === 'force' && !reason.trim()) && !(kind === 'unpublish' && working > 0 && !override));
 </script>
 <Modal title={titles[kind]} titleId="confirmation-title" tone={danger ? 'danger' : working > 0 ? 'warning' : 'info'} {busy} onClose={onCancel} width="38rem">
-  <form onsubmit={event => { event.preventDefault(); if (ready && !busy) onConfirm({ reason, endTime }); }}>
+  <form onsubmit={event => { event.preventDefault(); if (ready && !busy) onConfirm({ reason, allowActive }); }}>
     {#if kind === 'force'}
       <p><strong>{student.student_name} ({student.account_number})</strong></p>
       <p>Irreversible: finalize the latest committed answers and lock further editing. Unacknowledged local text may not be included. A concurrent student submission or expiry keeps its original final result.</p>
@@ -30,18 +39,13 @@
       <p>Delete <strong>{details.entry.title}</strong> from <strong>{details.klass.name}</strong>?</p>
       <p>The exam is removed and this cannot be undone. Nobody has taken it, so no answers or screenshots are lost; its PIN stops working. To give this class the same exam again, import its file again.</p>
       <label class="check"><input type="checkbox" bind:checked={confirmed} disabled={busy} /> I want to delete the exam “{details.entry.title}”.</label>
-    {:else if kind === 'publish'}
-      <p>The <strong>{plural(details.klass.student_count, 'student')}</strong> of <strong>{details.klass.name}</strong> will log in to <strong>{details.entry.title}</strong> ({plural(details.entry.exercise_count, 'exercise')}{details.entry.navigation === 'forward_only' ? ', forward only' : ''}, {details.entry.duration_seconds / 60} min) with its PIN, starting now. Students of other classes cannot.</p>
-      <EndTimeField bind:value={endTime} exam={details.entry} serverTime={details.serverTime} />
-      {#if details.admission !== 'open'}<p class="callout warning">Its login window is {details.admission} by the server’s clock, so students cannot start it yet.</p>{/if}
-      {#if working > 0}
-        <p class="callout warning"><strong>{plural(working, 'student')} still working in “{details.current.title}” ({details.currentClass}).</strong> They keep their sessions and can keep saving and submitting, but if their application closes or crashes they cannot log back in to it after this change.</p>
-      {:else if details.current}<p>“{details.current.title}” ({details.currentClass}) stops admitting students; nobody is working in it.</p>{/if}
-      <label class="check"><input type="checkbox" bind:checked={confirmed} disabled={busy} /> {working > 0 ? `I understand that ${plural(working, 'student')} still working in “${details.current.title}”, and I want to publish “${details.entry.title}”.` : `I want to publish “${details.entry.title}”.`}</label>
     {:else}
       <p>Nobody new will be able to log in. Students already in <strong>{details.current.title}</strong> keep their sessions.</p>
-      {#if working > 0}<p class="callout warning">{plural(working, 'student')} still working. If their application closes or crashes they cannot log back in.</p>{/if}
-      <label class="check"><input type="checkbox" bind:checked={confirmed} disabled={busy} /> {working > 0 ? `I understand that ${plural(working, 'student')} still working, and I want to close admission.` : 'I want to close admission.'}</label>
+      {#if working > 0}
+        <p class="callout warning">{plural(working, 'student')} still working. If their application closes or crashes they cannot log back in.</p>
+        <label class="check override"><input type="checkbox" bind:checked={override} disabled={busy} /> <span><strong>Override:</strong> close admission anyway, although {plural(working, 'student')} {working === 1 ? 'is' : 'are'} still working in “{details.current.title}”.</span></label>
+      {/if}
+      <label class="check"><input type="checkbox" bind:checked={confirmed} disabled={busy} /> I want to close admission.</label>
     {/if}
     {#if error}<p role="alert">{error}</p>{/if}
     <div class="actions"><button type="button" onclick={onCancel} disabled={busy}>Cancel</button><button class={danger ? 'danger' : 'primary'} type="submit" disabled={busy || !ready}>{busy ? 'Waiting for server…' : action}</button></div>

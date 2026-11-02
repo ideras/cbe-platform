@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { connect, calls, admitting, admittingLine, card, examCard, examsPanel, nav, tab } from './helpers.js';
+import { connect, calls, admitting, admittingLine, card, examCard, examsPanel, nav, tab, tickClose } from './helpers.js';
 
 const EXAM = '11111111-1111-4111-8111-111111111111';
 const PRACTICE = '33333333-3333-4333-8333-333333333333';
@@ -31,7 +31,7 @@ test('the bar stays on top of every page of the class, and follows what is publi
   await tab(page, /^Exams/).click();
   await examsPanel(page).getByRole('button', { name: 'Close admission to Databases midterm…' }).click();
   const dialog = page.getByRole('dialog');
-  await dialog.getByRole('checkbox').check(); await dialog.getByRole('button', { name: 'Close admission', exact: true }).click();
+  await tickClose(dialog); await dialog.getByRole('button', { name: 'Close admission', exact: true }).click();
   await expect(admitting(page)).toContainText('Admission closed');
 });
 

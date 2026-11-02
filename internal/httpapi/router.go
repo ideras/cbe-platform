@@ -48,6 +48,7 @@ func New(clock clock.Clock, sessions SessionAPI, logger *slog.Logger, options ..
 	if cfg.Exams != nil {
 		admin.Handle("POST /admin/class/{id}/exam", createExamHandler(cfg.Exams, logger, cfg.MaxJSONBytes))
 		admin.Handle("GET /admin/exam/{id}", examDetailHandler(cfg.Exams, logger))
+		admin.Handle("GET /admin/exam/{id}/pin", examPINHandler(cfg.Exams, logger))
 		admin.Handle("DELETE /admin/exam/{id}", deleteExamHandler(cfg.Exams, logger))
 	}
 	if cfg.Publisher != nil {

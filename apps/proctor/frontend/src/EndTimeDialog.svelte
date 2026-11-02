@@ -45,7 +45,7 @@
           <button type="button" class:on={mode === 'none'} aria-pressed={mode === 'none'} disabled={busy} onclick={() => changeMode('none')}>No end time</button>
         </div>
         {#if mode === 'set'}
-          <EndTimeField bind:value bind:preview bind:problem {exam} {serverTime} {busy} appearance="dialog" onChange={() => confirmed = false} />
+          <EndTimeField bind:value bind:preview bind:problem {exam} {serverTime} {busy} onChange={() => confirmed = false} />
           <p class="hint">Times mean their next occurrence (today or tomorrow). Choose at least one minute from now, within 24 hours.</p>
         {/if}
       </div>

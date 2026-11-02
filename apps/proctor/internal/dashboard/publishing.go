@@ -486,6 +486,31 @@ func (s *Service) ClassRoster(classID string) (ClassRoster, error) {
 	return roster, nil
 }
 
+// ExamPIN reads the PIN students log in to the exam with, for the publish dialog to show to the proctor who shares it with the
+// class. The dashboard keeps no copy: the PIN is read when the proctor asks to see or copy it, and lives only in the dialog that
+// asked. The exam list never carries it.
+func (s *Service) ExamPIN(examID string) (string, error) {
+	examID = strings.TrimSpace(examID)
+	if !validID(examID) {
+		return "", errors.New("Choose an exam.")
+	}
+	ctx, server, token, _, err := s.adminConnection()
+	if err != nil {
+		return "", err
+	}
+	var answer struct {
+		ExamID string `json:"exam_id"`
+		PIN    string `json:"pin"`
+	}
+	if err := getJSON(ctx, s.client, server, token, http.MethodGet, "/admin/exam/"+examID+"/pin", nil, &answer); err != nil {
+		return "", err
+	}
+	if answer.ExamID != examID || answer.PIN == "" {
+		return "", errors.New("The server's answer was invalid, so the PIN could not be read.")
+	}
+	return answer.PIN, nil
+}
+
 // RenameClass gives a class a new name, which the server checks like the name of a new class.
 func (s *Service) RenameClass(classID, name string) (ClassEntry, error) {
 	classID, name = strings.TrimSpace(classID), strings.TrimSpace(name)
