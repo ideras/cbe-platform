@@ -95,13 +95,14 @@
   // written are named so the proctor can retry just those.
   function downloaded(result) {
     const count = result.files.length;
+    const noun = result.format === 'answers-only' ? 'answers-only submission' : 'submission';
     const skippedWorking = result.skipped.filter(item => item.status === 'working').length;
     const skippedFinishing = result.skipped.filter(item => item.status === 'finishing').length;
     if (result.failed.length) {
       const names = result.failed.map(item => item.student_name || item.account_number).filter(Boolean);
-      status = `PARTIAL: downloaded ${count} of ${count + result.failed.length} submissions to ${result.folder}. Retry for ${names.join(', ')}.`;
+      status = `PARTIAL: downloaded ${count} of ${count + result.failed.length} ${noun}s to ${result.folder}. Retry for ${names.join(', ')}.`;
     } else {
-      status = `Downloaded ${plural(count, 'submission')} to ${result.folder}.`;
+      status = `Downloaded ${plural(count, noun)} to ${result.folder}.`;
       if (skippedWorking) status += ` ${plural(skippedWorking, 'student')} ${skippedWorking === 1 ? 'is' : 'are'} still working and ${skippedWorking === 1 ? 'was' : 'were'} skipped.`;
       if (skippedFinishing) status += ` ${plural(skippedFinishing, 'student')} ${skippedFinishing === 1 ? 'was' : 'were'} still finishing and ${skippedFinishing === 1 ? 'was' : 'were'} skipped.`;
     }

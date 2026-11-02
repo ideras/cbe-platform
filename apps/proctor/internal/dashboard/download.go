@@ -21,6 +21,20 @@ import (
 // class and the exam, with an _index.md acting as a grading checklist. The exam is the one imported into the class; its
 // Markdown source is stored on the server so each file is the exam itself with the student's answers filled in. For an exam
 // without a stored source the answers are listed under their slot IDs instead.
+//
+// A download has one of two formats. The complete one is the above. The answers-only one writes each student's saved answers
+// under the exam's field IDs and labels without the exam's questions, so a student can be given their own responses, or a grader
+// can read compact files next to one shared exam, rubric and solution; it never needs the exam's Markdown.
+
+const (
+	// FormatComplete is the exam with each student's answers filled in. It is the default and what DownloadSubmissions writes.
+	FormatComplete = "complete"
+	// FormatAnswersOnly is each student's saved answers and field labels, without the exam's questions.
+	FormatAnswersOnly = "answers-only"
+)
+
+// answersOnlySchema is the version of the answers-only files' front matter, written as export_schema.
+const answersOnlySchema = 1
 
 // indexFileName is the checklist written next to the students' files.
 const indexFileName = "_index.md"
@@ -30,14 +44,18 @@ type DownloadPreview struct {
 	ExamID    string `json:"exam_id"`
 	Title     string `json:"title"`
 	ClassName string `json:"class_name"`
-	// FolderName is the folder name offered in the dialog. The proctor may change it before downloading.
+	// FolderName is the folder name offered in the dialog for a complete download. The proctor may change it before downloading.
 	FolderName string `json:"folder_name"`
+	// AnswersOnlyFolderName is the one offered for an answers-only download: the same name with -AnswersOnly, so the two formats
+	// do not land in the same folder by default.
+	AnswersOnlyFolderName string `json:"answers_only_folder_name"`
 	// Finished sessions are downloaded; Working and Finishing ones are skipped; NeverLoggedIn ones appear only in _index.md.
 	Finished      int `json:"finished"`
 	Working       int `json:"working"`
 	Finishing     int `json:"finishing"`
 	NeverLoggedIn int `json:"never_logged_in"`
-	// SourceAvailable says whether the exam's Markdown is on the server. Without it the files list only the answers.
+	// SourceAvailable says whether the exam's Markdown is on the server. Without it a complete download lists only the answers; an
+	// answers-only download never uses the Markdown.
 	SourceAvailable bool `json:"source_available"`
 }
 
@@ -67,14 +85,19 @@ type DownloadProgress struct {
 // DownloadResult is what one download did. NeedsConfirmation is true when the folder already exists and replace was false:
 // the page then asks before replacing the files the earlier download wrote.
 type DownloadResult struct {
-	NeedsConfirmation bool              `json:"needs_confirmation"`
-	Folder            string            `json:"folder"`
-	FolderName        string            `json:"folder_name"`
-	ReplaceCount      int               `json:"replace_count"`
-	Files             []string          `json:"files"`
-	Skipped           []DownloadSkipped `json:"skipped"`
-	Failed            []DownloadFailure `json:"failed"`
-	Warnings          []string          `json:"warnings"`
+	NeedsConfirmation bool   `json:"needs_confirmation"`
+	Folder            string `json:"folder"`
+	FolderName        string `json:"folder_name"`
+	// Format is the format that was asked for: FormatComplete or FormatAnswersOnly.
+	Format string `json:"format"`
+	// ExistingFormat is, when the folder exists, the format its _index.md says it holds: an index without a format is a complete
+	// download from before the formats existed. It is empty when the folder has no readable _index.md.
+	ExistingFormat string            `json:"existing_format"`
+	ReplaceCount   int               `json:"replace_count"`
+	Files          []string          `json:"files"`
+	Skipped        []DownloadSkipped `json:"skipped"`
+	Failed         []DownloadFailure `json:"failed"`
+	Warnings       []string          `json:"warnings"`
 }
 
 type examDetail struct {
@@ -123,7 +146,8 @@ func (s *Service) PrepareDownload(examID string) (DownloadPreview, error) {
 		return DownloadPreview{}, err
 	}
 	preview := DownloadPreview{ExamID: detail.ExamID, Title: detail.Title, ClassName: detail.ClassName,
-		FolderName: downloadFolderName(detail.ClassName, detail.Title), NeverLoggedIn: len(roster.Missing), SourceAvailable: detail.SourceMarkdown != nil}
+		FolderName: downloadFolderName(detail.ClassName, detail.Title), AnswersOnlyFolderName: answersOnlyFolderName(detail.ClassName, detail.Title),
+		NeverLoggedIn: len(roster.Missing), SourceAvailable: detail.SourceMarkdown != nil}
 	for _, session := range roster.Sessions {
 		switch {
 		case session.Final != nil:
@@ -181,12 +205,24 @@ func (s *Service) setDownloadProgress(progress DownloadProgress) {
 	s.mu.Unlock()
 }
 
-// DownloadSubmissions writes one Markdown file per finished student, plus _index.md, in the folder folderName inside the
-// parent folder chosen with ChooseDownloadFolder. It refuses to replace an existing folder until replace is true, because the
-// instructor may have written grading notes in those files; it never deletes a file it did not write. Progress is reported
-// through DownloadProgress while it runs.
+// DownloadSubmissions writes one complete Markdown file per finished student (the exam with their answers filled in), plus
+// _index.md, in the folder folderName inside the parent folder chosen with ChooseDownloadFolder. It is
+// DownloadSubmissionsWithMode with FormatComplete, kept for callers from before the formats existed.
 func (s *Service) DownloadSubmissions(examID, folderName string, replace, confirmed bool) (DownloadResult, error) {
+	return s.DownloadSubmissionsWithMode(examID, folderName, FormatComplete, replace, confirmed)
+}
+
+// DownloadSubmissionsWithMode writes one Markdown file per finished student, plus _index.md, in the folder folderName inside the
+// parent folder chosen with ChooseDownloadFolder. mode is FormatComplete (the exam with the answers filled in) or
+// FormatAnswersOnly (the saved answers under their field labels, without the questions); any other value is refused before the
+// server is asked anything. It refuses to replace an existing folder until replace is true, because the instructor may have
+// written grading notes in those files; it never deletes a file it did not write. Progress is reported through
+// DownloadProgress while it runs.
+func (s *Service) DownloadSubmissionsWithMode(examID, folderName, mode string, replace, confirmed bool) (DownloadResult, error) {
 	examID, folderName = strings.TrimSpace(examID), strings.TrimSpace(folderName)
+	if mode != FormatComplete && mode != FormatAnswersOnly {
+		return DownloadResult{}, errors.New("Unknown download format; nothing was sent.")
+	}
 	if !confirmed {
 		return DownloadResult{}, errors.New("Explicit confirmation is required; nothing was sent.")
 	}
@@ -235,7 +271,7 @@ func (s *Service) DownloadSubmissions(examID, folderName string, replace, confir
 		return DownloadResult{}, err
 	}
 	if exists && !replace {
-		return DownloadResult{NeedsConfirmation: true, Folder: folder, FolderName: folderName, ReplaceCount: len(existing)}, nil
+		return DownloadResult{NeedsConfirmation: true, Folder: folder, FolderName: folderName, Format: mode, ExistingFormat: existingExportFormat(folder), ReplaceCount: len(existing)}, nil
 	}
 	if err := os.MkdirAll(folder, 0o700); err != nil {
 		return DownloadResult{}, errors.New("Cannot create the download folder.")
@@ -250,8 +286,16 @@ func (s *Service) DownloadSubmissions(examID, folderName string, replace, confir
 	s.setDownloadProgress(DownloadProgress{Running: true, Total: total})
 	defer func() { s.setDownloadProgress(DownloadProgress{Total: total, Done: done}) }()
 	now := time.Now()
-	result := DownloadResult{Folder: folder, FolderName: folderName, Files: []string{}, Skipped: []DownloadSkipped{}, Failed: []DownloadFailure{}, Warnings: []string{}}
+	result := DownloadResult{Folder: folder, FolderName: folderName, Format: mode, Files: []string{}, Skipped: []DownloadSkipped{}, Failed: []DownloadFailure{}, Warnings: []string{}}
 	fellBack := false
+	// What happened to each finished student's file in this run, by account number: the answers-only index lists only files it
+	// wrote, and names the fields that need the instructor's attention.
+	outcomes := map[string]exportOutcome{}
+	fail := func(session Session, message string) {
+		result.Failed = append(result.Failed, DownloadFailure{StudentName: session.Name, AccountNumber: session.Account, Error: message})
+		outcomes[session.Account] = exportOutcome{failure: message}
+		done++
+	}
 	for _, session := range roster.Sessions {
 		if session.Final == nil {
 			result.Skipped = append(result.Skipped, DownloadSkipped{StudentName: session.Name, AccountNumber: session.Account, Status: unfinishedState(session)})
@@ -260,23 +304,27 @@ func (s *Service) DownloadSubmissions(examID, folderName string, replace, confir
 		s.setDownloadProgress(DownloadProgress{Running: true, Total: total, Done: done, Current: session.Name})
 		sub, err := readSubmission(ctx, s, base, token, session.ID)
 		if err != nil {
-			result.Failed = append(result.Failed, DownloadFailure{StudentName: session.Name, AccountNumber: session.Account, Error: err.Error()})
-			done++
+			fail(session, err.Error())
 			continue
 		}
 		if sub.SessionID != session.ID || sub.ExamID != examID || !sub.Final || sub.SubmittedAt == nil || sub.Version == nil {
-			result.Failed = append(result.Failed, DownloadFailure{StudentName: session.Name, AccountNumber: session.Account, Error: "The server's submission is incomplete."})
-			done++
+			fail(session, "The server's submission is incomplete.")
 			continue
 		}
 		name := names[sub.AccountNumber]
 		if name == "" {
 			name = normalizeFileName(sub.StudentName, sub.AccountNumber) + ".md"
 		}
-		data, reason, err := renderSubmission(detail, sub, session.Locks, now)
+		var data []byte
+		var reason string
+		var fieldWarnings []examdoc.AnswersOnlyWarning
+		if mode == FormatAnswersOnly {
+			data, fieldWarnings, err = renderAnswersOnly(detail, sub, now)
+		} else {
+			data, reason, err = renderSubmission(detail, sub, session.Locks, now)
+		}
 		if err != nil {
-			result.Failed = append(result.Failed, DownloadFailure{StudentName: session.Name, AccountNumber: session.Account, Error: err.Error()})
-			done++
+			fail(session, err.Error())
 			continue
 		}
 		if reason != "" && !fellBack {
@@ -284,10 +332,10 @@ func (s *Service) DownloadSubmissions(examID, folderName string, replace, confir
 			result.Warnings = append(result.Warnings, fmt.Sprintf("This exam's stored Markdown no longer matches its stored answers (%s); its files list the answers without the questions.", reason))
 		}
 		if err := writePrivateFile(filepath.Join(folder, name), data); err != nil {
-			result.Failed = append(result.Failed, DownloadFailure{StudentName: session.Name, AccountNumber: session.Account, Error: "Cannot write the file."})
-			done++
+			fail(session, "Cannot write the file.")
 			continue
 		}
+		outcomes[session.Account] = exportOutcome{written: true, warnings: fieldWarnings}
 		result.Files = append(result.Files, name)
 		done++
 	}
@@ -298,7 +346,13 @@ func (s *Service) DownloadSubmissions(examID, folderName string, replace, confir
 		s.downloadFolder = folder
 		s.mu.Unlock()
 	}
-	index, err := renderIndex(detail, roster, names, now)
+	var index []byte
+	if mode == FormatAnswersOnly {
+		result.Warnings = append(result.Warnings, answersOnlyWarnings(roster, outcomes)...)
+		index, err = renderAnswersOnlyIndex(detail, roster, names, outcomes, now)
+	} else {
+		index, err = renderIndex(detail, roster, names, now)
+	}
 	if err != nil {
 		result.Failed = append(result.Failed, DownloadFailure{StudentName: indexFileName, Error: err.Error()})
 	} else if err := writePrivateFile(filepath.Join(folder, indexFileName), index); err != nil {
@@ -594,29 +648,50 @@ func indexStatus(reason string) string {
 	}
 }
 
-// renderIndex is the grading checklist: one row per student with their status and file.
+// renderIndex is the grading checklist of a complete download: one row per student with their status and file.
 func renderIndex(detail examDetail, roster Roster, names map[string]string, now time.Time) ([]byte, error) {
+	return buildIndex(detail, roster, names, false, nil, now)
+}
+
+// buildIndex writes the checklist of either format. A complete download links the file of every finished student. An
+// answers-only one (answersOnly) links a file only when outcomes say this run wrote it, adds a column saying what happened to
+// each file, and lists the fields that need a look.
+func buildIndex(detail examDetail, roster Roster, names map[string]string, answersOnly bool, outcomes map[string]exportOutcome, now time.Time) ([]byte, error) {
 	type row struct {
-		name, key, account, status, submitted, file, locks string
+		name, key, account, status, submitted, file, locks, export string
+		warnings                                                   []examdoc.AnswersOnlyWarning
 	}
 	rows := []row{}
 	for _, session := range roster.Sessions {
-		entry := row{name: session.Name, account: session.Account, submitted: "—"}
+		entry := row{name: session.Name, account: session.Account, submitted: "—", export: "—"}
 		switch {
 		case session.Final != nil:
 			entry.status = indexStatus(session.Final.Reason)
 			entry.submitted = localStamp(session.Final.SubmittedAt)
-			entry.file = names[session.Account]
 			entry.locks = lockSummary(session.Locks)
+			if !answersOnly {
+				entry.file = names[session.Account]
+				break
+			}
+			switch outcome := outcomes[session.Account]; {
+			case outcome.written:
+				entry.export, entry.file, entry.warnings = "written", names[session.Account], outcome.warnings
+			case outcome.failure != "":
+				entry.export = "failed: " + outcome.failure
+			default:
+				entry.export = "not written"
+			}
 		case unfinishedState(session) == "finishing":
 			entry.status = "still finishing"
+			entry.export = "skipped"
 		default:
 			entry.status = "still working"
+			entry.export = "skipped"
 		}
 		rows = append(rows, entry)
 	}
 	for _, student := range roster.Missing {
-		rows = append(rows, row{name: student.Name, account: student.Account, status: "never logged in", submitted: "—"})
+		rows = append(rows, row{name: student.Name, account: student.Account, status: "never logged in", submitted: "—", export: "—"})
 	}
 	for i := range rows {
 		rows[i].key = nameSortKey(rows[i].name)
@@ -631,7 +706,11 @@ func renderIndex(detail examDetail, roster Roster, names map[string]string, now 
 		return rows[i].account < rows[j].account
 	})
 	var out strings.Builder
-	out.WriteString(indexHeader(detail, now))
+	if answersOnly {
+		out.WriteString(answersOnlyIndexHeader(detail, now))
+	} else {
+		out.WriteString(indexHeader(detail, now))
+	}
 	out.WriteString("\n\n")
 	if detail.EndsAt != nil {
 		fmt.Fprintf(&out, "Exam end time: %s.\n\n", localStamp(*detail.EndsAt))
@@ -642,15 +721,44 @@ func renderIndex(detail examDetail, roster Roster, names map[string]string, now 
 		}
 	}
 	out.WriteString("Students of " + tableCell(detail.ClassName) + " in " + tableCell(detail.Title) + ", in name order. ")
-	out.WriteString("Finished sessions have a file; the others are listed so every student can be checked off.\n\n")
-	out.WriteString("| Student | Account | Status | Submitted | Locks | File |\n")
-	out.WriteString("|---------|---------|--------|-----------|-------|------|\n")
+	if answersOnly {
+		out.WriteString("This is an answers-only export: each student's file holds their saved answers and field labels, without the exam's questions, so grading also needs the original exam. ")
+		out.WriteString("This checklist is for the instructor; do not hand it to students. ")
+		out.WriteString("A finished session is linked only when its file was written in this download; the others are listed so every student can be checked off.\n\n")
+		out.WriteString("| Student | Account | Status | Submitted | Locks | Export | File |\n")
+		out.WriteString("|---------|---------|--------|-----------|-------|--------|------|\n")
+	} else {
+		out.WriteString("Finished sessions have a file; the others are listed so every student can be checked off.\n\n")
+		out.WriteString("| Student | Account | Status | Submitted | Locks | File |\n")
+		out.WriteString("|---------|---------|--------|-----------|-------|------|\n")
+	}
 	for _, entry := range rows {
 		link := "—"
 		if entry.file != "" {
 			link = "[" + entry.file + "](" + entry.file + ")"
 		}
-		fmt.Fprintf(&out, "| %s | %s | %s | %s | %s | %s |\n", tableCell(entry.name), tableCell(entry.account), tableCell(entry.status), tableCell(entry.submitted), tableCell(entry.locks), link)
+		if answersOnly {
+			fmt.Fprintf(&out, "| %s | %s | %s | %s | %s | %s | %s |\n", tableCell(entry.name), tableCell(entry.account), tableCell(entry.status), tableCell(entry.submitted), tableCell(entry.locks), tableCell(entry.export), link)
+		} else {
+			fmt.Fprintf(&out, "| %s | %s | %s | %s | %s | %s |\n", tableCell(entry.name), tableCell(entry.account), tableCell(entry.status), tableCell(entry.submitted), tableCell(entry.locks), link)
+		}
+	}
+	if answersOnly {
+		header := false
+		for _, entry := range rows {
+			missing, unmapped := exportNotes(entry.warnings)
+			if missing == "" && unmapped == "" {
+				continue
+			}
+			if !header {
+				out.WriteString("\n## Fields to check\n\n")
+				out.WriteString("Fields marked missing have no saved value: the snapshot does not say the student left them blank. Saved answers that match no field are kept in the student's file under Unmapped saved answers.\n\n")
+				out.WriteString("| Student | Account | Fields with no saved value | Saved keys that match no field |\n")
+				out.WriteString("|---------|---------|----------------------------|--------------------------------|\n")
+				header = true
+			}
+			fmt.Fprintf(&out, "| %s | %s | %s | %s |\n", tableCell(entry.name), tableCell(entry.account), tableCell(missing), tableCell(unmapped))
+		}
 	}
 	return []byte(out.String()), nil
 }

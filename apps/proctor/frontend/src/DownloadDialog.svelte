@@ -3,14 +3,26 @@
   import * as api from '$proctor-api';
   import Modal from './Modal.svelte';
   // Downloading the submissions of one exam: one Markdown file per finished student, in a folder the proctor names, with an
-  // _index.md checklist. Choosing the parent folder and starting the download are separate steps, so the proctor can edit
-  // the folder name and see what will happen before anything is written. When the folder of an earlier download already
-  // exists, a second step asks before replacing its files. The dialog stays open after the download, with Open folder and
-  // Close, so the result is never lost by an automatic close.
+  // _index.md checklist. The files are either the complete exam with each student's answers inserted (the default) or, as
+  // answers only, the saved answers under their field labels without the questions. Choosing the format, choosing the parent
+  // folder and starting the download are separate steps, so the proctor can edit the folder name and see what will happen
+  // before anything is written. When the folder of an earlier download already exists, a second step asks before replacing
+  // its files, and repeats exactly the format and folder name of the first. The dialog stays open after the download, with
+  // Open folder and Close, so the result is never lost by an automatic close.
   let { exam, onClose, onDownloaded } = $props();
+  const formats = [
+    { value: 'complete', label: 'Complete exam', phrase: 'complete-exam', help: 'Includes the exam text with each student’s answers inserted.' },
+    { value: 'answers-only', label: 'Answers only', phrase: 'answers-only', help: 'Includes saved answers and field labels, without the exam questions.' },
+  ];
+  const formatOf = value => formats.find(item => item.value === value) ?? formats[0];
   let preview = $state(null);
   let parentFolder = $state('');
   let folderName = $state('');
+  let format = $state('complete');
+  // The folder name stays what the proctor typed once they typed anything; until then it follows the format's suggestion.
+  let folderEdited = $state(false);
+  // The options of the download that started, kept for the replace question: its answer repeats them, whatever the page shows.
+  let request = $state(null);
   // form, downloading, replace or done.
   let stage = $state('form');
   let replaceInfo = $state(null);
@@ -27,10 +39,12 @@
   const canStart = $derived(!!preview && parentFolder !== '' && folderName.trim() !== '' && !locked);
   const percent = $derived(progress.total > 0 ? Math.min(100, Math.round((progress.done * 100) / progress.total)) : busy ? 5 : 100);
 
+  const suggestion = value => (value === 'answers-only' ? preview.answers_only_folder_name : preview.folder_name);
+
   onMount(async () => {
     try {
       preview = await api.PrepareDownload(exam.exam_id);
-      if (!folderName) folderName = preview.folder_name;
+      if (!folderEdited) folderName = suggestion(format);
     } catch (err) { problem = String(err); }
   });
   onDestroy(stopPolling);
@@ -47,6 +61,12 @@
     tick();
     timer = setInterval(tick, 200);
   }
+  // Choosing a format changes what the dialog says and, until the proctor typed a folder name, the name it offers. It sends nothing.
+  function chooseFormat(value) {
+    if (locked) return;
+    format = value;
+    if (preview && !folderEdited) folderName = suggestion(value);
+  }
   async function chooseFolder() {
     if (locked) return;
     problem = '';
@@ -57,15 +77,17 @@
   }
   async function start(replace) {
     if (busy || done) return;
+    const options = replace && request ? request : { format, folderName: folderName.trim() };
     if (!parentFolder) { problem = 'Choose a folder for the download first.'; return; }
-    if (!folderName.trim()) { problem = 'Enter a name for the output folder.'; return; }
+    if (!options.folderName) { problem = 'Enter a name for the output folder.'; return; }
+    request = options;
     problem = '';
     replaceInfo = null;
     stage = 'downloading';
     progress = { running: true, done: 0, total: preview?.finished ?? 0, current: '' };
     startPolling();
     try {
-      const value = await api.DownloadSubmissions(exam.exam_id, folderName.trim(), replace, true);
+      const value = await api.DownloadSubmissionsWithMode(exam.exam_id, options.folderName, options.format, replace, true);
       if (value.needs_confirmation) { replaceInfo = value; stage = 'replace'; return; }
       result = value;
       stage = 'done';
@@ -84,7 +106,23 @@
   }
 </script>
 <Modal title={`Download submissions — ${exam.title}`} titleId="download-title" tone={done ? 'info' : replacing ? 'warning' : 'info'} busy={busy} onClose={onClose} width="42rem">
-  <p>One Markdown file per student, with their answers in the exam.</p>
+  {#if format === 'answers-only'}
+    <p>One Markdown file per student, with their saved answers and field labels, without the exam questions.</p>
+    <p class="muted">Answers-only files need the original exam for grading context.</p>
+  {:else}
+    <p>One Markdown file per student, with their answers in the exam.</p>
+  {/if}
+
+  <fieldset class="format" disabled={locked}>
+    <legend>Download format</legend>
+    {#each formats as option (option.value)}
+      <label class="choice">
+        <input type="radio" name="download-format" value={option.value} checked={format === option.value} onchange={() => chooseFormat(option.value)} aria-describedby={`format-help-${option.value}`} />
+        <span><span class="name">{option.label}</span><span class="help" id={`format-help-${option.value}`}>{option.help}</span></span>
+      </label>
+    {/each}
+  </fieldset>
+
   {#if preview}
     <table class="counts"><tbody>
       <tr><td class="number">{preview.finished}</td><td>finished</td><td class="what">will be downloaded</td></tr>
@@ -104,7 +142,7 @@
       </span>
     </label>
     <label>Output folder name
-      <input bind:value={folderName} maxlength="255" spellcheck="false" aria-label="Output folder name" />
+      <input bind:value={folderName} oninput={() => folderEdited = true} maxlength="255" spellcheck="false" aria-label="Output folder name" />
     </label>
   </fieldset>
   {#if parentFolder && folderName.trim()}<p class="folder">Files go into <code>{parentFolder}/{folderName.trim()}</code>.</p>{/if}
@@ -118,7 +156,8 @@
 
   {#if done}
     <div class="result">
-      <p role="status">Downloaded {plural(result.files.length, 'submission')} to <code>{result.folder}</code>.</p>
+      <p role="status">Downloaded {plural(result.files.length, result.format === 'answers-only' ? 'answers-only submission' : 'submission')} to <code>{result.folder}</code>.</p>
+      <p class="muted">Format: {formatOf(result.format).label}.</p>
       {#if result.skipped.length}
         <p class="muted">{result.skipped.filter(item => item.status === 'working').length
           ? `${plural(result.skipped.filter(item => item.status === 'working').length, 'student')} still working and ${result.skipped.filter(item => item.status === 'working').length === 1 ? 'was' : 'were'} skipped. `
@@ -136,6 +175,9 @@
   {#if replacing}
     <div class="replace">
       <p><strong>Replace the {plural(replaceInfo.replace_count, 'file')} from the earlier download?</strong></p>
+      {#if replaceInfo.existing_format && replaceInfo.existing_format !== replaceInfo.format}
+        <p class="callout warning">The earlier download in this folder is {formatOf(replaceInfo.existing_format).phrase}, and this one is {formatOf(replaceInfo.format).phrase}. Its files change format.</p>
+      {/if}
       <p>Notes you wrote in them are lost. Files you added yourself are left alone.</p>
     </div>
   {/if}
@@ -164,6 +206,10 @@
   .counts .what { color: var(--text-muted); font-size: var(--text-sm); }
   fieldset { display: grid; gap: var(--space-2); margin: var(--space-3) 0 0; padding: 0; border: 0; }
   label { display: grid; gap: var(--space-1); font-weight: 600; }
+  .format legend { padding: 0; margin-bottom: var(--space-1); font-weight: 600; }
+  .choice { grid-template-columns: auto 1fr; align-items: start; gap: var(--space-2); font-weight: 400; }
+  .choice .name { display: block; font-weight: 600; }
+  .choice .help { display: block; color: var(--text-muted); font-size: var(--text-sm); }
   .folder-row { display: flex; gap: var(--space-2); }
   .folder-row .grow { flex: 1; min-width: 0; }
   .folder-row button { margin: 0; white-space: nowrap; }
