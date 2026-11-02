@@ -2,15 +2,30 @@
   import { onMount } from 'svelte';
   import Icon from '../../../../shared/theme/Icon.svelte';
   // A modal dialog with a title, a close button and a body. While `busy` it cannot be dismissed, so an action in flight
-  // is never abandoned by accident. Focus returns to whatever opened it.
-  let { title, titleId = 'modal-title', tone = '', subtitle = '', icon = '', busy = false, onClose, children, width = '34rem' } = $props();
+  // is never abandoned by accident. Focus returns to whatever opened it. The tone `deep alarm` is the framed dialog of an
+  // irreversible action: an alert-colored header, and a click on the backdrop nudges the dialog instead of doing nothing.
+  let { title, titleId = 'modal-title', tone = '', subtitle = '', eyebrow = '', icon = '', busy = false, onClose, children, width = '34rem' } = $props();
   let dialog;
-  onMount(() => { const previous = document.activeElement; dialog.showModal(); return () => previous?.focus?.(); });
+  onMount(() => {
+    const previous = document.activeElement;
+    dialog.showModal();
+    // A click on the backdrop is delivered to the dialog element itself; one inside its box lands on something it holds.
+    const nudge = event => {
+      const box = dialog.getBoundingClientRect();
+      const inside = event.clientX >= box.left && event.clientX <= box.right && event.clientY >= box.top && event.clientY <= box.bottom;
+      if (inside || !tone.split(' ').includes('alarm')) return;
+      dialog.classList.remove('nudge');
+      void dialog.offsetWidth; // restart the animation when the backdrop is clicked again
+      dialog.classList.add('nudge');
+    };
+    dialog.addEventListener('click', nudge);
+    return () => { dialog.removeEventListener('click', nudge); previous?.focus?.(); };
+  });
 </script>
 <dialog bind:this={dialog} class={tone} style:--modal-width={width} oncancel={event => { event.preventDefault(); if (!busy) onClose(); }} aria-labelledby={titleId}>
   <header>
     {#if icon}<span class="heading-icon"><Icon name={icon} size={20} /></span>{/if}
-    <div class="heading"><h2 id={titleId}>{title}</h2>{#if subtitle}<p>{subtitle}</p>{/if}</div>
+    <div class="heading">{#if eyebrow}<span class="eyebrow">{eyebrow}</span>{/if}<h2 id={titleId}>{title}</h2>{#if subtitle}<p>{subtitle}</p>{/if}</div>
     <button type="button" class="close" aria-label="Close" title="Close" disabled={busy} onclick={onClose}><Icon name="close" size={20} /></button>
   </header>
   <div class="body">{@render children()}</div>
@@ -41,4 +56,16 @@
   .deep .close:hover:not(:disabled) { background: var(--chip-on-dark); border-color: var(--accent-cyan-soft); color: var(--on-dark); }
   .deep .close:focus-visible { outline-color: var(--accent-cyan-soft); }
   .deep .body { padding: 0; }
+  /* The irreversible variant: the header is the alert gradient, its marks and text the pale alert fill. */
+  dialog.alarm { animation: pop .18s ease-out; }
+  dialog.alarm.nudge { animation: nudge .3s; }
+  @keyframes pop { from { opacity: 0; transform: translateY(8px) scale(.98); } }
+  @keyframes nudge { 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
+  .alarm header { background: var(--header-alarm); }
+  .alarm .heading-icon { background: var(--chip-on-dark); border-color: var(--alarm-chip-border); color: var(--alert-fill); }
+  .alarm .eyebrow { color: var(--alert-fill); font-size: .68rem; letter-spacing: .12em; }
+  .alarm .close { border-color: var(--alarm-chip-border); color: var(--alert-fill); }
+  .alarm .close:hover:not(:disabled) { background: var(--chip-on-dark); border-color: var(--on-dark); color: var(--on-dark); }
+  .alarm .close:focus-visible { outline-color: var(--on-dark); }
+  .alarm .close:disabled { opacity: .5; }
 </style>

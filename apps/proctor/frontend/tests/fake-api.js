@@ -83,6 +83,10 @@ let deferHistory = false;
 let releaseHistory;
 let forceStatus = 'force_submitted';
 let partialPurge = false;
+let purgeFails = false;
+let purgeDeleted = 1;
+let deferPurge = false;
+let releasePurge;
 let rows = Array.from({ length: 90 }, (_, i) => ({
   session_id: i === 0 ? SESSION : `${String(i).padStart(8, '0')}-0000-4000-8000-000000000000`, exam_id: EXAM,
   student_name: `Student ${String(i).padStart(3, '0')}`, account_number: String(i + 1).padStart(4, '0'), roster_active: true,
@@ -392,7 +396,13 @@ export async function DownloadSubmissionsWithMode(examId, folderName, mode, repl
   return { needs_confirmation: false, folder, folder_name: folderName, format: mode, existing_format: '', replace_count: 0, files, skipped, failed, warnings: [...downloadWarnings] };
 }
 export async function OpenDownloadFolder() { calls.openDownloadFolder++; if (openFolderFails) throw new Error(openFolderFails); }
-export async function PurgeScreenshots(exam, confirmed) { calls.purge.push({ exam, confirmed }); imageMissing = true; return { exam_id: exam, deleted: 1, complete: !partialPurge, failed_screenshot_ids: partialPurge ? [7] : [] }; }
+export async function PurgeScreenshots(exam, confirmed) {
+  calls.purge.push({ exam, confirmed });
+  if (deferPurge) await new Promise(resolve => releasePurge = resolve);
+  if (purgeFails) throw new Error('The server could not purge the screenshots.');
+  imageMissing = true;
+  return { exam_id: exam, deleted: purgeDeleted, complete: !partialPurge, failed_screenshot_ids: partialPurge ? [7] : [] };
+}
 // The monitoring, review and image windows open only once the main window is connected; a page loaded as one of them
 // starts connected and monitoring the published exam.
 if (/^#\/(monitoring|review|image)/.test(location.hash)) { connected = true; selectedExam = publishedExam; }
@@ -420,6 +430,7 @@ window.ProctorHarness = {
   renameFails(value) { renameFails = value; }, holdRename() { deferRename = true; }, releaseRename() { deferRename = false; releaseRename?.(); }, deleteFails(value) { deleteFails = value; }, replaceFails(value) { replaceFails = value; }, rosterChange(value) { nextRosterChange = value; }, pruned(value) { pruned = value; },
   working(value) { workingStudents = value; }, examFile(value) { nextExamFile = { content: sampleContent, ...value }; }, importFails(value) { importFails = value; }, publishFails(value) { publishFails = value; }, deleteExamFails(value) { deleteExamFails = value; }, catalogDown(value) { catalogDown = value; }, stale(value) { stale = value; }, imagesMissing(value) { imageMissing = value; },
   failForce(value) { failForce = value; }, holdForce() { deferForce = true; }, releaseForce() { releaseForce?.(); }, originalSubmit() { forceStatus = 'submitted'; }, partialPurge() { partialPurge = true; },
+  purgeFails(value) { purgeFails = value; }, purgeDeleted(value) { purgeDeleted = value; }, holdPurge() { deferPurge = true; }, releasePurge() { deferPurge = false; releasePurge?.(); },
   downloadPreview(value) { downloadPreviewOverride = value; }, downloadNeedsReplace(value = true) { downloadNeedsReplace = value; }, downloadExistingFormat(value) { downloadExistingFormat = value; }, downloadWarnings(value) { downloadWarnings = value; }, downloadFails(value) { downloadFails = value; }, downloadFailure(value) { downloadFailureFor = value; }, openFolderFails(value) { openFolderFails = value; },
   downloadFolder(value) { downloadFolder = value; }, chooseFolderFails(value) { chooseFolderFails = value; }, holdDownload() { downloadHeld = true; }, releaseDownload() { downloadHeld = false; releaseDownload?.(); releaseDownload = null; }, downloadProgress(value) { lastDownloadProgress = value; },
   holdHistory() { deferHistory = true; }, releaseHistory() { releaseHistory?.(); }, untrustedName() { rows[0].student_name = '<script>student name</script>'; },

@@ -334,21 +334,199 @@ test('when the exams cannot be loaded the panel says so instead of loading forev
   expect((await calls(page)).chooseExam).toBe(1);
 });
 
-test('screenshots are purged from the exam list after grading, with explicit confirmation and partial failures shown', async ({ page }) => {
+// The code the proctor types to unlock a purge: the first eight characters of the exam's ID.
+const PRACTICE_CODE = PRACTICE.slice(0, 8);
+
+async function openPurge(page, exams) {
+  await examCard(exams, 'Practice exam').getByRole('button', { name: 'Purge screenshots of Practice exam…' }).click();
+  return page.getByRole('dialog', { name: 'Purge screenshots' });
+}
+// Ticks the grading confirmation and types the code, which is what unlocks the purge button.
+async function unlockPurge(dialog) {
+  await dialog.getByText('Grading is finalized and I confirm screenshot deletion for this exam.').click();
+  await dialog.getByLabel(`Type the exam code ${PRACTICE_CODE} to unlock`).fill(PRACTICE_CODE);
+}
+const purgeButton = dialog => dialog.getByRole('button', { name: /^(Purge screenshots|Purging…)$/ });
+const closeResult = dialog => dialog.locator('.foot').getByRole('button', { name: 'Close', exact: true });
+
+test('the purge dialog says what goes, what stays and what it does not reach, and keeps the safe choice in front', async ({ page }) => {
   const exams = await connect(page);
   const practice = examCard(exams, 'Practice exam');
   await expect(examCard(exams, 'Draft quiz').getByRole('button', { name: /Purge screenshots/ })).toHaveCount(0);
   await expect(examCard(exams, 'Databases midterm').getByRole('button', { name: /Purge screenshots/ })).toBeDisabled();
-  await practice.getByRole('button', { name: 'Purge screenshots of Practice exam…' }).click();
-  const dialog = page.getByRole('dialog');
-  await expect(dialog).toContainText('Practice exam'); await expect(dialog).toContainText('Downloads, exports and backups require separate deletion');
-  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  const dialog = await openPurge(page, exams);
+  await expect(dialog.getByRole('heading', { name: 'Purge screenshots' })).toBeVisible();
+  await expect(dialog).toContainText('Irreversible');
+  await expect(dialog.locator('.exam')).toContainText('Practice exam');
+  await expect(dialog.locator('.exam .id')).toHaveText(PRACTICE);
+  await expect(dialog.locator('.exam .id b')).toHaveText(PRACTICE_CODE);
+  const rows = dialog.getByRole('listitem');
+  await expect(rows).toHaveCount(4);
+  await expect(rows.nth(0)).toContainText('Deleted forever'); await expect(rows.nth(0)).toContainText('All stored screenshots for this exam.');
+  await expect(rows.nth(1)).toContainText('Disabled permanently'); await expect(rows.nth(1)).toContainText('No further images can be captured for this exam.');
+  await expect(rows.nth(2)).toContainText('Kept'); await expect(rows.nth(2)).toContainText('Answers and events (focus losses, heartbeats, locks).');
+  await expect(rows.nth(3)).toContainText('Not touched — delete separately'); await expect(rows.nth(3)).toContainText('Downloads, exports and backups made earlier.');
+  // The server does not say how many screenshots an exam has before a purge, so the dialog claims no number.
+  await expect(dialog).not.toContainText(/\d[\d,]* (images|screenshots)/);
+  // The safe button has the first focus; the dangerous one waits for the confirmation.
+  await expect(dialog.getByRole('button', { name: 'Keep screenshots' })).toBeFocused();
+  await expect(purgeButton(dialog)).toBeDisabled();
+  await dialog.getByRole('button', { name: 'Keep screenshots' }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(practice.getByRole('button', { name: 'Purge screenshots of Practice exam…' })).toBeFocused();
   expect((await calls(page)).purge).toEqual([]);
-  await page.evaluate(() => window.ProctorHarness.partialPurge());
-  await practice.getByRole('button', { name: 'Purge screenshots of Practice exam…' }).click();
-  await dialog.getByRole('checkbox').check(); await dialog.getByRole('button', { name: 'Confirm irreversible action' }).click();
-  await expect(page.getByRole('status')).toContainText('PARTIAL: retry for image IDs 7');
+});
+
+test('the purge button unlocks only after ticking that grading is final and typing the exam code', async ({ page }) => {
+  const exams = await connect(page);
+  const dialog = await openPurge(page, exams);
+  const tick = dialog.getByRole('checkbox');
+  const code = dialog.getByLabel(`Type the exam code ${PRACTICE_CODE} to unlock`);
+  await expect(code).toBeDisabled(); await expect(code).toHaveAttribute('maxlength', '8'); await expect(code).toHaveAttribute('placeholder', PRACTICE_CODE);
+  await expect(purgeButton(dialog)).toBeDisabled();
+  await dialog.getByText('Grading is finalized and I confirm screenshot deletion for this exam.').click();
+  await expect(tick).toBeChecked(); await expect(code).toBeEnabled(); await expect(code).toBeFocused();
+  // Ticking alone is not enough, and neither is a code that is almost right.
+  await expect(purgeButton(dialog)).toBeDisabled();
+  await code.fill('3333333'); await expect(purgeButton(dialog)).toBeDisabled();
+  await code.fill('33333334'); await expect(purgeButton(dialog)).toBeDisabled(); await expect(code).not.toHaveClass(/match/);
+  await code.fill(PRACTICE_CODE); await expect(purgeButton(dialog)).toBeEnabled(); await expect(code).toHaveClass(/match/);
+  // The code has to be typed: pasting it is refused.
+  expect(await code.evaluate(field => { const event = new Event('paste', { bubbles: true, cancelable: true }); field.dispatchEvent(event); return event.defaultPrevented; })).toBe(true);
+  // Taking the tick back takes the code back with it.
+  await dialog.getByText('Grading is finalized and I confirm screenshot deletion for this exam.').click();
+  await expect(tick).not.toBeChecked(); await expect(code).toBeDisabled(); await expect(code).toHaveValue('');
+  await expect(purgeButton(dialog)).toBeDisabled();
+  expect((await calls(page)).purge).toEqual([]);
+});
+
+test('Enter in the code field purges only once it is unlocked', async ({ page }) => {
+  const exams = await connect(page);
+  const dialog = await openPurge(page, exams);
+  await dialog.getByText('Grading is finalized and I confirm screenshot deletion for this exam.').click();
+  const code = dialog.getByLabel(`Type the exam code ${PRACTICE_CODE} to unlock`);
+  await code.fill('3333'); await code.press('Enter');
+  expect((await calls(page)).purge).toEqual([]);
+  await code.fill(PRACTICE_CODE); await code.press('Enter');
+  await expect(dialog.getByRole('status')).toContainText('Screenshots purged');
   expect((await calls(page)).purge).toEqual([{ exam: PRACTICE, confirmed: true }]);
+});
+
+test('while the server purges the dialog shows it is working and cannot be closed, then reports what was deleted', async ({ page }) => {
+  const exams = await connect(page, () => window.ProctorHarness.holdPurge());
+  const dialog = await openPurge(page, exams);
+  await unlockPurge(dialog);
+  await purgeButton(dialog).click();
+  await expect(dialog.getByRole('progressbar', { name: 'Purging screenshots' })).toBeVisible();
+  await expect(dialog).toContainText('Deleting screenshots…');
+  await expect(dialog.getByRole('button', { name: 'Purging…' })).toBeDisabled();
+  await expect(dialog.getByRole('button', { name: 'Keep screenshots' })).toBeDisabled();
+  await expect(dialog.getByRole('button', { name: 'Close', exact: true })).toBeDisabled();
+  await expect(dialog.getByRole('checkbox')).toBeDisabled();
+  await expect(dialog.getByLabel(`Type the exam code ${PRACTICE_CODE} to unlock`)).toBeDisabled();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeVisible();
+  await page.evaluate(() => window.ProctorHarness.releasePurge());
+  const result = dialog.getByRole('status');
+  await expect(result).toContainText('Screenshots purged');
+  await expect(result).toContainText('1 image deleted · capture disabled for this exam');
+  await expect(dialog.getByRole('progressbar')).toHaveCount(0);
+  await expect(dialog).toContainText('Remember: any downloads, exports or backups that contain these screenshots still exist and must be deleted by hand.');
+  await expect(dialog.getByRole('alert')).toHaveCount(0);
+  await expect(dialog.getByText('Before you continue')).toHaveCount(0);
+  // Only Close is left, and the status line of the page keeps the outcome once the dialog is gone.
+  await expect(dialog.getByRole('button', { name: 'Purge screenshots' })).toHaveCount(0);
+  await closeResult(dialog).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(exams.getByRole('status')).toContainText('Screenshots of “Practice exam”: 1 deleted. Complete; this exam accepts no more images.');
+  expect((await calls(page)).purge).toEqual([{ exam: PRACTICE, confirmed: true }]);
+});
+
+test('a purge that could not delete every image says which to retry, in the dialog and on the page', async ({ page }) => {
+  const exams = await connect(page, () => window.ProctorHarness.partialPurge());
+  const dialog = await openPurge(page, exams);
+  await unlockPurge(dialog);
+  await purgeButton(dialog).click();
+  await expect(dialog.getByRole('status')).toContainText('Screenshots partly purged');
+  await expect(dialog.getByRole('status')).toContainText('1 image deleted; 1 image could not be deleted · capture disabled for this exam');
+  await expect(dialog.getByRole('alert')).toContainText('PARTIAL: retry for image IDs 7.');
+  await expect(dialog).toContainText('must be deleted by hand');
+  await closeResult(dialog).click();
+  await expect(exams.getByRole('status')).toContainText('PARTIAL: retry for image IDs 7');
+});
+
+test('the purge result counts with separators and says so when there was nothing stored', async ({ page }) => {
+  let exams = await connect(page, () => window.ProctorHarness.purgeDeleted(1284));
+  let dialog = await openPurge(page, exams);
+  await unlockPurge(dialog); await purgeButton(dialog).click();
+  await expect(dialog.getByRole('status')).toContainText('1,284 images deleted · capture disabled for this exam');
+  exams = await connect(page, () => window.ProctorHarness.purgeDeleted(0));
+  dialog = await openPurge(page, exams);
+  await unlockPurge(dialog); await purgeButton(dialog).click();
+  await expect(dialog.getByRole('status')).toContainText('No stored screenshots to delete · capture disabled for this exam');
+});
+
+test('a purge the server refuses keeps the dialog and the confirmation and says why', async ({ page }) => {
+  const exams = await connect(page, () => window.ProctorHarness.purgeFails(true));
+  const dialog = await openPurge(page, exams);
+  await unlockPurge(dialog);
+  await purgeButton(dialog).click();
+  await expect(dialog.getByRole('alert')).toContainText('The server could not purge the screenshots.');
+  await expect(dialog.getByRole('status')).toHaveCount(0);
+  await expect(dialog.getByRole('progressbar')).toHaveCount(0);
+  // Nothing was deleted as far as the dialog knows, and the proctor's two acts still stand, so the purge can be tried again.
+  await expect(dialog.getByRole('checkbox')).toBeChecked();
+  await expect(purgeButton(dialog)).toBeEnabled();
+  await expect(dialog.getByRole('button', { name: 'Keep screenshots' })).toBeEnabled();
+  await page.evaluate(() => window.ProctorHarness.purgeFails(false));
+  await purgeButton(dialog).click();
+  await expect(dialog.getByRole('status')).toContainText('Screenshots purged');
+  await expect(dialog.getByRole('alert')).toHaveCount(0);
+  expect((await calls(page)).purge).toHaveLength(2);
+});
+
+test('a click outside the purge dialog nudges it instead of closing it, and Escape still keeps the screenshots', async ({ page }) => {
+  const exams = await connect(page);
+  const dialog = await openPurge(page, exams);
+  await page.mouse.click(4, 4);
+  await expect(dialog).toBeVisible(); await expect(dialog).toHaveClass(/nudge/);
+  // A click inside the dialog is not a nudge.
+  await dialog.evaluate(element => element.classList.remove('nudge'));
+  await dialog.getByRole('heading', { name: 'Purge screenshots' }).click();
+  await expect(dialog).not.toHaveClass(/nudge/);
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  expect((await calls(page)).purge).toEqual([]);
+});
+
+test('the purge dialog stays inside a phone-sized window with its buttons stacked', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 760 });
+  const exams = await connect(page);
+  const dialog = await openPurge(page, exams);
+  await unlockPurge(dialog);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  const bounds = await dialog.boundingBox();
+  expect(bounds.x).toBeGreaterThanOrEqual(0); expect(bounds.x + bounds.width).toBeLessThanOrEqual(360);
+  expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+  const keep = await dialog.getByRole('button', { name: 'Keep screenshots' }).boundingBox();
+  const purge = await purgeButton(dialog).boundingBox();
+  expect(purge.y).toBeLessThan(keep.y); // the dangerous button is above the safe one, as in the mockup
+  expect(Math.abs(purge.width - keep.width)).toBeLessThan(1); expect(Math.abs(purge.x - keep.x)).toBeLessThan(1);
+});
+
+test('in a short window the purge dialog’s header and buttons stay in view while the rest scrolls', async ({ page }) => {
+  await page.setViewportSize({ width: 900, height: 420 });
+  const exams = await connect(page);
+  const dialog = await openPurge(page, exams);
+  const header = dialog.getByRole('heading', { name: 'Purge screenshots' });
+  expect(await dialog.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true);
+  for (const top of [0, 10000]) {
+    await dialog.evaluate((element, value) => { element.scrollTop = value; }, top);
+    await expect(header).toBeInViewport(); await expect(dialog.getByRole('button', { name: 'Close', exact: true })).toBeInViewport();
+    await expect(dialog.getByRole('button', { name: 'Keep screenshots' })).toBeInViewport(); await expect(purgeButton(dialog)).toBeInViewport();
+  }
+  // At the end of the scroll the gate is reachable above the footer.
+  await expect(dialog.getByLabel(`Type the exam code ${PRACTICE_CODE} to unlock`)).toBeInViewport();
 });
 
 test('download submissions is offered only for exams somebody has taken, with an editable default name', async ({ page }) => {
