@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"errors"
+	"fmt"
 	"math"
 	"reflect"
 	"strings"
@@ -160,5 +161,28 @@ func TestOnlyAnUnpublishedExamNobodyTookCanBeDeleted(t *testing.T) {
 	}
 	if _, err := exams.Delete(t.Context(), "bad"); !errors.Is(err, service.ErrInvalidInput) {
 		t.Fatalf("bad id = %v", err)
+	}
+}
+
+func TestPINIsReadForOneStoredExamAndNoListingCarriesIt(t *testing.T) {
+	f := newFixture(t, 0)
+	exams := service.NewExams(f.store, f.clock, f.sessions)
+	id, err := exams.Create(t.Context(), testClassID, service.CreateExamInput{Title: "Midterm", PIN: "  literal PIN 世界  ", DurationSeconds: 60, Content: examContent([]string{"q1"})})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := exams.PIN(t.Context(), id)
+	if err != nil || got.ExamID != id || got.PIN != "  literal PIN 世界  " {
+		t.Fatalf("PIN = %+v, %v; it must come back exactly as it was typed", got, err)
+	}
+	if _, err := exams.PIN(t.Context(), "not-an-id"); !errors.Is(err, service.ErrInvalidInput) {
+		t.Fatalf("a malformed ID = %v, want ErrInvalidInput", err)
+	}
+	if _, err := exams.PIN(t.Context(), "00000000-0000-4000-8000-0000000000ff"); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("an unknown exam = %v, want ErrNotFound", err)
+	}
+	detail, err := exams.Detail(t.Context(), id)
+	if err != nil || strings.Contains(fmt.Sprintf("%+v", detail), "literal PIN") {
+		t.Fatalf("the exam's detail carries the PIN: %+v, %v", detail, err)
 	}
 }

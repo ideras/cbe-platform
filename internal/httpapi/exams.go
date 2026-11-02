@@ -21,6 +21,7 @@ type ExamAPI interface {
 	Preview(ctx context.Context, input service.CreateExamInput) (service.ExamPreview, error)
 	Delete(ctx context.Context, examID string) (service.DeletedExam, error)
 	Detail(ctx context.Context, examID string) (service.ExamDetail, error)
+	PIN(ctx context.Context, examID string) (service.ExamPIN, error)
 }
 
 type Options struct {
@@ -184,6 +185,23 @@ func examDetailHandler(exams ExamAPI, logger *slog.Logger) http.HandlerFunc {
 			return
 		}
 		writeJSON(w, http.StatusOK, detail)
+	}
+}
+
+// examPINHandler answers with the PIN of one exam. It is the only route that does, it needs the administrator token, and the
+// answer is never cached. The log names the exam, never the PIN.
+func examPINHandler(exams ExamAPI, logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := proctorQuery(w, r); !ok {
+			return
+		}
+		pin, err := exams.PIN(r.Context(), r.PathValue("id"))
+		if err != nil {
+			serviceError(w, logger, "read exam pin", err)
+			return
+		}
+		logger.Info("exam pin read", "exam_id", pin.ExamID)
+		writeJSON(w, http.StatusOK, pin)
 	}
 }
 

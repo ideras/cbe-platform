@@ -221,6 +221,37 @@ func TestBuiltServerStartedEmptyIsPreparedAndPublishedFromTheDashboard(t *testin
 		t.Fatalf("an imported exam admitted students before it was published: %d", status)
 	}
 
+	// The PIN is read on demand, exam by exam, with the administrator credential; the dashboard keeps no copy of it, which the
+	// check of its public view at the end of the test confirms.
+	for id, want := range map[string]string{first: "midterm-pin", second: "retake-pin", draft: "draft-pin"} {
+		if pin, err := s.ExamPIN(id); err != nil || pin != want {
+			t.Fatalf("the PIN of exam %s = %q, %v; want %q", id, pin, err, want)
+		}
+	}
+	if pin, err := s.ExamPIN("00000000-0000-4000-8000-0000000000ff"); err == nil || pin != "" {
+		t.Fatalf("the PIN of an unknown exam = %q, %v", pin, err)
+	}
+
+	// An exam that is not published can have its end time set and cleared: the publish dialog clears the end time an exam kept
+	// before admitting students, so that "No end time" is true.
+	endOf := func(id string) *time.Time {
+		for _, e := range s.Snapshot().Catalog.Exams {
+			if e.ID == id {
+				return e.EndsAt
+			}
+		}
+		t.Fatalf("exam %s is not in the catalog", id)
+		return nil
+	}
+	if err := s.SetEndTime(draft, time.Now().Add(2*time.Hour).Format("15:04"), true); err != nil {
+		t.Fatalf("setting the end time of an unpublished exam: %v", err)
+	}
+	wait(t, func() bool { return endOf(draft) != nil })
+	if err := s.SetEndTime(draft, "", true); err != nil {
+		t.Fatalf("clearing the end time of an unpublished exam: %v", err)
+	}
+	wait(t, func() bool { return endOf(draft) == nil && !s.Snapshot().Busy })
+
 	// A class keeps its exams: it cannot be deleted while it has any, and the dashboard says what to do.
 	if _, err := s.DeleteClass(classA.ID, true); err == nil || !strings.Contains(err.Error(), "still has exams") {
 		t.Fatalf("deleting a class with exams = %v", err)

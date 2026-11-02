@@ -4,6 +4,7 @@
   import * as api from '$proctor-api';
   import ExamCard from './ExamCard.svelte';
   import Confirmation from './Confirmation.svelte';
+  import PublishDialog from './PublishDialog.svelte';
   import ExamImport from './ExamImport.svelte';
   import DownloadDialog from './DownloadDialog.svelte';
   import PurgeDialog from './PurgeDialog.svelte';
@@ -36,6 +37,14 @@
   const exams = $derived((view.catalog?.exams ?? []).filter(exam => exam.class_id === klass.class_id));
   // Publishing replaces whatever is published, which may be an exam of another class.
   const current = $derived((view.catalog?.exams ?? []).find(exam => exam.published));
+  // The students working in the exam an open dialog is about to replace or close, as the server reports them now. The dialog keeps the
+  // exam it was opened for (the server refuses if another one has been published since); only the count follows the polling, so a
+  // student who logs in while the dialog is open is seen before the proctor decides.
+  const workingNow = $derived.by(() => {
+    const seen = modal?.current;
+    if (!seen) return 0;
+    return (view.catalog?.exams ?? []).find(exam => exam.exam_id === seen.exam_id)?.active_sessions ?? seen.active_sessions ?? 0;
+  });
   // The server has not answered yet and the last attempt failed (wrong token, server down): say why instead of "Loading…".
   const unreachable = $derived(!!view.error && !view.catalog_loaded);
   const locked = $derived(disabled || working || view.busy);
@@ -128,25 +137,27 @@
     modalError = '';
     modal = { kind, entry: exam, klass, current, currentClass: view.catalog?.current_class_name ?? '', serverTime: view.catalog?.server_time, admission: exam ? admission(exam) : 'open' };
   }
-  async function confirm({ endTime = '' } = {}) {
+  // A publish went through. The dialog stays open with the PIN and the way to the live roster; the status line, which stays after it
+  // closes, says what is published, and the exam list is read again to show the exam as it is now.
+  async function published() {
+    lastFolder = '';
+    const { entry } = modal;
+    status = `“${entry.title}” is published to ${klass.name}. Its students log in with the exam PIN. Use Monitor to watch them in the monitoring window.`;
+    try { await onSelected(); } catch {}
+  }
+  // allowActive is the proctor's override: closing admission while students are still working in the exam needs it.
+  async function confirm({ allowActive = false } = {}) {
     if (modalBusy) return;
     modalBusy = true; modalError = ''; lastFolder = '';
     const { kind, entry, current } = modal;
-    const inUse = (current?.active_sessions ?? 0) > 0;
     try {
-      if (kind === 'publish') {
-        if (endTime) await api.PublishTimed(entry.exam_id, current?.exam_id ?? '', inUse, true, endTime);
-        else await api.Publish(entry.exam_id, current?.exam_id ?? '', inUse, true);
-        status = `“${entry.title}” is published to ${klass.name}. Its students log in with the exam PIN. Use Monitor to watch them in the monitoring window.`;
-        modal = null;
-        await onSelected();
-      } else if (kind === 'deleteExam') {
+      if (kind === 'deleteExam') {
         await api.DeleteExam(entry.exam_id, true);
         status = `Exam “${entry.title}” deleted.`;
         modal = null;
         await onRefresh();
       } else {
-        await api.Unpublish(current.exam_id, inUse, true);
+        await api.Unpublish(current.exam_id, allowActive, true);
         status = `Admission is closed. Students already in “${current.title}” keep working; nobody else can log in.`;
         modal = null;
         await onRefresh();
@@ -190,7 +201,8 @@
   </div>
 </section>
 </div>
-{#if modal}<Confirmation kind={modal.kind} details={modal} busy={modalBusy} error={modalError} onCancel={() => modal = null} onConfirm={confirm} />{/if}
+{#if modal?.kind === 'publish'}<PublishDialog details={modal} working={workingNow} onClose={() => modal = null} onPublished={published} onFailed={() => onRefresh().catch(() => {})} onMonitor={() => monitorExam(view, modal.entry.exam_id, onSelected)} />
+{:else if modal}<Confirmation kind={modal.kind} details={modal} working={workingNow} busy={modalBusy} error={modalError} onCancel={() => modal = null} onConfirm={confirm} />{/if}
 {#if downloadExam}<DownloadDialog exam={downloadExam} onClose={() => downloadExam = null} onDownloaded={downloaded} />{/if}
 {#if purgeExam}<PurgeDialog exam={purgeExam} onClose={() => purgeExam = null} onPurged={purged} onFailed={() => onRefresh().catch(() => {})} />{/if}
 {#if previewExamID}<PreviewDialog examID={previewExamID} onClose={() => previewExamID = null} />{/if}

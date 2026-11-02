@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { connect, calls, nav, card, examsPanel, tab } from './helpers.js';
+import { connect, calls, nav, card, examsPanel, tab, tickPublish } from './helpers.js';
 
 const MATH = '44444444-4444-4444-8444-444444444444';
 // The roster is in the Students tab of the class.
@@ -32,8 +32,9 @@ test('the published exam is named on the card of the class it belongs to, whiche
   await card(page, 'History 11B').click();
   await examsPanel(page).getByRole('button', { name: 'Publish History final…' }).click();
   const dialog = page.getByRole('dialog', { name: 'Publish exam' });
-  await dialog.getByRole('checkbox').check(); await dialog.getByRole('button', { name: 'Publish exam', exact: true }).click();
-  await expect(page.getByRole('status')).toContainText('is published to History 11B');
+  await tickPublish(dialog); await dialog.getByRole('button', { name: 'Publish & admit students', exact: true }).click();
+  await expect(examsPanel(page).getByRole('status')).toContainText('is published to History 11B');
+  await dialog.locator('.foot').getByRole('button', { name: 'Close', exact: true }).click();
   await page.getByRole('main').getByRole('button', { name: 'Classes', exact: true }).click();
   await expect(card(page, 'History 11B')).toContainText('1 exam · History final published');
   await expect(card(page, 'Mathematics 10A')).toContainText('3 exams'); await expect(card(page, 'Mathematics 10A')).not.toContainText('published');

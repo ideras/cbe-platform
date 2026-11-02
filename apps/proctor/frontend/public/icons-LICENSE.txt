@@ -5,6 +5,7 @@ Tabler Icons (github.com/tabler/tabler-icons/blob/main/LICENSE):
   back.svg: arrow-left
   backspace.svg: backspace
   ban.svg: ban
+  broadcast.svg: access-point
   calculator.svg: calculator
   check.svg: check
   chevron.svg: chevron-right

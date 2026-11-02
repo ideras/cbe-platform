@@ -35,6 +35,8 @@ let replaceFails = '';
 let nextRosterChange = null;
 let pruned = 2;
 let workingStudents = 1;
+// Students who log in to the published exam after the last time the dashboard looked, so the next change finds them working.
+let lateStudents = 0;
 let nextExamFile = null;
 let launchCredential = true;
 let rejected = false;
@@ -44,6 +46,9 @@ let nextTokenFile = null;
 let tokenFileFails = '';
 let importFails = false;
 let publishFails = '';
+// The PIN the server holds for every exam, and why reading it fails (empty when it works).
+let examPin = '482719';
+let pinFails = '';
 let deleteExamFails = '';
 let catalogDown = false;
 // The proctor's Settings: the monitoring values stored on the server.
@@ -101,7 +106,7 @@ const final = { final_version_id: 12, version_seq: 3, reason: 'explicit_submit',
 // assert what an action called.
 const nativeCalls = [];
 const record = name => nativeCalls.push(name);
-const calls = { release: [], force: [], purge: [], image: [], timeline: [], select: [], connect: [], windows: [], saved: [], chooseCredential: 0, chooseExam: 0, chosenFor: [], importExam: 0, imported: [], discardImport: 0, deleteExam: [], chooseClassFile: 0, createClass: [], discardClassFile: 0, renameClass: [], deleteClass: [], chooseRosterFile: [], replaceRoster: [], discardRosterFile: 0, disconnect: 0, classRoster: [], publish: [], unpublish: [], download: [], prepareDownload: [], chooseDownloadFolder: [], openDownloadFolder: 0, quit: 0 };
+const calls = { release: [], force: [], purge: [], image: [], timeline: [], select: [], connect: [], windows: [], saved: [], chooseCredential: 0, chooseExam: 0, chosenFor: [], importExam: 0, imported: [], discardImport: 0, deleteExam: [], chooseClassFile: 0, createClass: [], discardClassFile: 0, renameClass: [], deleteClass: [], chooseRosterFile: [], replaceRoster: [], discardRosterFile: 0, disconnect: 0, classRoster: [], publish: [], publishTimed: [], endTimes: [], pin: [], unpublish: [], download: [], prepareDownload: [], chooseDownloadFolder: [], openDownloadFolder: 0, quit: 0 };
 const FAMOUS = ['Ada Lovelace', 'Grace Hopper', 'Alan Turing', 'Edsger Dijkstra'];
 function rosterOf(id) {
   if (rosterOverride[id]) return rosterOverride[id];
@@ -144,11 +149,24 @@ export async function PreviewEndTime(hhmm) {
   const end = new Date(now); end.setHours(h, m, 0, 0); if (end <= now) end.setDate(end.getDate() + 1);
   return { ends_at: end.toISOString(), label: `Ends ${end.toDateString() === now.toDateString() ? 'today' : 'tomorrow'} at ${hhmm}`, clock_warning: endTimeClockWarning };
 }
-export async function SetEndTime(id, hhmm, confirmed) {
-  if (!confirmed) throw new Error('Confirmation required');
+async function storeEndTime(id, hhmm) {
   const entry = exams.find(e => e.exam_id === id); entry.ends_at = hhmm ? (await PreviewEndTime(hhmm)).ends_at : null;
 }
-export async function PublishTimed(id, expected, active, confirmed, hhmm) { await Publish(id, expected, active, confirmed); await SetEndTime(id, hhmm, confirmed); }
+export async function SetEndTime(id, hhmm, confirmed) {
+  if (!confirmed) throw new Error('Confirmation required');
+  calls.endTimes.push({ examId: id, hhmm });
+  await storeEndTime(id, hhmm);
+}
+export async function PublishTimed(id, expected, active, confirmed, hhmm) {
+  calls.publishTimed.push({ examId: id, hhmm });
+  await Publish(id, expected, active, confirmed);
+  await storeEndTime(id, hhmm);
+}
+export async function ExamPIN(examId) {
+  calls.pin.push(examId);
+  if (pinFails) throw new Error(pinFails);
+  return examPin;
+}
 export async function ExtendGrace(id, minutes, reason, confirmed) {
   if (!confirmed || !reason) throw new Error('Confirmation and reason required');
   const row = rows.find(r => r.session_id === id);
@@ -268,9 +286,12 @@ export async function Disconnect() {
   return snapshot();
 }
 export async function Quit() { calls.quit++; }
+// The students who logged in late are working by the time the server decides, whatever the dashboard last showed.
+function arrive() { if (lateStudents > 0) { workingStudents = lateStudents; lateStudents = 0; } }
 export async function Publish(examId, expectedExam, allowActive, confirmed) {
   calls.publish.push({ examId, expectedExam, allowActive, confirmed });
   if (publishFails) throw new Error(publishFails);
+  arrive();
   if (workingStudents > 0 && expectedExam && !allowActive) throw new Error('The server refused the change: students are still working in the current exam.');
   const replaced = publishedEntry();
   const target = exams.find(item => item.exam_id === examId);
@@ -279,6 +300,8 @@ export async function Publish(examId, expectedExam, allowActive, confirmed) {
 }
 export async function Unpublish(expectedExam, allowActive, confirmed) {
   calls.unpublish.push({ expectedExam, allowActive, confirmed });
+  arrive();
+  if (workingStudents > 0 && !allowActive) throw new Error('The server refused the change: students are still working in the current exam.');
   const replaced = publishedEntry(); publishedExam = '';
   return { exam_id: '', class_id: '', replaced_exam_id: replaced?.exam_id ?? '', replaced_class_id: replaced?.class_id ?? '', active_sessions: allowActive ? workingStudents : 0 };
 }
@@ -428,7 +451,7 @@ window.ProctorHarness = {
   rosterFails(value) { rosterFails = value; }, holdRoster() { deferRoster = true; }, releaseRoster() { deferRoster = false; releaseRoster?.(); },
   classFile(value) { nextClassFile = value; }, createFails(value) { createFails = value; },
   renameFails(value) { renameFails = value; }, holdRename() { deferRename = true; }, releaseRename() { deferRename = false; releaseRename?.(); }, deleteFails(value) { deleteFails = value; }, replaceFails(value) { replaceFails = value; }, rosterChange(value) { nextRosterChange = value; }, pruned(value) { pruned = value; },
-  working(value) { workingStudents = value; }, examFile(value) { nextExamFile = { content: sampleContent, ...value }; }, importFails(value) { importFails = value; }, publishFails(value) { publishFails = value; }, deleteExamFails(value) { deleteExamFails = value; }, catalogDown(value) { catalogDown = value; }, stale(value) { stale = value; }, imagesMissing(value) { imageMissing = value; },
+  working(value) { workingStudents = value; }, studentsLogInLate(value) { lateStudents = value; }, examFile(value) { nextExamFile = { content: sampleContent, ...value }; }, importFails(value) { importFails = value; }, publishFails(value) { publishFails = value; }, pinFails(value) { pinFails = value; }, examPin(value) { examPin = value; }, examEndsAt(id, value) { exams.find(item => item.exam_id === id).ends_at = value; }, deleteExamFails(value) { deleteExamFails = value; }, catalogDown(value) { catalogDown = value; }, stale(value) { stale = value; }, imagesMissing(value) { imageMissing = value; },
   failForce(value) { failForce = value; }, holdForce() { deferForce = true; }, releaseForce() { releaseForce?.(); }, originalSubmit() { forceStatus = 'submitted'; }, partialPurge() { partialPurge = true; },
   purgeFails(value) { purgeFails = value; }, purgeDeleted(value) { purgeDeleted = value; }, holdPurge() { deferPurge = true; }, releasePurge() { deferPurge = false; releasePurge?.(); },
   downloadPreview(value) { downloadPreviewOverride = value; }, downloadNeedsReplace(value = true) { downloadNeedsReplace = value; }, downloadExistingFormat(value) { downloadExistingFormat = value; }, downloadWarnings(value) { downloadWarnings = value; }, downloadFails(value) { downloadFails = value; }, downloadFailure(value) { downloadFailureFor = value; }, openFolderFails(value) { openFolderFails = value; },

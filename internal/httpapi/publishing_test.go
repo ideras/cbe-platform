@@ -43,7 +43,7 @@ func (f *publishFixture) json(method, path, body string) *httptest.ResponseRecor
 
 func TestPublishingAndClassRoutesNeedTheAdminCredential(t *testing.T) {
 	f := newPublishFixture(t)
-	for _, route := range [][2]string{{"GET", "/admin/exams"}, {"POST", "/admin/exam/" + apiExamID + "/publish"}, {"POST", "/admin/unpublish"}, {"GET", "/admin/classes"}, {"POST", "/admin/classes"}, {"GET", "/admin/class/" + apiClassID + "/students"}, {"PATCH", "/admin/class/" + apiClassID}, {"DELETE", "/admin/class/" + apiClassID}, {"PUT", "/admin/class/" + apiClassID + "/roster"}, {"POST", examPath}, {"DELETE", "/admin/exam/" + apiExamID}} {
+	for _, route := range [][2]string{{"GET", "/admin/exams"}, {"POST", "/admin/exam/" + apiExamID + "/publish"}, {"POST", "/admin/unpublish"}, {"GET", "/admin/classes"}, {"POST", "/admin/classes"}, {"GET", "/admin/class/" + apiClassID + "/students"}, {"PATCH", "/admin/class/" + apiClassID}, {"DELETE", "/admin/class/" + apiClassID}, {"PUT", "/admin/class/" + apiClassID + "/roster"}, {"POST", examPath}, {"DELETE", "/admin/exam/" + apiExamID}, {"GET", "/admin/exam/" + apiExamID + "/pin"}} {
 		for _, authorization := range []string{"", "Bearer wrong", "Bearer " + strings.Repeat("s", 64)} {
 			if w := request(f.router, route[0], route[1], `{}`, authorization); w.Code != http.StatusUnauthorized {
 				t.Errorf("%s %s with %q = %d", route[0], route[1], authorization, w.Code)

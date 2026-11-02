@@ -33,3 +33,16 @@ export async function connect(page, { prepare, openClass = '' } = {}) {
 
 export const calls = page => page.evaluate(() => window.ProctorHarness.calls);
 export const harness = (page, run) => page.evaluate(run);
+
+// Ticks what the publish dialog asks for: the override when students are still working in the exam it replaces, then the plain
+// confirmation. The override only exists in that case. A tick already made is left alone, since clicking a label toggles it.
+export async function tickPublish(dialog) {
+  for (const label of [dialog.locator('label.override'), dialog.locator('label.confirm:not(.override)')]) {
+    if (await label.count() && !await label.locator('input').isChecked()) await label.click();
+  }
+}
+
+// Ticks everything the close-admission dialog asks for: the override when students are still working, then the plain confirmation.
+export async function tickClose(dialog) {
+  for (const box of await dialog.getByRole('checkbox').all()) await box.check();
+}

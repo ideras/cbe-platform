@@ -448,7 +448,7 @@ Optional flags:
 1. Add a class by choosing its roster CSV in the dashboard and reviewing the import preview.
 2. Open the class and choose a Markdown exam file. Review the compiled exam and any validation messages.
 3. Choose the student PIN and navigation behavior, then import the exam.
-4. Open admission for the exam. Importing an exam alone does not allow students to log in.
+4. Open admission for the exam with **Publish**. Importing an exam alone does not allow students to log in. The publish dialog names the students who can log in (only the exam's class), asks for an optional end time and a confirmation tick (publishing replaces the exam published now; if students are still working in that exam, a second **Override** tick is required, because they cannot log back in to it if their application closes or crashes; the count follows the server while the dialog is open, and a change asks for the override again; **Close admission** asks for the same override in the same case), and then stays open with the exam's login PIN, ready to read out, and a button to the live roster. The PIN is hidden until revealed or copied. No exam list or student view carries a PIN: the dashboard reads it with the administrator credential (`GET /admin/exam/{id}/pin`, never cached, never logged) only when the publish dialog opens.
 5. Monitor students and verify incoming saves, connectivity, focus events and submissions.
 
 An optional compiler is available for checking exam files before importing:

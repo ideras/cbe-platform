@@ -147,6 +147,20 @@ func (s *Store) ExamDetail(ctx context.Context, id string) (domain.ExamDetail, e
 	return detail, nil
 }
 
+// ExamPIN reads the PIN of one exam and nothing else, for the one administrator call that shows it to the proctor who is about
+// to share it with the class. No listing and no other read returns the PIN.
+func (s *Store) ExamPIN(ctx context.Context, id string) (string, error) {
+	var pin string
+	err := s.db.QueryRowContext(ctx, `SELECT pin FROM exams WHERE exam_id = ?`, id).Scan(&pin)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", domain.ErrNotFound
+	}
+	if err != nil {
+		return "", err
+	}
+	return pin, nil
+}
+
 func scanExam(row scanner) (domain.Exam, error) {
 	var exam domain.Exam
 	var content, created string

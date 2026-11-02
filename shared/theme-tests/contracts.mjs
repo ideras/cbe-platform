@@ -144,6 +144,11 @@ const selectorChecks = [
   [proctor('ExamImport.svelte'), '.validated', 'background', 'var(--success-badge)'],
   [proctor('ExamImport.svelte'), '.duration', 'background', 'var(--warn-fill)'],
   [proctor('DownloadDialog.svelte'), '.progress .bar', 'background', 'var(--bar-fill)'],
+  // The publish dialog: the result's success hero and PIN card, the tick, and the warm chips.
+  [proctor('PublishDialog.svelte'), '.hero', 'background', 'var(--ok-fill)'],
+  [proctor('PublishDialog.svelte'), '.big-pin', 'background', 'var(--header-strong)'],
+  [proctor('PublishDialog.svelte'), '.confirm.checked .box', 'background', 'var(--ok-text)'],
+  [proctor('PublishDialog.svelte'), '.eta', 'background', 'var(--warn-fill)'],
   [proctor('ConnectionDialog.svelte'), '.spinner', 'border-top-color', 'var(--action-primary)'],
   // Student application
   [student('ExamToolbar.svelte'), '.toolbar', 'background', 'var(--header-strong)'],

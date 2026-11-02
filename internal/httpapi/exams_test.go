@@ -386,3 +386,40 @@ func TestCompiledSampleExamAndForwardOnlyNavigation(t *testing.T) {
 		t.Fatalf("answers after advancing = %q", view.Answers)
 	}
 }
+
+// The PIN is readable by the proctor and only there: one administrator route answers with it, uncached and without logging it,
+// while the catalog, the exam's detail and the student's view never carry it.
+func TestExamPINIsReadOnlyThroughItsAdministratorRoute(t *testing.T) {
+	f, id := fullFixture(t)
+	path := "/admin/exam/" + id + "/pin"
+
+	for _, authorization := range []string{"", "Bearer wrong", "Bearer " + f.login(t, "0012").SessionToken} {
+		if w := request(f.router, "GET", path, "", authorization); w.Code != http.StatusUnauthorized || strings.Contains(w.Body.String(), "exam-secret") {
+			t.Fatalf("PIN with %q = %d %s", authorization, w.Code, w.Body.String())
+		}
+	}
+	w := request(f.router, "GET", path, "", "Bearer "+testAdminToken)
+	got := decoded[struct {
+		ExamID string `json:"exam_id"`
+		PIN    string `json:"pin"`
+	}](t, w.Body.Bytes())
+	if w.Code != http.StatusOK || got.ExamID != id || got.PIN != "exam-secret" || w.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("PIN = %d %s cache %q", w.Code, w.Body.String(), w.Header().Get("Cache-Control"))
+	}
+	if strings.Contains(f.logs.String(), "exam-secret") || !strings.Contains(f.logs.String(), "exam pin read") || !strings.Contains(f.logs.String(), id) {
+		t.Fatalf("the log must name the exam and never the PIN: %s", f.logs.String())
+	}
+
+	if w := request(f.router, "GET", "/admin/exam/"+id, "", "Bearer "+testAdminToken); w.Code != http.StatusOK || strings.Contains(w.Body.String(), "exam-secret") || strings.Contains(w.Body.String(), `"pin"`) {
+		t.Fatalf("the exam's detail carries the PIN: %s", w.Body.String())
+	}
+	for path, want := range map[string]int{
+		"/admin/exam/00000000-0000-4000-8000-0000000000ff/pin": http.StatusNotFound,
+		"/admin/exam/not-an-id/pin":                            http.StatusBadRequest,
+		path + "?pin=1":                                        http.StatusBadRequest,
+	} {
+		if w := request(f.router, "GET", path, "", "Bearer "+testAdminToken); w.Code != want || strings.Contains(w.Body.String(), "exam-secret") {
+			t.Errorf("GET %s = %d %s, want %d", path, w.Code, w.Body.String(), want)
+		}
+	}
+}

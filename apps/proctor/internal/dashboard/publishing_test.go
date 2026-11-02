@@ -754,3 +754,40 @@ func TestAdministratorActionsNeedAConnection(t *testing.T) {
 		t.Error("SelectExam")
 	}
 }
+
+func TestExamPINIsReadOnDemandFromTheServerAndAnInvalidAnswerIsRefused(t *testing.T) {
+	f := newPublishFixture(t, examID)
+	wait(t, func() bool { v := f.Snapshot(); return v.Loaded && !v.Stale })
+	var asked []string
+	var answer any
+	f.server.reply = func(w http.ResponseWriter, r *http.Request, body []byte) bool {
+		if r.Method != "GET" || !strings.HasSuffix(r.URL.Path, "/pin") {
+			return false
+		}
+		asked = append(asked, r.URL.Path+" "+r.Header.Get("Authorization"))
+		reply(w, answer)
+		return true
+	}
+	if _, err := f.ExamPIN("nope"); err == nil || len(asked) != 0 {
+		t.Fatalf("a malformed exam ID was sent: %v %v", err, asked)
+	}
+	answer = map[string]any{"exam_id": unusedExam, "pin": "  271 828 世界  "}
+	pin, err := f.ExamPIN(unusedExam)
+	if err != nil || pin != "  271 828 世界  " || !reflect.DeepEqual(asked, []string{"/admin/exam/" + unusedExam + "/pin Bearer " + secret}) {
+		t.Fatalf("pin = %q, %v; asked %v", pin, err, asked)
+	}
+	for name, wrong := range map[string]any{
+		"another exam":  map[string]any{"exam_id": examID, "pin": "1234"},
+		"no PIN":        map[string]any{"exam_id": unusedExam, "pin": ""},
+		"not an object": []string{"1234"},
+	} {
+		answer = wrong
+		if pin, err := f.ExamPIN(unusedExam); err == nil || pin != "" {
+			t.Errorf("%s accepted: %q", name, pin)
+		}
+	}
+	// Reading the PIN is not an administrator action: the dashboard stays idle and shows no row as stale.
+	if v := f.Snapshot(); v.Busy || v.Stale || v.Error != "" {
+		t.Fatalf("reading the PIN disturbed the dashboard: busy %v stale %v error %q", v.Busy, v.Stale, v.Error)
+	}
+}
