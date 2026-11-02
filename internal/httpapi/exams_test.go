@@ -124,46 +124,51 @@ func TestRealHTTPCreateSaveSubmitLoop(t *testing.T) {
 			t.Fatal("save feedback not committed")
 		}
 	}
+	// The application that logged in has been silent for longer than the overdue threshold, so the login resumes the session.
+	f.clock.Set(f.clock.Now().Add(31 * time.Second))
 	resumeResult := realRequest(t, server, "POST", "/login", `{"account_number":"0012","exam_pin":"new-pin"}`, "")
 	resume := decoded[loginResponse](t, resumeResult.Body)
 	if resume.SessionID != login.SessionID || !resume.DeadlineAt.Equal(login.DeadlineAt) {
 		t.Fatal("resume reset session")
+	}
+	if resume.SessionToken == login.SessionToken || realRequest(t, server, "GET", "/exam", "", login.SessionToken).Code != http.StatusUnauthorized {
+		t.Fatal("the token of the application that is gone still works")
 	}
 	view = decoded[examResponse](t, realRequest(t, server, "GET", "/exam", "", resume.SessionToken).Body)
 	if view.Latest.Sequence != 2 || view.Answers["q1"] != "second 🧪" || view.Answers["q2"] != "" {
 		t.Fatal("resume lost snapshot")
 	}
 	f.clock.Set(login.DeadlineAt)
-	grace := realRequest(t, server, "POST", "/autosave", `{"answers":{"q2":"grace"}}`, login.SessionToken)
+	grace := realRequest(t, server, "POST", "/autosave", `{"answers":{"q2":"grace"}}`, resume.SessionToken)
 	if grace.Code != http.StatusOK {
 		t.Fatal("grace save rejected")
 	}
-	status := decoded[statusResponse](t, realRequest(t, server, "GET", "/session-status", "", login.SessionToken).Body)
+	status := decoded[statusResponse](t, realRequest(t, server, "GET", "/session-status", "", resume.SessionToken).Body)
 	if status.Status != "grace" || status.SecondsRemaining != 0 {
 		t.Fatal("autosave ended grace")
 	}
-	submitted := realRequest(t, server, "POST", "/submit", `{"answers":{"q1":"final","q2":"done"}}`, login.SessionToken)
+	submitted := realRequest(t, server, "POST", "/submit", `{"answers":{"q1":"final","q2":"done"}}`, resume.SessionToken)
 	final := decoded[submitResponse](t, submitted.Body)
 	if submitted.Code != http.StatusOK || final.Status != "submitted" || final.Sequence != 4 || final.FinalVersionID <= 0 {
 		t.Fatal("submit did not choose final version")
 	}
 	for range 3 {
-		repeated := realRequest(t, server, "POST", "/submit", `{"answers":{"q1":"replace"}}`, login.SessionToken)
+		repeated := realRequest(t, server, "POST", "/submit", `{"answers":{"q1":"replace"}}`, resume.SessionToken)
 		if repeated.Code != http.StatusOK || decoded[submitResponse](t, repeated.Body) != final {
 			t.Fatal("duplicate submit replaced final state")
 		}
 	}
-	if realRequest(t, server, "POST", "/autosave", `{"answers":{}}`, login.SessionToken).Code != http.StatusForbidden {
+	if realRequest(t, server, "POST", "/autosave", `{"answers":{}}`, resume.SessionToken).Code != http.StatusForbidden {
 		t.Fatal("late save permitted")
 	}
-	if realRequest(t, server, "GET", "/exam", "", login.SessionToken).Code != http.StatusForbidden {
+	if realRequest(t, server, "GET", "/exam", "", resume.SessionToken).Code != http.StatusForbidden {
 		t.Fatal("terminal exam permitted")
 	}
-	status = decoded[statusResponse](t, realRequest(t, server, "GET", "/session-status", "", login.SessionToken).Body)
+	status = decoded[statusResponse](t, realRequest(t, server, "GET", "/session-status", "", resume.SessionToken).Body)
 	if status.Status != "submitted" || status.FinalizationPending {
 		t.Fatal("final status still pending")
 	}
-	if strings.Contains(f.logs.String(), "new-pin") || strings.Contains(f.logs.String(), login.SessionToken) {
+	if strings.Contains(f.logs.String(), "new-pin") || strings.Contains(f.logs.String(), login.SessionToken) || strings.Contains(f.logs.String(), resume.SessionToken) {
 		t.Fatal("secret logged")
 	}
 }

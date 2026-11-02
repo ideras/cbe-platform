@@ -415,10 +415,7 @@ func TestALockedSessionRefusesTheExamAndTheAnswers(t *testing.T) {
 	heartbeat(t, f, login.Token)
 	clientEvent(t, f, login.Token, "focus_regained")
 	// A login resumes the locked session, so the application can show the lock screen.
-	resumed, err := f.sessions.Login(t.Context(), "0012", "exam-secret")
-	if err != nil {
-		t.Fatal(err)
-	}
+	resumed := f.resume(t, "0012", login.SessionID)
 	if resumed.Locked == nil || resumed.Locked.Reason != service.LockReasonAway {
 		t.Fatalf("the login did not report the lock: %+v", resumed.Locked)
 	}

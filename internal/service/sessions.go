@@ -79,6 +79,11 @@ type SessionTransaction interface {
 	FocusEventAtLock(context.Context, string) (domain.Event, error)
 	// LockHistories reads the locks and unlocks of every session of an exam, keyed by session.
 	LockHistories(context.Context, string) (map[string][]domain.LockRecord, error)
+	// LoginGate reads from the event log when the session was last logged in to, the logins refused since, and a release
+	// no login has used yet.
+	LoginGate(context.Context, string) (domain.LoginGate, error)
+	// RotateToken gives the session a new token, which ends the use of the old one.
+	RotateToken(ctx context.Context, sessionID, token string) error
 }
 
 type SessionRepository interface {
@@ -206,9 +211,44 @@ func (s *Sessions) Login(ctx context.Context, accountNumber, pin string) (LoginR
 			decisionErr = ErrAlreadySubmitted
 			return nil
 		}
+		released := false
+		if resumed {
+			gate, err := tx.LoginGate(ctx, session.ID)
+			if err != nil {
+				return err
+			}
+			released = gate.ReleasedAt != nil
+			if open := sessionOpenFor(principal.Session, gate, now); open > 0 && !released {
+				// Another computer has this session open. Record the attempt for the proctor and refuse it; the
+				// transaction still commits, as it does for a login to a submitted session.
+				seconds := int64((open + time.Second - 1) / time.Second)
+				refusal, err := json.Marshal(struct {
+					RemoteAddr    string `json:"remote_addr"`
+					RetryAfterSec int64  `json:"retry_after_s"`
+				}{remoteAddrFrom(ctx), seconds})
+				if err != nil {
+					return err
+				}
+				if err := tx.AddEvent(ctx, domain.Event{SessionID: session.ID, Type: "login_refused", OccurredAt: now, Detail: refusal}); err != nil {
+					return err
+				}
+				decisionErr = &SessionOpenError{Seconds: seconds}
+				return nil
+			}
+			// The login is accepted on a session that was used before: whatever still holds its old token is cut off.
+			token, err := newToken()
+			if err != nil {
+				return err
+			}
+			if err := tx.RotateToken(ctx, session.ID, token); err != nil {
+				return err
+			}
+			session.Token = token
+		}
 		detail, err := json.Marshal(struct {
-			Resumed bool `json:"resumed"`
-		}{Resumed: resumed})
+			Resumed  bool `json:"resumed"`
+			Released bool `json:"released,omitempty"`
+		}{Resumed: resumed, Released: released})
 		if err != nil {
 			return err
 		}
@@ -327,9 +367,18 @@ func sessionCredentials() (string, string, error) {
 	if err != nil {
 		return "", "", err
 	}
+	token, err := newToken()
+	if err != nil {
+		return "", "", err
+	}
+	return id, token, nil
+}
+
+// newToken is a session's secret: the credential its application sends with every request.
+func newToken() (string, error) {
 	var token [32]byte
 	if _, err := rand.Read(token[:]); err != nil {
-		return "", "", fmt.Errorf("generate session token: %w", err)
+		return "", fmt.Errorf("generate session token: %w", err)
 	}
-	return id, base64.RawURLEncoding.EncodeToString(token[:]), nil
+	return base64.RawURLEncoding.EncodeToString(token[:]), nil
 }

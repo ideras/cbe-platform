@@ -199,8 +199,12 @@ func TestStartsEmptyAndKeepsWhatTheProctorPublishedAcrossARestart(t *testing.T) 
 	if status, body := send("POST", "/admin/exam/"+created.ID+"/publish", "application/json", `{}`); status != 200 {
 		t.Fatalf("publish = %d %s", status, body)
 	}
-	if status, _ := send("POST", "/login", "application/json", `{"account_number":"0012","exam_pin":"pin"}`); status != 200 {
-		t.Fatalf("login after publishing = %d", status)
+	status, body = send("POST", "/login", "application/json", `{"account_number":"0012","exam_pin":"pin"}`)
+	var opened struct {
+		SessionID string `json:"session_id"`
+	}
+	if err := json.Unmarshal([]byte(body), &opened); err != nil || status != 200 || opened.SessionID == "" {
+		t.Fatalf("login after publishing = %d %s", status, body)
 	}
 	stop()
 
@@ -208,6 +212,14 @@ func TestStartsEmptyAndKeepsWhatTheProctorPublishedAcrossARestart(t *testing.T) 
 	defer stop()
 	if status, body := send("GET", "/admin/classes", "application/json", ""); status != 200 || !strings.Contains(body, `"name":"Mathematics 10A"`) || !strings.Contains(body, `"student_count":1`) || !strings.Contains(body, `"exam_count":1`) || !strings.Contains(body, `"published_exam":{"exam_id":"`+created.ID+`"`) {
 		t.Fatalf("classes after restart = %d %s", status, body)
+	}
+	// The student's application opened the session a moment ago, so a second login finds it open, and the server remembered
+	// that across the restart; a proctor's release lets the next login in.
+	if status, _ := send("POST", "/login", "application/json", `{"account_number":"0012","exam_pin":"pin"}`); status != 409 {
+		t.Fatalf("login while the session is open = %d", status)
+	}
+	if status, body := send("POST", "/admin/session/"+opened.SessionID+"/release-login", "application/json", `{"reason":"the student's computer restarted"}`); status != 200 {
+		t.Fatalf("release = %d %s", status, body)
 	}
 	if status, _ := send("POST", "/login", "application/json", `{"account_number":"0012","exam_pin":"pin"}`); status != 200 {
 		t.Fatalf("login after restart = %d: the published exam was forgotten", status)

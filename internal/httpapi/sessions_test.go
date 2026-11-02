@@ -378,16 +378,27 @@ func TestRealHTTPLoginAndResumeFlow(t *testing.T) {
 		return result
 	}
 	first := login()
+	// Ten seconds in, the application that logged in was heard from a moment ago: the session is open there. The refusal says
+	// when to try again, in the Retry-After header, which is how the student application tells it from the other conflicts.
 	f.clock.Set(first.ServerTime.Add(10 * time.Second))
+	refused, err := server.Client().Post(server.URL+"/login", "application/json", strings.NewReader(`{"account_number":"0012","exam_pin":"exam-secret"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	refused.Body.Close()
+	if refused.StatusCode != http.StatusConflict || refused.Header.Get("Retry-After") != "20" {
+		t.Fatalf("login while the session is open = %d, Retry-After %q", refused.StatusCode, refused.Header.Get("Retry-After"))
+	}
+	f.clock.Set(first.ServerTime.Add(31 * time.Second))
 	resume := login()
-	if first.SessionID != resume.SessionID || first.SessionToken != resume.SessionToken || !first.DeadlineAt.Equal(resume.DeadlineAt) {
-		t.Fatal("real HTTP resume reset session")
+	if first.SessionID != resume.SessionID || first.SessionToken == resume.SessionToken || !first.DeadlineAt.Equal(resume.DeadlineAt) {
+		t.Fatal("real HTTP resume reset the session or kept the old token")
 	}
 	r, err := http.NewRequest("GET", server.URL+"/session-status", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	r.Header.Set("Authorization", "Bearer "+first.SessionToken)
+	r.Header.Set("Authorization", "Bearer "+resume.SessionToken)
 	response, err := server.Client().Do(r)
 	if err != nil {
 		t.Fatal(err)
@@ -397,7 +408,7 @@ func TestRealHTTPLoginAndResumeFlow(t *testing.T) {
 	if err := json.NewDecoder(response.Body).Decode(&status); err != nil {
 		t.Fatal(err)
 	}
-	if response.StatusCode != http.StatusOK || status.SecondsRemaining != 50 {
+	if response.StatusCode != http.StatusOK || status.SecondsRemaining != 29 {
 		t.Fatalf("real HTTP status = %+v", status)
 	}
 }

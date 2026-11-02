@@ -53,6 +53,22 @@ type LockRecord struct {
 	ExtendedMillis int64 `json:"extended_ms,omitempty"`
 }
 
+// LoginGate is what a session's event log says about who may open it now: when the latest login was accepted, the logins
+// refused since then, and a release by a proctor that no login has used yet.
+type LoginGate struct {
+	// LastLoginAt is when the latest login, new or resumed, was accepted; nil if none was.
+	LastLoginAt *time.Time
+	// AppClosed says that the application which had the session open announced that it was closing, after its login and
+	// after any start: it is gone, however recently it was heard from.
+	AppClosed bool
+	// Refusals counts the logins refused since LastLoginAt, and LastRefusedAt and LastRefusedAddr describe the latest one.
+	Refusals        int
+	LastRefusedAt   *time.Time
+	LastRefusedAddr string
+	// ReleasedAt is when a proctor allowed the next login; nil if no release is waiting for one.
+	ReleasedAt *time.Time
+}
+
 // Sound is the output level the student's computer last reported; nil means it was not reported.
 type Sound struct {
 	VolumePercent *int

@@ -336,6 +336,16 @@ func TestBuiltServerStartedEmptyIsPreparedAndPublishedFromTheDashboard(t *testin
 	if _, err := s.Publish(first, "", false, true); err != nil {
 		t.Fatal(err)
 	}
+	// The student's application closes before the server restarts, as it does when it is quit: it announces its closing, so
+	// the account is free for the login that follows the restart.
+	closing, _ := http.NewRequest(http.MethodPost, server+"/event", strings.NewReader(`{"event_type":"app_closed"}`))
+	closing.Header.Set("Authorization", "Bearer "+token)
+	closing.Header.Set("Content-Type", "application/json")
+	if resp, err := http.DefaultClient.Do(closing); err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("app_closed = %v, %v", resp, err)
+	} else {
+		resp.Body.Close()
+	}
 	stop(running)
 	running = start()
 	if status, _ := login("0001", "midterm-pin"); status != http.StatusOK {

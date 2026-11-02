@@ -106,6 +106,16 @@ func (f *fixture) login(t *testing.T, account string) service.LoginResult {
 	return result
 }
 
+// resume is a student logging in again after the application that had the session open has gone away: a proctor releases
+// the session, and the login that follows replaces the session's token.
+func (f *fixture) resume(t *testing.T, account, sessionID string) service.LoginResult {
+	t.Helper()
+	if _, err := f.sessions.ReleaseLogin(t.Context(), sessionID, "the first application is gone"); err != nil {
+		t.Fatal(err)
+	}
+	return f.login(t, account)
+}
+
 func (f *fixture) storedSession(t *testing.T, token string) domain.Session {
 	t.Helper()
 	var session domain.Session
@@ -143,10 +153,27 @@ func TestLoginResumeAndRandomCredentials(t *testing.T) {
 	if stored.AccountNumber != "0012" || !stored.StartedAt.Equal(epoch) || !stored.DeadlineAt.Equal(epoch.Add(time.Minute)) || !stored.GraceUntil.Equal(epoch.Add(90*time.Second)) {
 		t.Fatalf("boundaries = %+v", stored)
 	}
+	// The application that logged in was heard from 27 seconds ago, less than the 30 seconds after which a connection counts
+	// as lost: the session is still open there, and a second login is refused with the seconds left.
 	f.clock.Set(epoch.Add(27 * time.Second))
+	var open *service.SessionOpenError
+	if _, err := f.sessions.Login(t.Context(), "0012", "exam-secret"); !errors.As(err, &open) || open.Seconds != 3 {
+		t.Fatalf("login while the session is open = %v", err)
+	}
+	// Once it has been silent for longer than that, the login resumes the session: same identity and deadline, a new token.
+	f.clock.Set(epoch.Add(31 * time.Second))
 	resume := f.login(t, "0012")
-	if resume.SessionID != first.SessionID || resume.Token != first.Token || !resume.DeadlineAt.Equal(first.DeadlineAt) || !resume.ServerTime.Equal(f.clock.Now()) {
+	if resume.SessionID != first.SessionID || !resume.DeadlineAt.Equal(first.DeadlineAt) || !resume.ServerTime.Equal(f.clock.Now()) {
 		t.Fatal("resume changed identity or deadline")
+	}
+	if resume.Token == first.Token {
+		t.Fatal("a resumed session kept the token of the application that is gone")
+	}
+	if _, err := f.sessions.Authenticate(t.Context(), first.Token); !errors.Is(err, service.ErrInvalidToken) {
+		t.Fatalf("the old token still works: %v", err)
+	}
+	if principal, err := f.sessions.Authenticate(t.Context(), resume.Token); err != nil || principal.Session.ID != first.SessionID {
+		t.Fatalf("the new token does not identify the session: %v", err)
 	}
 	other := f.login(t, "0034")
 	if other.Token == first.Token || other.SessionID == first.SessionID {
@@ -162,39 +189,46 @@ func TestLoginResumeAndRandomCredentials(t *testing.T) {
 	if firstDetail != `{"resumed":false}` || secondDetail != `{"resumed":true}` {
 		t.Fatalf("login details = %s / %s", firstDetail, secondDetail)
 	}
+	if f.count(t, `SELECT count(*) FROM event_log WHERE session_id = ? AND event_type = 'login_refused'`, first.SessionID) != 1 {
+		t.Fatal("the refused login was not recorded")
+	}
 }
 
 func TestConcurrentFirstLogins(t *testing.T) {
 	f := newFixture(t, 7)
 	const clients = 64
-	results := make(chan service.LoginResult, clients)
-	errors := make(chan error, clients)
+	type outcome struct {
+		result service.LoginResult
+		err    error
+	}
+	outcomes := make(chan outcome, clients)
 	var wg sync.WaitGroup
 	for range clients {
 		wg.Go(func() {
 			result, err := f.sessions.Login(t.Context(), "0012", "exam-secret")
-			results <- result
-			errors <- err
+			outcomes <- outcome{result, err}
 		})
 	}
 	wg.Wait()
-	close(results)
-	close(errors)
-	for err := range errors {
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
+	close(outcomes)
+	// One account opens the exam on one computer: exactly one of the simultaneous logins gets the session, and the others
+	// are told it is open.
 	var first service.LoginResult
-	for result := range results {
-		if first.Token == "" {
-			first = result
+	accepted := 0
+	for o := range outcomes {
+		if o.err == nil {
+			accepted++
+			first = o.result
+			continue
 		}
-		if result != first {
-			t.Fatal("concurrent logins created different identities or deadlines")
+		if !errors.Is(o.err, service.ErrSessionOpen) {
+			t.Fatalf("a concurrent login failed in another way: %v", o.err)
 		}
 	}
-	if f.count(t, "SELECT count(*) FROM sessions") != 1 || f.count(t, "SELECT count(*) FROM event_log WHERE event_type = 'login'") != clients {
+	if accepted != 1 || first.Token == "" {
+		t.Fatalf("%d of %d concurrent logins were accepted", accepted, clients)
+	}
+	if f.count(t, "SELECT count(*) FROM sessions") != 1 || f.count(t, "SELECT count(*) FROM event_log WHERE event_type = 'login'") != 1 || f.count(t, "SELECT count(*) FROM event_log WHERE event_type = 'login_refused'") != clients-1 {
 		t.Fatal("incorrect session or login event count")
 	}
 	if !f.storedSession(t, first.Token).GraceUntil.Equal(epoch.Add(67 * time.Second)) {
@@ -274,22 +308,24 @@ func TestResumeAfterAdmissionClosesAndExpiry(t *testing.T) {
 		t.Fatal(err)
 	}
 	first := f.login(t, "0012")
+	latest := first
 	for _, elapsed := range []time.Duration{20 * time.Second, 60 * time.Second, 89 * time.Second} {
 		f.clock.Set(epoch.Add(elapsed))
-		resume := f.login(t, "0012")
-		if resume.Token != first.Token || !resume.DeadlineAt.Equal(first.DeadlineAt) {
+		resume := f.resume(t, "0012", first.SessionID)
+		if resume.SessionID != first.SessionID || !resume.DeadlineAt.Equal(first.DeadlineAt) {
 			t.Fatal("admission gate changed resume boundaries")
 		}
+		latest = resume
 	}
 	f.clock.Set(epoch.Add(90 * time.Second))
 	if _, err := f.sessions.Login(t.Context(), "0012", "exam-secret"); !errors.Is(err, service.ErrAlreadySubmitted) {
 		t.Fatalf("expired login = %v", err)
 	}
-	principal, err := f.sessions.Authenticate(t.Context(), first.Token)
+	principal, err := f.sessions.Authenticate(t.Context(), latest.Token)
 	if err != nil || principal.Lifecycle.Status != domain.Submitted || principal.Lifecycle.FinalizationPending {
 		t.Fatalf("expired state = %+v, %v", principal.Lifecycle, err)
 	}
-	stored := f.storedSession(t, first.Token)
+	stored := f.storedSession(t, latest.Token)
 	if stored.Status != domain.Submitted || stored.FinalVersionID == nil || stored.SubmittedAt == nil {
 		t.Fatal("expiry did not persist a complete final answer")
 	}

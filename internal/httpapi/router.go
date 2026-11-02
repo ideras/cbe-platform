@@ -69,6 +69,9 @@ func New(clock clock.Clock, sessions SessionAPI, logger *slog.Logger, options ..
 		admin.Handle("GET /admin/session/{id}/submission", proctorSubmissionHandler(cfg.Proctor, logger))
 		admin.Handle("POST /admin/force-submit/{id}", forceSubmitHandler(cfg.Proctor, logger))
 		admin.Handle("POST /admin/session/{id}/unlock", unlockHandler(cfg.Proctor, logger))
+		if gate, ok := cfg.Proctor.(LoginGateAPI); ok {
+			admin.Handle("POST /admin/session/{id}/release-login", releaseLoginHandler(gate, logger))
+		}
 		if timing, ok := cfg.Proctor.(TimingAPI); ok {
 			admin.Handle("PUT /admin/exam/{id}/end-time", endTimeHandler(timing, logger))
 			admin.Handle("POST /admin/session/{id}/extend-grace", extendGraceHandler(timing, logger, false))

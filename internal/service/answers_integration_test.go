@@ -55,33 +55,37 @@ func TestSaveResumeSubmitAndImmutableHistory(t *testing.T) {
 			t.Fatalf("save = %+v, %v", saved, err)
 		}
 	}
-	resume := f.login(t, "0012")
+	resume := f.resume(t, "0012", login.SessionID)
 	view, err = f.sessions.GetExam(t.Context(), resume.Token)
 	if err != nil || view.Latest.Sequence != 2 || view.Answers["q1"] != "second 🧪" || view.Answers["q2"] != "" {
 		t.Fatalf("resume = %+v, %v", view, err)
 	}
+	// The login that resumed the session replaced its token: the application that had it before can no longer save.
+	if _, err := f.sessions.Autosave(t.Context(), login.Token, domain.Answers{"q2": "from the old application"}); !errors.Is(err, service.ErrInvalidToken) {
+		t.Fatalf("the replaced token still saves: %v", err)
+	}
 	f.clock.Set(epoch.Add(time.Minute))
-	saved, err := f.sessions.Autosave(t.Context(), login.Token, domain.Answers{"q2": "grace save"})
-	if err != nil || saved.Sequence != 3 || f.storedSession(t, login.Token).Status != domain.Grace {
+	saved, err := f.sessions.Autosave(t.Context(), resume.Token, domain.Answers{"q2": "grace save"})
+	if err != nil || saved.Sequence != 3 || f.storedSession(t, resume.Token).Status != domain.Grace {
 		t.Fatalf("grace autosave = %+v, %v", saved, err)
 	}
-	view, err = f.sessions.GetExam(t.Context(), login.Token)
+	view, err = f.sessions.GetExam(t.Context(), resume.Token)
 	if err != nil || view.Answers["q1"] != "" {
 		t.Fatal("full snapshot incorrectly merged earlier answers")
 	}
-	submitted, err := f.sessions.Submit(t.Context(), login.Token, domain.Answers{"q1": "final", "q2": "done"})
+	submitted, err := f.sessions.Submit(t.Context(), resume.Token, domain.Answers{"q1": "final", "q2": "done"})
 	if err != nil || submitted.Sequence != 4 || submitted.Status != domain.Submitted {
 		t.Fatalf("submit = %+v, %v", submitted, err)
 	}
 	f.clock.Set(epoch.Add(time.Hour))
-	repeated, err := f.sessions.Submit(t.Context(), login.Token, domain.Answers{"not-owned": "ignore retry payload"})
+	repeated, err := f.sessions.Submit(t.Context(), resume.Token, domain.Answers{"not-owned": "ignore retry payload"})
 	if err != nil || repeated != submitted {
 		t.Fatalf("repeat = %+v, %v", repeated, err)
 	}
-	if _, err := f.sessions.Autosave(t.Context(), login.Token, domain.Answers{}); !errors.Is(err, service.ErrSessionLocked) {
+	if _, err := f.sessions.Autosave(t.Context(), resume.Token, domain.Answers{}); !errors.Is(err, service.ErrSessionLocked) {
 		t.Fatalf("late save = %v", err)
 	}
-	if _, err := f.sessions.GetExam(t.Context(), login.Token); !errors.Is(err, service.ErrSessionLocked) {
+	if _, err := f.sessions.GetExam(t.Context(), resume.Token); !errors.Is(err, service.ErrSessionLocked) {
 		t.Fatalf("terminal exam = %v", err)
 	}
 	if f.count(t, `SELECT count(*) FROM submission_versions`) != 4 || f.count(t, `SELECT count(*) FROM event_log WHERE event_type='submitted'`) != 1 {
@@ -91,7 +95,7 @@ func TestSaveResumeSubmitAndImmutableHistory(t *testing.T) {
 	if err := f.raw.QueryRow(`SELECT json_extract(answers_json, '$.q1') FROM submission_versions WHERE version_seq=1`).Scan(&historical); err != nil {
 		t.Fatal(err)
 	}
-	if historical != "first 世界" || finalVersion(t, f, login.Token).Answers["q1"] != "final" {
+	if historical != "first 世界" || finalVersion(t, f, resume.Token).Answers["q1"] != "final" {
 		t.Fatal("history/final answer changed")
 	}
 }

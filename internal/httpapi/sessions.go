@@ -70,7 +70,7 @@ func loginHandler(sessions SessionAPI, logger *slog.Logger) http.HandlerFunc {
 		if !ok {
 			return
 		}
-		result, err := sessions.Login(r.Context(), input.AccountNumber, input.ExamPIN)
+		result, err := sessions.Login(service.WithRemoteAddr(r.Context(), peerAddress(r)), input.AccountNumber, input.ExamPIN)
 		if err != nil {
 			serviceError(w, logger, "login", err)
 			return
@@ -158,7 +158,13 @@ func serviceError(w http.ResponseWriter, logger *slog.Logger, operation string, 
 	var wait *service.ScreenshotWait
 	var invalid *service.ValidationError
 	var active *service.ActiveSessionsError
+	var open *service.SessionOpenError
 	switch {
+	case errors.As(err, &open):
+		// The account is open on another computer. Retry-After says when that is no longer assumed, which is how the
+		// student application tells this refusal from the other conflicts.
+		w.Header().Set("Retry-After", strconv.FormatInt(open.Seconds, 10))
+		writeError(w, http.StatusConflict, "this account is open on another computer")
 	case errors.As(err, &invalid):
 		writeJSON(w, http.StatusBadRequest, problemResponse{Error: "invalid request", Problems: invalid.Problems})
 	case errors.As(err, &active):

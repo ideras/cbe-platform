@@ -72,7 +72,10 @@ type ProctorSession struct {
 	Locked *LockInfo `json:"locked"`
 	// Locks are the locks and unlocks of the session, in the order they happened.
 	Locks []domain.LockRecord `json:"locks"`
-	Final *FinalSummary       `json:"final_version"`
+	// LoginGate reports logins refused because the session was open on another computer, and a release of the session
+	// no login has used yet; nil while there is neither.
+	LoginGate *LoginGateView `json:"login_gate"`
+	Final     *FinalSummary  `json:"final_version"`
 }
 type ProctorPolicy struct {
 	HeartbeatIntervalMillis  int64 `json:"heartbeat_interval_ms"`
@@ -168,6 +171,11 @@ func (s *Sessions) proctorSession(ctx context.Context, tx SessionTransaction, re
 	if view.Locks == nil {
 		view.Locks = []domain.LockRecord{}
 	}
+	gate, err := tx.LoginGate(ctx, session.ID)
+	if err != nil {
+		return ProctorSession{}, err
+	}
+	view.LoginGate = loginGateView(gate)
 	last, err := tx.LatestReportedFocus(ctx, session.ID)
 	if err != nil && !errors.Is(err, domain.ErrNotFound) {
 		return ProctorSession{}, err

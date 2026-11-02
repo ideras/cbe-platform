@@ -137,7 +137,9 @@ func TestALockedExamIsRefusedWith423(t *testing.T) {
 	if w := request(router, "POST", "/event", `{"event_type":"focus_regained"}`, token); w.Code != http.StatusOK {
 		t.Fatalf("event = %d", w.Code)
 	}
-	// A login resumes the locked session, so the application can show the lock screen.
+	// A login resumes the locked session, so the application can show the lock screen. The application that logged in first
+	// has been silent for longer than the overdue threshold by then.
+	f.clock.Set(f.clock.Now().Add(31 * time.Second))
 	resumed := request(router, "POST", "/login", `{"account_number":"0012","exam_pin":"exam-secret"}`, "")
 	if resumed.Code != http.StatusOK {
 		t.Fatalf("resume = %d", resumed.Code)

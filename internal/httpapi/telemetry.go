@@ -25,11 +25,7 @@ func heartbeatHandler(sessions SessionAPI, logger *slog.Logger) http.HandlerFunc
 			serviceError(w, logger, "heartbeat", service.ErrInvalidToken)
 			return
 		}
-		peer, _, err := net.SplitHostPort(r.RemoteAddr)
-		if err != nil {
-			peer = r.RemoteAddr
-		}
-		result, err := sessions.Heartbeat(r.Context(), principal.Session.Token, input.Hostname, peer, domain.Sound{VolumePercent: input.VolumePercent, Muted: input.VolumeMuted})
+		result, err := sessions.Heartbeat(r.Context(), principal.Session.Token, input.Hostname, peerAddress(r), domain.Sound{VolumePercent: input.VolumePercent, Muted: input.VolumeMuted})
 		if err != nil {
 			serviceError(w, logger, "heartbeat", err)
 			return
@@ -62,4 +58,13 @@ func eventHandler(sessions SessionAPI, logger *slog.Logger) http.HandlerFunc {
 			Duplicate  bool      `json:"duplicate,omitempty"`
 		}{result.EventLogID, result.ServerTime, result.Duplicate})
 	}
+}
+
+// peerAddress is the address the request came from, without its port.
+func peerAddress(r *http.Request) string {
+	peer, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return peer
 }
