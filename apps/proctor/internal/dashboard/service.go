@@ -610,6 +610,9 @@ func validateSession(row Session, examID string) error {
 	if row.Final != nil && (row.Final.VersionID <= 0 || row.Final.Sequence <= 0) {
 		return errors.New("Invalid final-version identity.")
 	}
+	if gate := row.LoginGate; gate != nil && (gate.Refusals < 0 || gate.Refusals > 0 && gate.LastRefusedAt == nil || gate.Refusals == 0 && gate.ReleasedAt == nil) {
+		return errors.New("Inconsistent login report.")
+	}
 	return nil
 }
 func validateRoster(roster Roster, id string) error {

@@ -93,7 +93,7 @@ const final = { final_version_id: 12, version_seq: 3, reason: 'explicit_submit',
 // assert what an action called.
 const nativeCalls = [];
 const record = name => nativeCalls.push(name);
-const calls = { force: [], purge: [], image: [], timeline: [], select: [], connect: [], windows: [], saved: [], chooseCredential: 0, chooseExam: 0, chosenFor: [], importExam: 0, imported: [], discardImport: 0, deleteExam: [], chooseClassFile: 0, createClass: [], discardClassFile: 0, renameClass: [], deleteClass: [], chooseRosterFile: [], replaceRoster: [], discardRosterFile: 0, disconnect: 0, classRoster: [], publish: [], unpublish: [], download: [], prepareDownload: [], chooseDownloadFolder: [], openDownloadFolder: 0, quit: 0 };
+const calls = { release: [], force: [], purge: [], image: [], timeline: [], select: [], connect: [], windows: [], saved: [], chooseCredential: 0, chooseExam: 0, chosenFor: [], importExam: 0, imported: [], discardImport: 0, deleteExam: [], chooseClassFile: 0, createClass: [], discardClassFile: 0, renameClass: [], deleteClass: [], chooseRosterFile: [], replaceRoster: [], discardRosterFile: 0, disconnect: 0, classRoster: [], publish: [], unpublish: [], download: [], prepareDownload: [], chooseDownloadFolder: [], openDownloadFolder: 0, quit: 0 };
 const FAMOUS = ['Ada Lovelace', 'Grace Hopper', 'Alan Turing', 'Edsger Dijkstra'];
 function rosterOf(id) {
   if (rosterOverride[id]) return rosterOverride[id];
@@ -311,6 +311,7 @@ export async function Timeline(id, cursor) {
   ], next_cursor: cursor ? null : 'opaque cursor +/=' };
 }
 export async function Image(id, thumbnail) { calls.image.push({ id, thumbnail }); if (imageMissing) throw new Error('Image missing or purged.'); return { id, data: PNG }; }
+let releaseFails = '';
 export async function ForceSubmit(id, reason, confirmed) {
   calls.force.push({ id, reason, confirmed });
   if (deferForce) await new Promise(resolve => releaseForce = resolve);
@@ -333,6 +334,16 @@ export async function Unlock(sessionID, reason, giveBackTime, confirmed) {
   const locked = row.locked;
   row.locked = null;
   return { session_id: sessionID, deadline_at: '2035-01-01T01:00:00Z', grace_until: '2035-01-01T01:00:30Z', seconds_added: giveBackTime ? 420 : 0, locked_ms: locked.since ? 420000 : 0 };
+}
+// Allowing the next login of a student whose account someone else tried to open. The server records the release; the row then
+// reports it until a login uses it (the harness's `loggedIn`).
+export async function ReleaseLogin(sessionID, reason, confirmed) {
+  calls.release.push({ sessionID, reason, confirmed });
+  if (releaseFails) throw new Error(releaseFails);
+  const index = rows.findIndex(item => item.session_id === sessionID);
+  if (index < 0) throw new Error('Session is not in this exam\'s loaded roster.');
+  rows[index] = { ...rows[index], login_gate: { ...(rows[index].login_gate ?? { refusals: 0, last_refused_at: null, last_refused_addr: '' }), released_at: AT } };
+  return { session_id: sessionID, released_at: AT };
 }
 // The downloads of one exam. The Go side counts the sessions and writes the files; these stand in for it.
 function downloadPreview(examId) {
@@ -406,6 +417,11 @@ window.ProctorHarness = {
   // A locked student: the monitoring window shows the lock first and offers the unlock dialog.
   lock(index = 0, reason = 'away') { rows[index] = { ...rows[index], locked: { since: '2035-01-01T00:00:00Z', reason } }; },
   unlock(index = 0) { rows[index] = { ...rows[index], locked: null }; },
+  // Someone tried to open the account of the student at `index` while it was open on that student's computer.
+  loginRefused(index = 0, count = 1, addr = '10.0.9.9', at = '2035-01-01T00:00:50Z') { rows[index] = { ...rows[index], login_gate: { refusals: count, last_refused_at: at, last_refused_addr: addr, released_at: null } }; },
+  // The student's next login was accepted: the report and any release it waited for are over.
+  loggedIn(index = 0) { rows[index] = { ...rows[index], login_gate: null }; },
+  releaseFails(value) { releaseFails = value; },
   settings(value) { settings = { ...settings, ...value }; },
   settingsFails(value) { settingsFails = value; },
   settingsStale() { settingsStale = true; } };

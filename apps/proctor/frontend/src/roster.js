@@ -7,8 +7,16 @@ export const rosterFilters = [
 ];
 export const inProgress = row => !row.finalization_pending && ['active', 'grace'].includes(row.status);
 export const isSubmitted = row => !row.finalization_pending && ['submitted', 'force_submitted'].includes(row.status);
+// Someone tried to open the student's account while it was open on another computer. The server counts the refusals since the
+// student's latest accepted login; `waiting` is a refusal not yet answered, and `released` a release that no login has used yet.
+export function loginGate(row) {
+  const gate = row.login_gate;
+  if (!gate || !(gate.refusals > 0 || gate.released_at)) return null;
+  return { refusals: gate.refusals ?? 0, lastAt: gate.last_refused_at ?? null, addr: gate.last_refused_addr || '', releasedAt: gate.released_at ?? null,
+    released: Boolean(gate.released_at), waiting: gate.refusals > 0 && !gate.released_at };
+}
 // Warnings are independent. A student with several warnings is counted only once.
-export const needsAttention = row => Boolean(row.locked || row.network_warning || row.focus_warning || row.finalization_pending);
+export const needsAttention = row => Boolean(row.locked || row.network_warning || row.focus_warning || row.finalization_pending || loginGate(row)?.waiting);
 export const canForce = row => inProgress(row) || Boolean(row.finalization_pending);
 
 export function rosterCounts(rows) {

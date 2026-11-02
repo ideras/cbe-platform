@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { rosterCounts, filterRoster, sortRoster, needsAttention, inProgress, isSubmitted, canForce, initials, lockLabel, lowTime, networkBadge, focusBadge, lifecycleBadge, sound, examLength } from '../src/roster.js';
+import { rosterCounts, filterRoster, sortRoster, needsAttention, inProgress, isSubmitted, canForce, initials, lockLabel, lowTime, networkBadge, focusBadge, lifecycleBadge, sound, examLength, loginGate } from '../src/roster.js';
 
 const row = (name, status = 'active', extra = {}) => ({ student_name: name, account_number: name, status,
   presence: { monitoring: status === 'active', connectivity: 'healthy', focus: { state: 'focused' } }, ...extra });
@@ -73,4 +73,23 @@ test('an exam length is told in hours, minutes and seconds, leaving out what is 
 
 test('an exam length that is not known says so instead of showing a number', () => {
   for (const value of [null, undefined, NaN, Infinity, -5]) assert.equal(examLength(value), 'unknown');
+});
+
+test('a login refused while the account was open is reported until a release is used, and needs attention until it is answered', () => {
+  const row = (gate, extra = {}) => ({ status: 'active', finalization_pending: false, locked: null, network_warning: false, focus_warning: false, login_gate: gate, ...extra });
+  assert.equal(loginGate(row(null)), null);
+  assert.equal(loginGate(row(undefined)), null);
+  assert.equal(loginGate(row({ refusals: 0, released_at: null })), null);
+  const refused = loginGate(row({ refusals: 2, last_refused_at: '2035-01-01T00:00:50Z', last_refused_addr: '10.0.9.9', released_at: null }));
+  assert.deepEqual(refused, { refusals: 2, lastAt: '2035-01-01T00:00:50Z', addr: '10.0.9.9', releasedAt: null, released: false, waiting: true });
+  const released = loginGate(row({ refusals: 2, last_refused_at: '2035-01-01T00:00:50Z', last_refused_addr: '10.0.9.9', released_at: '2035-01-01T00:01:00Z' }));
+  assert.equal(released.released, true);
+  assert.equal(released.waiting, false);
+  // A release can wait for a login even though the refusals were counted before it.
+  assert.equal(loginGate(row({ refusals: 0, released_at: '2035-01-01T00:01:00Z' })).released, true);
+  // A refusal makes the row need attention, like a lock; once a proctor has released it, it no longer does.
+  assert.equal(needsAttention(row({ refusals: 1, last_refused_at: 'x', released_at: null })), true);
+  assert.equal(needsAttention(row({ refusals: 1, last_refused_at: 'x', released_at: 'y' })), false);
+  assert.equal(needsAttention(row(null)), false);
+  assert.equal(rosterCounts([row({ refusals: 1, last_refused_at: 'x', released_at: null }), row(null)]).attention, 1);
 });

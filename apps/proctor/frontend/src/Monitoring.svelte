@@ -3,6 +3,7 @@
   import * as api from '$proctor-api';
   import Confirmation from './Confirmation.svelte';
   import UnlockDialog from './UnlockDialog.svelte';
+  import ReleaseLoginDialog from './ReleaseLoginDialog.svelte';
   import ExtendGraceDialog from './ExtendGraceDialog.svelte';
   import EndTimeDialog from './EndTimeDialog.svelte';
   import MonitoringRow from './MonitoringRow.svelte';
@@ -19,6 +20,9 @@
   let unlockModal = $state(null);
   let unlockBusy = $state(false);
   let unlockError = $state('');
+  let releaseModal = $state(null);
+  let releaseBusy = $state(false);
+  let releaseError = $state('');
   let timingModal = $state(null);
   let timingBusy = $state(false);
   let timingError = $state('');
@@ -79,6 +83,17 @@
       unlockModal = null; await onRefresh();
     } catch (err) { unlockError = String(err); await api.Refresh().catch(() => {}); }
     finally { unlockBusy = false; }
+  }
+  function askRelease(row) { releaseModal = row; releaseError = ''; }
+  async function release({ reason }) {
+    if (releaseBusy) return;
+    releaseBusy = true; releaseError = '';
+    try {
+      await api.ReleaseLogin(releaseModal.session_id, reason, true);
+      outcome = `The next login of ${releaseModal.account_number} will be accepted.`;
+      releaseModal = null; await onRefresh();
+    } catch (err) { releaseError = String(err); await api.Refresh().catch(() => {}); }
+    finally { releaseBusy = false; }
   }
   function askTiming(kind, student = null) { timingModal = { kind, student }; timingError = ''; }
   async function changeTiming(value) {
@@ -143,8 +158,8 @@
             <colgroup><col class="student-column" /><col class="network-column" /><col class="focus-column" /><col class="time-column" /><col class="control-column" /></colgroup>
             <thead><tr><th scope="col">Student</th><th scope="col">Network</th><th scope="col">Focus</th><th scope="col">Lifecycle / remaining</th><th scope="col">Review / control</th></tr></thead>
             <tbody>{#each visible as row (row.session_id)}
-              <MonitoringRow {row} serverTime={view.roster.server_time} {policy} disabled={disabled || view.busy} {timingBusy} {unlockBusy} {actionBusy}
-                onReview={review} onExtend={row => askTiming('grace', row)} onUnlock={askUnlock} onForce={row => ask('force', row)} />
+              <MonitoringRow {row} serverTime={view.roster.server_time} {policy} disabled={disabled || view.busy} {timingBusy} {unlockBusy} {actionBusy} {releaseBusy}
+                onReview={review} onExtend={row => askTiming('grace', row)} onUnlock={askUnlock} onForce={row => ask('force', row)} onRelease={askRelease} />
             {:else}<tr class="empty-row"><td colspan="5">{sessions.length ? 'No sessions match this filter.' : 'No sessions for this exam yet.'}</td></tr>{/each}</tbody>
           </table></div>
         </div>
@@ -164,6 +179,7 @@
 </div>
 {#if modal}<Confirmation kind={modal.kind} student={modal.student} exam={modal.exam} busy={actionBusy} error={actionError} onCancel={() => modal = null} onConfirm={action} />{/if}
 {#if unlockModal}<UnlockDialog student={unlockModal} busy={unlockBusy} error={unlockError} onCancel={() => unlockModal = null} onConfirm={unlock} />{/if}
+{#if releaseModal}<ReleaseLoginDialog student={releaseModal} busy={releaseBusy} error={releaseError} onCancel={() => releaseModal = null} onConfirm={release} />{/if}
 {#if timingModal?.kind === 'grace'}<ExtendGraceDialog student={timingModal.student} {sessions} exam={monitored} busy={timingBusy} error={timingError} onCancel={() => timingModal = null} onConfirm={changeTiming} />{:else if timingModal}<EndTimeDialog exam={monitored} serverTime={view.catalog?.server_time} clear={timingModal.kind === 'clear'} busy={timingBusy} error={timingError} onCancel={() => timingModal = null} onConfirm={changeTiming} />{/if}
 
 <style>

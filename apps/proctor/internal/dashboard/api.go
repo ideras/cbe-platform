@@ -72,8 +72,29 @@ type Session struct {
 	// Locked says that the exam is locked, since when and why; nil while it is not.
 	Locked *Lock `json:"locked"`
 	// Locks are the locks and unlocks of the session, in the order they happened.
-	Locks []LockRecord  `json:"locks"`
-	Final *FinalSummary `json:"final_version"`
+	Locks []LockRecord `json:"locks"`
+	// LoginGate reports logins refused because the session was open on another computer, and a release of the session no login
+	// has used yet; nil while there is neither.
+	LoginGate *LoginGate    `json:"login_gate"`
+	Final     *FinalSummary `json:"final_version"`
+}
+
+// LoginGate says that someone tried to open a student's session while it was open on another computer, and whether a proctor
+// has since allowed the next login.
+type LoginGate struct {
+	// Refusals counts the logins refused since the latest accepted one.
+	Refusals int `json:"refusals"`
+	// LastRefusedAt and LastRefusedAddr describe the latest refused login.
+	LastRefusedAt   *time.Time `json:"last_refused_at"`
+	LastRefusedAddr string     `json:"last_refused_addr"`
+	// ReleasedAt is when a proctor allowed the next login; nil if no release is waiting for a login.
+	ReleasedAt *time.Time `json:"released_at"`
+}
+
+// ReleaseResult is what allowing the next login of a session did.
+type ReleaseResult struct {
+	SessionID  string    `json:"session_id"`
+	ReleasedAt time.Time `json:"released_at"`
 }
 
 // Lock says that a student's exam is locked: since when, and why.

@@ -1,18 +1,27 @@
 <script>
   import Icon from '../../../../shared/theme/Icon.svelte';
   import { remainingTime } from '../../../../shared/exam/timing.js';
-  import { inProgress, canForce, needsAttention, duration, sound, networkBadge, focusBadge, lifecycleBadge, lockLabel, lowTime } from './roster.js';
-  let { row, serverTime, policy, disabled = false, timingBusy = false, unlockBusy = false, actionBusy = false,
-    onReview, onExtend, onUnlock, onForce } = $props();
+  import { localTime } from './dates.js';
+  import { inProgress, canForce, needsAttention, duration, sound, networkBadge, focusBadge, lifecycleBadge, lockLabel, lowTime, loginGate } from './roster.js';
+  let { row, serverTime, policy, disabled = false, timingBusy = false, unlockBusy = false, actionBusy = false, releaseBusy = false,
+    onReview, onExtend, onUnlock, onForce, onRelease } = $props();
   const network = $derived(networkBadge(row));
   const focus = $derived(focusBadge(row));
   const life = $derived(lifecycleBadge(row, policy, serverTime));
+  const gate = $derived(loginGate(row));
 </script>
 <tr data-session-id={row.session_id} class:network-row={row.network_warning} class:focus-row={row.focus_warning} class:locked-row={!!row.locked} class:attention-row={needsAttention(row)}>
   <td>
     <div class="name">{row.student_name}</div><div class="account">{row.account_number}</div>
     {#if !row.roster_active}<small>Inactive roster record</small>{/if}
     <div class="host">{row.presence.hostname || 'Hostname not reported'} · {row.presence.remote_addr || 'IP not reported'}</div>
+    {#if gate}
+      <!-- Someone tried this account while it was open on the computer above; a proctor decides whether to let them in. -->
+      <div class="gate" class:released={gate.released}>
+        {#if gate.released}<Icon name="login" size={13} /><span>Next login allowed {localTime(gate.releasedAt, '')} · waiting for the student</span>
+        {:else}<Icon name="warning" size={13} /><span>Login refused ×{gate.refusals} · last {localTime(gate.lastAt, 'at an unknown time')}{gate.addr ? ` from ${gate.addr}` : ''}</span>{/if}
+      </div>
+    {/if}
   </td>
   <td>
     <span class="badge {network.tone}">{network.text}</span>
@@ -49,6 +58,7 @@
     <div class="controls">
       <button type="button" class="outline" onclick={() => onReview(row)}><Icon name="preview" size={14} />Review {row.account_number}</button>
       {#if inProgress(row)}<button type="button" class="outline" aria-label="Extend grace {row.account_number}…" disabled={disabled || timingBusy} onclick={() => onExtend(row)}><Icon name="clock" size={14} />Extend grace…</button>{/if}
+      {#if gate?.waiting && inProgress(row)}<button type="button" class="outline" aria-label="Allow new login {row.account_number}…" disabled={disabled || releaseBusy} onclick={() => onRelease(row)}><Icon name="login" size={14} />Allow new login…</button>{/if}
       {#if row.locked && inProgress(row)}<button type="button" class="danger" aria-label="Unlock {row.account_number}…" disabled={disabled || unlockBusy} onclick={() => onUnlock(row)}><Icon name="lock" size={14} />Unlock…</button>
       {:else if canForce(row)}<button type="button" class="danger" aria-label="Force-submit {row.account_number}…" disabled={disabled || actionBusy} onclick={() => onForce(row)}>Force-submit…</button>{/if}
     </div>
@@ -62,6 +72,9 @@
   .focus-row td:first-child, .locked-row td:first-child { box-shadow: inset 4px 0 0 var(--alert); }
   .name { font-weight: 700; }
   .account { color: var(--action-hover); font-family: var(--font-mono); font-size: .85rem; }
+  .gate { display: flex; align-items: flex-start; gap: .35rem; margin-top: .4rem; padding: .25rem .5rem; border-radius: 7px; background: var(--warn-fill); color: var(--warn-text); font-size: .78rem; font-weight: 600; }
+  .gate :global(svg) { flex: none; margin-top: .12rem; }
+  .gate.released { background: var(--selection-fill); color: var(--action-hover); }
   .host { margin-top: .15rem; color: var(--text-muted); font-family: var(--font-mono); font-size: .78rem; }
   .kv { display: flex; flex-direction: column; gap: .2rem; }
   .key { color: var(--text-muted); }
