@@ -50,6 +50,14 @@ let publishFails = '';
 let examPin = '482719';
 let pinFails = '';
 let deleteExamFails = '';
+// What deleting an exam students took reports: the screenshots that went and the files the server could not remove at once; and a
+// hold that keeps the deletion in flight, for the dialog's working state.
+let deleteScreenshots = 214;
+let deleteFilesPending = 0;
+let deferDelete = false;
+let releaseDelete;
+// Students working in an exam that is not published (admission closed, sessions still running), by exam.
+const workingIn = {};
 let catalogDown = false;
 // The proctor's Settings: the monitoring values stored on the server.
 let settings = { heartbeat_interval_ms: 15000, overdue_threshold_ms: 30000, focus_threshold_ms: 5000, alert_interval_ms: 2000,
@@ -126,7 +134,7 @@ function classList() {
 function catalog() {
   const live = publishedEntry();
   return { server_time: AT, current_exam_id: publishedExam, current_class_id: live ? live.class_id : '', current_class_name: live ? className(live.class_id) : '',
-    exams: exams.map(entry => ({ ...entry, class_name: className(entry.class_id), published: entry.exam_id === publishedExam, active_sessions: entry.exam_id === publishedExam ? workingStudents : 0, locked_sessions: entry.exam_id === publishedExam ? rows.filter(row => row.locked).length : 0 })) };
+    exams: exams.map(entry => ({ ...entry, class_name: className(entry.class_id), published: entry.exam_id === publishedExam, active_sessions: entry.exam_id === publishedExam ? workingStudents : workingIn[entry.exam_id] ?? 0, locked_sessions: entry.exam_id === publishedExam ? rows.filter(row => row.locked).length : 0 })) };
 }
 function snapshot() {
   // The server has not delivered this exam's first roster yet (the window is told so by `loading`).
@@ -262,7 +270,7 @@ export async function DeleteClass(id, confirmed) {
   calls.deleteClass.push({ id, confirmed });
   const entry = classes.find(item => item.class_id === id);
   if (deleteFails) throw new Error(deleteFails);
-  if (exams.some(item => item.class_id === id)) throw new Error('The class still has exams. Delete its exams first. Exams students have taken cannot be deleted.');
+  if (exams.some(item => item.class_id === id)) throw new Error('The class still has exams. Delete its exams first.');
   classes = classes.filter(item => item.class_id !== id);
   return { class_id: id, name: entry.name, students: entry.student_count, pruned };
 }
@@ -305,13 +313,18 @@ export async function Unpublish(expectedExam, allowActive, confirmed) {
   const replaced = publishedEntry(); publishedExam = '';
   return { exam_id: '', class_id: '', replaced_exam_id: replaced?.exam_id ?? '', replaced_class_id: replaced?.class_id ?? '', active_sessions: allowActive ? workingStudents : 0 };
 }
-export async function DeleteExam(examId, confirmed) {
-  calls.deleteExam.push({ examId, confirmed });
+// As the Go side does: the confirmed number of submissions has to be the one the exam list shows, and the server refuses an exam that is
+// published or that students are still working in.
+export async function DeleteExam(examId, submissions, confirmed) {
+  calls.deleteExam.push({ examId, submissions, confirmed });
+  if (deferDelete) await new Promise(resolve => releaseDelete = resolve);
   if (deleteExamFails) throw new Error(deleteExamFails);
   const entry = exams.find(item => item.exam_id === examId);
-  if (examId === publishedExam || entry.total_sessions > 0) throw new Error('The exam is published or students have taken it, so it cannot be deleted.');
+  if (!entry) throw new Error('That exam is not on the server\'s list; nothing was sent. Look at the exam list again.');
+  if (entry.total_sessions !== submissions) throw new Error('The exam\'s submissions changed since you were shown them; nothing was sent. Look at the exam list again.');
+  if (examId === publishedExam || (workingIn[examId] ?? 0) > 0) throw new Error('The exam is published or students are still working in it, so it cannot be deleted. Close admission and let them finish first.');
   exams = exams.filter(item => item.exam_id !== examId);
-  return { exam_id: examId, title: entry.title };
+  return { exam_id: examId, title: entry.title, sessions: entry.total_sessions, screenshots: entry.total_sessions > 0 ? deleteScreenshots : 0, files_pending: entry.total_sessions > 0 ? deleteFilesPending : 0 };
 }
 export async function Refresh() {}
 let closeListener = () => {};
@@ -451,7 +464,10 @@ window.ProctorHarness = {
   rosterFails(value) { rosterFails = value; }, holdRoster() { deferRoster = true; }, releaseRoster() { deferRoster = false; releaseRoster?.(); },
   classFile(value) { nextClassFile = value; }, createFails(value) { createFails = value; },
   renameFails(value) { renameFails = value; }, holdRename() { deferRename = true; }, releaseRename() { deferRename = false; releaseRename?.(); }, deleteFails(value) { deleteFails = value; }, replaceFails(value) { replaceFails = value; }, rosterChange(value) { nextRosterChange = value; }, pruned(value) { pruned = value; },
-  working(value) { workingStudents = value; }, studentsLogInLate(value) { lateStudents = value; }, examFile(value) { nextExamFile = { content: sampleContent, ...value }; }, importFails(value) { importFails = value; }, publishFails(value) { publishFails = value; }, pinFails(value) { pinFails = value; }, examPin(value) { examPin = value; }, examEndsAt(id, value) { exams.find(item => item.exam_id === id).ends_at = value; }, deleteExamFails(value) { deleteExamFails = value; }, catalogDown(value) { catalogDown = value; }, stale(value) { stale = value; }, imagesMissing(value) { imageMissing = value; },
+  working(value) { workingStudents = value; }, studentsLogInLate(value) { lateStudents = value; }, examFile(value) { nextExamFile = { content: sampleContent, ...value }; }, importFails(value) { importFails = value; }, publishFails(value) { publishFails = value; }, pinFails(value) { pinFails = value; }, examPin(value) { examPin = value; }, examEndsAt(id, value) { exams.find(item => item.exam_id === id).ends_at = value; }, deleteExamFails(value) { deleteExamFails = value; },
+  deleteScreenshots(value) { deleteScreenshots = value; }, deleteFilesPending(value) { deleteFilesPending = value; }, holdDelete() { deferDelete = true; }, releaseDelete() { deferDelete = false; releaseDelete?.(); },
+  // Students still working in an exam that is not published, and a change in how many submissions an exam has since the page last looked.
+  examWorking(id, value) { workingIn[id] = value; }, examSessions(id, value) { exams.find(item => item.exam_id === id).total_sessions = value; }, catalogDown(value) { catalogDown = value; }, stale(value) { stale = value; }, imagesMissing(value) { imageMissing = value; },
   failForce(value) { failForce = value; }, holdForce() { deferForce = true; }, releaseForce() { releaseForce?.(); }, originalSubmit() { forceStatus = 'submitted'; }, partialPurge() { partialPurge = true; },
   purgeFails(value) { purgeFails = value; }, purgeDeleted(value) { purgeDeleted = value; }, holdPurge() { deferPurge = true; }, releasePurge() { deferPurge = false; releasePurge?.(); },
   downloadPreview(value) { downloadPreviewOverride = value; }, downloadNeedsReplace(value = true) { downloadNeedsReplace = value; }, downloadExistingFormat(value) { downloadExistingFormat = value; }, downloadWarnings(value) { downloadWarnings = value; }, downloadFails(value) { downloadFails = value; }, downloadFailure(value) { downloadFailureFor = value; }, openFolderFails(value) { openFolderFails = value; },

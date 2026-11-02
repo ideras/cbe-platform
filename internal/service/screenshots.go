@@ -56,6 +56,10 @@ type ScreenshotTransaction interface {
 	DeleteScreenshot(context.Context, int64) error
 	ScreenshotsPurged(context.Context, string) (bool, error)
 	MarkScreenshotPurge(context.Context, string, time.Time) error
+	// DeletedFiles lists the paths of screenshot files whose exam was deleted and that are not known to be removed yet.
+	DeletedFiles(context.Context) ([]string, error)
+	// ForgetDeletedFile takes a path off that list once its file is gone.
+	ForgetDeletedFile(context.Context, string) error
 }
 type ScreenshotRepository interface {
 	WithScreenshotTransaction(context.Context, func(ScreenshotTransaction) error) error

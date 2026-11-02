@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -72,10 +73,14 @@ type ImportResult struct {
 	ExamID string `json:"exam_id"`
 }
 
-// DeletedExam says which exam was deleted.
+// DeletedExam says which exam was deleted and what went with it: the submissions students had made in it and the screenshots
+// they held. FilesPending counts screenshot files the server could not remove yet; it keeps trying.
 type DeletedExam struct {
-	ID    string `json:"exam_id"`
-	Title string `json:"title"`
+	ID           string `json:"exam_id"`
+	Title        string `json:"title"`
+	Sessions     int    `json:"sessions"`
+	Screenshots  int    `json:"screenshots"`
+	FilesPending int    `json:"files_pending"`
 }
 
 type RosterWarning struct {
@@ -554,7 +559,7 @@ func classNameProblem(name string) string {
 }
 
 // DeleteClass removes a class and its roster. Sessions and answers stay. The server refuses a class that has exams: an exam
-// stays in its class for good, and the ones students have taken cannot be deleted.
+// stays in its class until it is deleted itself.
 func (s *Service) DeleteClass(classID string, confirmed bool) (DeletedClass, error) {
 	classID = strings.TrimSpace(classID)
 	if !confirmed {
@@ -572,7 +577,7 @@ func (s *Service) DeleteClass(classID string, confirmed bool) (DeletedClass, err
 	if err := adminSend(ctx, s.client, server, token, http.MethodDelete, "/admin/class/"+classID, "application/json", nil, &deleted); err != nil {
 		if definite(err) {
 			if refused(err, http.StatusConflict) {
-				return DeletedClass{}, errors.New("The class still has exams. Delete its exams first. Exams students have taken cannot be deleted.")
+				return DeletedClass{}, errors.New("The class still has exams. Delete its exams first.")
 			}
 			return DeletedClass{}, err
 		}
@@ -748,44 +753,61 @@ func (s *Service) changeAdmission(path, wantExam, expectedExam string, allowActi
 	return PublishOutcome{ExamID: result.CurrentExamID, ClassID: result.CurrentClassID, ReplacedExamID: result.ReplacedExamID, ReplacedClassID: result.ReplacedClassID, ActiveSessions: result.ActiveSessions}, nil
 }
 
-// DeleteExam removes an exam that is not published and that no student has taken. The server refuses any other exam, so the
-// answers and history of a taken exam are never lost.
-func (s *Service) DeleteExam(examID string, confirmed bool) (DeletedExam, error) {
+// DeleteExam removes an exam and, with it, every submission, event and screenshot of the students who took it. submissions is how
+// many submissions the proctor was shown and agreed to lose (0 for an exam nobody took): the server deletes an exam that
+// students took only when that is its number. The server refuses an exam that is published or that students are still working
+// in, so nobody's exam is pulled from under them.
+func (s *Service) DeleteExam(examID string, submissions int, confirmed bool) (DeletedExam, error) {
 	examID = strings.TrimSpace(examID)
 	if !confirmed {
 		return DeletedExam{}, errors.New("Explicit confirmation is required; nothing was sent.")
 	}
-	if !validID(examID) {
+	if !validID(examID) || submissions < 0 {
 		return DeletedExam{}, errors.New("Invalid exam selection; nothing was sent.")
 	}
 	s.mu.Lock()
-	listed := false
+	listed, counted := false, 0
 	for _, exam := range s.view.Catalog.Exams {
-		listed = listed || exam.ID == examID
+		if exam.ID == examID {
+			listed, counted = true, exam.TotalSessions
+		}
 	}
 	s.mu.Unlock()
 	if !listed {
 		return DeletedExam{}, errors.New("That exam is not on the server's list; nothing was sent. Look at the exam list again.")
+	}
+	// What the proctor confirmed is what the exam list said; if the list moved on since, the confirmation no longer fits.
+	if counted != submissions {
+		return DeletedExam{}, errors.New("The exam's submissions changed since you were shown them; nothing was sent. Look at the exam list again.")
 	}
 	ctx, base, token, err := s.beginAdmin()
 	if err != nil {
 		return DeletedExam{}, err
 	}
 	defer s.endAction()
+	path := "/admin/exam/" + examID
+	if submissions > 0 {
+		// An exam nobody took is deleted without the query, as it always was.
+		path += "?submissions=" + strconv.Itoa(submissions)
+	}
 	var deleted DeletedExam
-	if err := adminSend(ctx, s.client, base, token, http.MethodDelete, "/admin/exam/"+examID, "application/json", nil, &deleted); err != nil {
+	if err := adminSend(ctx, s.client, base, token, http.MethodDelete, path, "application/json", nil, &deleted); err != nil {
 		if definite(err) {
-			if refused(err, http.StatusConflict) {
-				return DeletedExam{}, errors.New("The exam is published or students have taken it, so it cannot be deleted.")
+			var reject *rejection
+			if errors.As(err, &reject) && reject.Status == http.StatusConflict {
+				if strings.Contains(reject.Message, "not the ones you confirmed") {
+					return DeletedExam{}, errors.New("The exam's submissions changed since you were shown them; nothing was deleted. Look at the exam list again.")
+				}
+				return DeletedExam{}, errors.New("The exam is published or students are still working in it, so it cannot be deleted. Close admission and let them finish first.")
 			}
 			return DeletedExam{}, err
 		}
 		return DeletedExam{}, errors.New(err.Error() + " Look at the exam list before deleting again.")
 	}
-	if deleted.ID != examID {
+	if deleted.ID != examID || deleted.Sessions < 0 || deleted.Screenshots < 0 || deleted.FilesPending < 0 || deleted.FilesPending > deleted.Screenshots {
 		return DeletedExam{}, errors.New("The server's answer was invalid. Look at the exam list to see whether the exam is gone.")
 	}
-	// An exam that was monitored while it admitted nobody can be deleted too; there is nothing left to monitor.
+	// An exam that was being monitored can be deleted too; there is nothing left to monitor.
 	s.mu.Lock()
 	if !s.stopped && s.view.Connected && s.view.ExamID == examID {
 		s.selectLocked("")

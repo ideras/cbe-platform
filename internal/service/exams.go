@@ -24,8 +24,9 @@ var (
 type ExamRepository interface {
 	// CreateExam stores the exam in exam.ClassID, which must be a stored class (domain.ErrNotFound otherwise).
 	CreateExam(context.Context, domain.Exam) error
-	// DeleteExam removes an exam that is not published and that nobody has taken (domain.ErrExamInUse otherwise).
-	DeleteExam(context.Context, string) (domain.DeletedExam, error)
+	// DeleteExam removes an exam with every session students had in it. The exam must not be published and nobody may be working
+	// in it (domain.ErrExamInUse otherwise), and its number of sessions must be the one given (domain.ErrSubmissionsChanged).
+	DeleteExam(context.Context, string, int) (domain.DeletedExam, error)
 	// ExamDetail reads an exam with its class name and stored Markdown source (domain.ErrNotFound otherwise).
 	ExamDetail(context.Context, string) (domain.ExamDetail, error)
 	// ExamPIN reads the PIN students log in to the exam with (domain.ErrNotFound otherwise).
@@ -37,6 +38,14 @@ type Exams struct {
 	clock      clock.Clock
 	// grace is where the default grace period of new exams comes from: the proctor's settings.
 	grace GraceProvider
+	// files removes the screenshot files an exam leaves behind when it is deleted; nil when the server stores no screenshots.
+	files DeletedFiles
+}
+
+// DeletedFiles removes the screenshot files of exams that were deleted, which the exam's own deletion cannot do inside its
+// database transaction. It returns how many files are still waiting to be removed.
+type DeletedFiles interface {
+	RemoveDeletedFiles(ctx context.Context) (pending int, err error)
 }
 
 // GraceProvider is where the default grace period of new exams comes from: the proctor's settings.
@@ -74,6 +83,12 @@ type CreateExamInput struct {
 // NewExams builds the exam service; new exams without a grace period of their own take grace's default.
 func NewExams(repository ExamRepository, clock clock.Clock, grace GraceProvider) *Exams {
 	return &Exams{repository: repository, clock: clock, grace: grace}
+}
+
+// RemovingFilesWith makes Delete remove the screenshot files of the exam it deletes through files, and returns s.
+func (s *Exams) RemovingFilesWith(files DeletedFiles) *Exams {
+	s.files = files
+	return s
 }
 
 // ExamPreview is the validated shape of an exam document. It never carries the PIN or the exam's text.
@@ -172,22 +187,46 @@ func (s *Exams) PIN(ctx context.Context, examID string) (ExamPIN, error) {
 	return ExamPIN{ExamID: examID, PIN: pin}, nil
 }
 
-// DeletedExam is the exam that was removed.
+// DeletedExam is the exam that was removed and what went with it. Sessions are the submissions students had made (each with its
+// answers and events) and Screenshots the pictures they held. FilesPending counts screenshot files that could not be removed
+// yet; the server removes them as soon as it can.
 type DeletedExam struct {
-	ID    string `json:"exam_id"`
-	Title string `json:"title"`
+	ID           string `json:"exam_id"`
+	Title        string `json:"title"`
+	Sessions     int    `json:"sessions"`
+	Screenshots  int    `json:"screenshots"`
+	FilesPending int    `json:"files_pending"`
 }
 
-// Delete removes an exam that is not published and that no student has taken; any other exam is domain.ErrExamInUse.
-func (s *Exams) Delete(ctx context.Context, examID string) (DeletedExam, error) {
-	if !validProctorID(examID) {
+// Delete removes an exam together with the sessions students had in it. An exam that is published, or that students are still
+// working in, is domain.ErrExamInUse. submissions is how many sessions the caller was told the exam has and agreed to delete
+// (0 when nobody took it); any other number is domain.ErrSubmissionsChanged, so answers are never deleted unannounced.
+//
+// The exam and its records go in one transaction. The screenshot files go right after it; a file that cannot be removed is
+// left listed and counted in FilesPending, and the exam is gone all the same.
+func (s *Exams) Delete(ctx context.Context, examID string, submissions int) (DeletedExam, error) {
+	if !validProctorID(examID) || submissions < 0 {
 		return DeletedExam{}, ErrInvalidInput
 	}
-	deleted, err := s.repository.DeleteExam(ctx, examID)
+	deleted, err := s.repository.DeleteExam(ctx, examID, submissions)
 	if err != nil {
 		return DeletedExam{}, err
 	}
-	return DeletedExam{ID: deleted.ID, Title: deleted.Title}, nil
+	result := DeletedExam{ID: deleted.ID, Title: deleted.Title, Sessions: deleted.Sessions, Screenshots: deleted.Screenshots}
+	if s.files != nil && deleted.Screenshots > 0 {
+		// The exam is already deleted whatever happens to the files, so a failure is reported as files left, not as a failure.
+		// Use a fresh context: the request may be cancelled right after the commit, and the files must not wait for the next sweep.
+		sweep, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer cancel()
+		pending, _ := s.files.RemoveDeletedFiles(sweep)
+		// The list is shared with earlier deletions that left files; this exam is answerable for its own screenshots only. A
+		// list that could not be read at all (-1) leaves nothing known to be gone.
+		if pending < 0 || pending > deleted.Screenshots {
+			pending = deleted.Screenshots
+		}
+		result.FilesPending = pending
+	}
+	return result, nil
 }
 
 // build validates input and returns every problem found, naming fields, exercises and slots but never echoing the PIN.

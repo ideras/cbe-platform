@@ -364,19 +364,39 @@ func TestAnExamIsImportedIntoAClassAndDeletedOverHTTP(t *testing.T) {
 		t.Fatalf("delete a class with exams = %d %s", w.Code, w.Body.String())
 	}
 
-	// An exam that is published or that students have taken cannot be deleted; any other can.
+	// An exam that is published, or that students are still working in, cannot be deleted.
 	if w := f.json("POST", "/admin/exam/"+spare+"/publish", `{}`); w.Code != http.StatusOK {
 		t.Fatalf("publish = %d %s", w.Code, w.Body.String())
 	}
-	if w := f.send("DELETE", "/admin/exam/"+spare, "", ""); w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "published or students have taken it") {
+	if w := f.send("DELETE", "/admin/exam/"+spare, "", ""); w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "published or students are still working in it") {
 		t.Fatalf("delete the published exam = %d %s", w.Code, w.Body.String())
 	}
-	f.login(t, "0012") // the published exam is the spare one, with the shared PIN
+	student := f.login(t, "0012") // the published exam is the spare one, with the shared PIN
 	if w := f.json("POST", "/admin/exam/"+apiExamID+"/publish", `{"expected_current":"`+spare+`","allow_active":true}`); w.Code != http.StatusOK {
 		t.Fatalf("publish = %d %s", w.Code, w.Body.String())
 	}
-	if w := f.send("DELETE", "/admin/exam/"+spare, "", ""); w.Code != http.StatusConflict {
-		t.Fatalf("delete an exam a student took = %d %s", w.Code, w.Body.String())
+	if w := f.send("DELETE", "/admin/exam/"+spare+"?submissions=1", "", ""); w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "still working in it") {
+		t.Fatalf("delete an exam a student is working in = %d %s", w.Code, w.Body.String())
+	}
+	// Once the student has finished, the exam goes only for a caller who names how many submissions it has.
+	if w := request(f.router, "POST", "/submit", `{"answers":{}}`, "Bearer "+student.SessionToken); w.Code != http.StatusOK {
+		t.Fatalf("submit = %d %s", w.Code, w.Body.String())
+	}
+	for _, query := range []string{"", "?submissions=0", "?submissions=2"} {
+		if w := f.send("DELETE", "/admin/exam/"+spare+query, "", ""); w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "not the ones you confirmed") {
+			t.Fatalf("delete an exam with one submission %q = %d %s", query, w.Code, w.Body.String())
+		}
+	}
+	for _, query := range []string{"?submissions=", "?submissions=-1", "?submissions=1.5", "?submissions=one", "?submissions=1&submissions=1", "?submissions=99999999999"} {
+		if w := f.send("DELETE", "/admin/exam/"+spare+query, "", ""); w.Code != http.StatusBadRequest {
+			t.Fatalf("delete with the count %q = %d %s", query, w.Code, w.Body.String())
+		}
+	}
+	if w := f.json("GET", "/admin/exams", ""); !strings.Contains(w.Body.String(), spare) {
+		t.Fatalf("a refused deletion removed the exam: %s", w.Body.String())
+	}
+	if !f.deletedCleanly("DELETE", "/admin/exam/"+spare+"?submissions=1", `{"exam_id":"`+spare+`","title":"Unicode exam","sessions":1,"screenshots":0,"files_pending":0}`+"\n", t) {
+		t.Fatal("deleting an exam with one submission failed")
 	}
 	untouched := createExamIn(t, f, apiClassID, examBody)
 	if w := f.send("DELETE", "/admin/exam/"+untouched+"?x=1", "", ""); w.Code != http.StatusBadRequest {
@@ -386,7 +406,7 @@ func TestAnExamIsImportedIntoAClassAndDeletedOverHTTP(t *testing.T) {
 		t.Fatalf("bad id = %d", w.Code)
 	}
 	w = f.send("DELETE", "/admin/exam/"+untouched, "", "")
-	if w.Code != http.StatusOK || w.Body.String() != `{"exam_id":"`+untouched+`","title":"Unicode exam"}`+"\n" {
+	if w.Code != http.StatusOK || w.Body.String() != `{"exam_id":"`+untouched+`","title":"Unicode exam","sessions":0,"screenshots":0,"files_pending":0}`+"\n" {
 		t.Fatalf("delete = %d %q", w.Code, w.Body.String())
 	}
 	if !strings.Contains(f.logs.String(), `"msg":"exam deleted"`) {
@@ -398,6 +418,17 @@ func TestAnExamIsImportedIntoAClassAndDeletedOverHTTP(t *testing.T) {
 	if w := f.json("GET", "/admin/exams", ""); strings.Contains(w.Body.String(), untouched) {
 		t.Fatalf("a deleted exam is still listed: %s", w.Body.String())
 	}
+}
+
+// deletedCleanly sends a deletion and says whether it was answered 200 with exactly the wanted body.
+func (f *publishFixture) deletedCleanly(method, path, want string, t *testing.T) bool {
+	t.Helper()
+	w := f.send(method, path, "", "")
+	if w.Code != http.StatusOK || w.Body.String() != want {
+		t.Errorf("%s %s = %d %q, want %q", method, path, w.Code, w.Body.String(), want)
+		return false
+	}
+	return true
 }
 
 func TestClassRenameDeleteAndRosterReplacementOverHTTP(t *testing.T) {

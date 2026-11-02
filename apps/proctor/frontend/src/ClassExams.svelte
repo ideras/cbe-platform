@@ -8,6 +8,7 @@
   import ExamImport from './ExamImport.svelte';
   import DownloadDialog from './DownloadDialog.svelte';
   import PurgeDialog from './PurgeDialog.svelte';
+  import DeleteExamDialog from './DeleteExamDialog.svelte';
   import PreviewDialog from './PreviewDialog.svelte';
   import { parseTime } from './dates.js';
   import { monitorExam } from './monitor.js';
@@ -31,10 +32,15 @@
   let downloadExam = $state(null);
   // The exam whose screenshots are being purged.
   let purgeExam = $state(null);
+  // The exam being deleted, and what the Download submissions dialog opened from there last wrote, which the delete dialog repeats.
+  let deleteExam = $state(null);
+  let deleteDownload = $state('');
   let previewExamID = $state(null);
   let lastFolder = $state('');
 
   const exams = $derived((view.catalog?.exams ?? []).filter(exam => exam.class_id === klass.class_id));
+  // The exam being deleted as the server reports it now, or null once it is gone. The dialog keeps the exam it was opened for.
+  const deleting = $derived(deleteExam ? (view.catalog?.exams ?? []).find(exam => exam.exam_id === deleteExam.exam_id) ?? null : null);
   // Publishing replaces whatever is published, which may be an exam of another class.
   const current = $derived((view.catalog?.exams ?? []).find(exam => exam.published));
   // The students working in the exam an open dialog is about to replace or close, as the server reports them now. The dialog keeps the
@@ -121,6 +127,8 @@
     if (result.warnings?.length) status += ' ' + result.warnings.join(' ');
     // Only a download that wrote students' files has a folder worth opening; the dashboard refuses to open any other.
     lastFolder = count > 0 ? result.folder : '';
+    // A download made from the delete dialog is told there too, where the proctor is deciding whether the copies are enough.
+    if (deleteExam?.exam_id === downloadExam?.exam_id) deleteDownload = status;
   }
   async function openFolder() {
     problem = '';
@@ -131,6 +139,16 @@
   async function purged(result) {
     lastFolder = '';
     status = `Screenshots of “${purgeExam.title}”: ${result.deleted} deleted. ${result.complete ? 'Complete; this exam accepts no more images.' : `PARTIAL: retry for image IDs ${result.failed_screenshot_ids.join(', ')}.`} Delete downloaded copies, exports and backups separately.`;
+    await onRefresh().catch(() => {});
+  }
+  // A deletion finished: the status line, which stays after the dialog closes, says what went and what did not. The exam list is
+  // read again, so the exam is gone from it.
+  async function deleted(result) {
+    lastFolder = '';
+    if (result.sessions > 0) {
+      status = `Exam “${result.title}” deleted with its ${plural(result.sessions, 'submission')} and ${plural(result.screenshots, 'screenshot')}. Copies you downloaded, exports and backups are not touched.`;
+      if (result.files_pending) status += ` ${plural(result.files_pending, 'screenshot file')} could not be removed from the server yet; it keeps trying.`;
+    } else status = `Exam “${result.title}” deleted.`;
     await onRefresh().catch(() => {});
   }
   function ask(kind, exam = null) {
@@ -149,19 +167,12 @@
   async function confirm({ allowActive = false } = {}) {
     if (modalBusy) return;
     modalBusy = true; modalError = ''; lastFolder = '';
-    const { kind, entry, current } = modal;
+    const { current } = modal;
     try {
-      if (kind === 'deleteExam') {
-        await api.DeleteExam(entry.exam_id, true);
-        status = `Exam “${entry.title}” deleted.`;
-        modal = null;
-        await onRefresh();
-      } else {
-        await api.Unpublish(current.exam_id, allowActive, true);
-        status = `Admission is closed. Students already in “${current.title}” keep working; nobody else can log in.`;
-        modal = null;
-        await onRefresh();
-      }
+      await api.Unpublish(current.exam_id, allowActive, true);
+      status = `Admission is closed. Students already in “${current.title}” keep working; nobody else can log in.`;
+      modal = null;
+      await onRefresh();
     } catch (err) { modalError = String(err); await onRefresh().catch(() => {}); }
     finally { modalBusy = false; }
   }
@@ -194,7 +205,7 @@
         <ExamCard {entry} monitored={entry.exam_id === view.exam_id} {locked} deemphasized={!!examPreview?.valid}
           monitorable={monitorable(entry)} calculator={calculatorText(entry.tools?.calculator)} logins={span(entry)} admission={admission(entry)}
           onMonitor={monitor} onPreview={entry => previewExamID = entry.exam_id} onPublish={entry => ask('publish', entry)} onUnpublish={entry => ask('unpublish', entry)}
-          onDownload={entry => downloadExam = entry} onPurge={entry => purgeExam = entry} onDelete={entry => ask('deleteExam', entry)} />
+          onDownload={entry => downloadExam = entry} onPurge={entry => purgeExam = entry} onDelete={entry => { deleteDownload = ''; deleteExam = entry; }} />
       {/each}</div>
     {/if}
   {/if}
@@ -205,6 +216,7 @@
 {:else if modal}<Confirmation kind={modal.kind} details={modal} working={workingNow} busy={modalBusy} error={modalError} onCancel={() => modal = null} onConfirm={confirm} />{/if}
 {#if downloadExam}<DownloadDialog exam={downloadExam} onClose={() => downloadExam = null} onDownloaded={downloaded} />{/if}
 {#if purgeExam}<PurgeDialog exam={purgeExam} onClose={() => purgeExam = null} onPurged={purged} onFailed={() => onRefresh().catch(() => {})} />{/if}
+{#if deleteExam}<DeleteExamDialog exam={deleteExam} live={deleting} className={klass.name} downloadNote={deleteDownload} onDownload={entry => downloadExam = entry} onClose={() => deleteExam = null} onDeleted={deleted} onFailed={() => onRefresh().catch(() => {})} />{/if}
 {#if previewExamID}<PreviewDialog examID={previewExamID} onClose={() => previewExamID = null} />{/if}
 
 <style>

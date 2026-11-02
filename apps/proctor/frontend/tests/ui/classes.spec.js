@@ -337,8 +337,8 @@ test('a class with exams cannot be deleted, and the page says why', async ({ pag
   await connect(page);
   await open(page); // Mathematics 10A has three exams, one of them published
   await expect(page.getByRole('button', { name: 'Delete class…' })).toBeDisabled();
-  await expect(page.getByText('Delete its exams first. Exams students have taken cannot be deleted.')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Delete class…' })).toHaveAccessibleDescription('Delete its exams first. Exams students have taken cannot be deleted.');
+  await expect(page.getByText('Delete its exams first.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Delete class…' })).toHaveAccessibleDescription('Delete its exams first.');
   await expect(page.getByRole('button', { name: 'Rename…' })).toBeEnabled();
   expect((await calls(page)).deleteClass).toEqual([]);
 });
@@ -350,7 +350,8 @@ test('a class can be deleted again once its exams are deleted', async ({ page })
   await expect(remove).toBeDisabled();
   await examsPanel(page).getByRole('button', { name: 'Delete exam History final…' }).click();
   const dialog = page.getByRole('dialog', { name: 'Delete exam' });
-  await dialog.getByRole('checkbox').check(); await dialog.getByRole('button', { name: 'Delete exam', exact: true }).click();
+  await dialog.locator('label.confirm').click(); await dialog.getByRole('button', { name: 'Delete exam', exact: true }).click();
+  await dialog.locator('.foot').getByRole('button', { name: 'Close', exact: true }).click();
   await expect(page.getByRole('status')).toContainText('Exam “History final” deleted.');
   await expect(remove).toBeEnabled();
   await expect(page.getByText('Delete its exams first.')).toHaveCount(0);

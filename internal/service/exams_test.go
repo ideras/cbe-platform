@@ -1,10 +1,15 @@
 package service_test
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"io/fs"
 	"math"
+	"os"
+	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -126,41 +131,164 @@ func TestAnExamIsImportedIntoAnExistingClass(t *testing.T) {
 	}
 }
 
-func TestOnlyAnUnpublishedExamNobodyTookCanBeDeleted(t *testing.T) {
+func TestAnExamIsDeletedOnlyWhenNobodyIsInItAndItsSubmissionsAreConfirmed(t *testing.T) {
 	f := newFixture(t, 30)
 	f.addExam(t, secondExamID, "second-pin", 1)
 	exams := service.NewExams(f.store, f.clock, f.sessions)
 	publisher := service.NewPublisher(f.store, f.clock)
 
-	if _, err := exams.Delete(t.Context(), testExamID); !errors.Is(err, domain.ErrExamInUse) {
+	if _, err := exams.Delete(t.Context(), testExamID, 0); !errors.Is(err, domain.ErrExamInUse) {
 		t.Fatalf("deleting the published exam = %v", err)
 	}
-	f.login(t, "0012")
+	login := f.login(t, "0012")
 	if _, err := publisher.Unpublish(t.Context(), testExamID, true); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := exams.Delete(t.Context(), testExamID); !errors.Is(err, domain.ErrExamInUse) {
-		t.Fatalf("deleting an exam a student took = %v", err)
+	// The student is still working: admission is closed, but the session runs on.
+	if _, err := exams.Delete(t.Context(), testExamID, 1); !errors.Is(err, domain.ErrExamInUse) {
+		t.Fatalf("deleting an exam a student is working in = %v", err)
 	}
+	if _, err := f.sessions.Submit(t.Context(), login.Token, domain.Answers{}); err != nil {
+		t.Fatal(err)
+	}
+	// Finished, the exam has one submission and is deleted only by someone who was told so.
+	for _, confirmed := range []int{0, 2} {
+		if _, err := exams.Delete(t.Context(), testExamID, confirmed); !errors.Is(err, domain.ErrSubmissionsChanged) {
+			t.Fatalf("deleting an exam with one submission after confirming %d = %v", confirmed, err)
+		}
+	}
+	if _, err := exams.Delete(t.Context(), testExamID, -1); !errors.Is(err, service.ErrInvalidInput) {
+		t.Fatalf("a negative count = %v", err)
+	}
+	if f.count(t, `SELECT count(*) FROM sessions`) != 1 || f.count(t, `SELECT count(*) FROM submission_versions`) == 0 {
+		t.Fatal("a refused deletion removed submissions")
+	}
+
 	f.publish(t, secondExamID)
-	if _, err := exams.Delete(t.Context(), secondExamID); !errors.Is(err, domain.ErrExamInUse) {
+	if _, err := exams.Delete(t.Context(), secondExamID, 0); !errors.Is(err, domain.ErrExamInUse) {
 		t.Fatalf("deleting the exam admission moved to = %v", err)
 	}
 	if _, err := publisher.Unpublish(t.Context(), secondExamID, false); err != nil {
 		t.Fatal(err)
 	}
-	deleted, err := exams.Delete(t.Context(), secondExamID)
+	deleted, err := exams.Delete(t.Context(), secondExamID, 0)
 	if err != nil || deleted != (service.DeletedExam{ID: secondExamID, Title: "Exam 2"}) {
 		t.Fatalf("deleted = %+v, %v", deleted, err)
 	}
 	if f.count(t, `SELECT count(*) FROM exams`) != 1 || f.count(t, `SELECT count(*) FROM sessions`) != 1 {
 		t.Fatal("deleting an exam changed something else")
 	}
-	if _, err := exams.Delete(t.Context(), secondExamID); !errors.Is(err, domain.ErrNotFound) {
+	if _, err := exams.Delete(t.Context(), secondExamID, 0); !errors.Is(err, domain.ErrNotFound) {
 		t.Fatalf("deleting twice = %v", err)
 	}
-	if _, err := exams.Delete(t.Context(), "bad"); !errors.Is(err, service.ErrInvalidInput) {
+	if _, err := exams.Delete(t.Context(), "bad", 0); !errors.Is(err, service.ErrInvalidInput) {
 		t.Fatalf("bad id = %v", err)
+	}
+
+	taken, err := exams.Delete(t.Context(), testExamID, 1)
+	if err != nil || taken != (service.DeletedExam{ID: testExamID, Title: "Test", Sessions: 1}) {
+		t.Fatalf("deleted the exam a student took = %+v, %v", taken, err)
+	}
+	for _, table := range []string{"exams", "sessions", "submission_versions", "event_log", "screenshots"} {
+		if n := f.count(t, `SELECT count(*) FROM `+table); n != 0 {
+			t.Errorf("%s still has %d rows", table, n)
+		}
+	}
+	// The student is still on the class roster, ready for the next exam.
+	if f.count(t, `SELECT count(*) FROM class_students`) == 0 {
+		t.Error("the roster went with the exam")
+	}
+}
+
+func TestDeletingAnExamRemovesItsScreenshotFilesAndRetriesTheOnesThatStay(t *testing.T) {
+	f := answerFixture(t)
+	login := f.login(t, "0012")
+	shots, root := imageService(t, f)
+	exams := service.NewExams(f.store, f.clock, f.sessions).RemovingFilesWith(shots)
+	loss := eligibleLoss(t, f, login.Token)
+	f.clock.Set(epoch.Add(21 * time.Second))
+	if _, err := shots.Upload(t.Context(), login.Token, loss, 0, nil, bytes.NewReader(imagePNG(t))); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.sessions.Submit(t.Context(), login.Token, domain.Answers{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.NewPublisher(f.store, f.clock).Unpublish(t.Context(), testExamID, true); err != nil {
+		t.Fatal(err)
+	}
+	folder := filepath.Join(root, login.SessionID)
+	file := filepath.Join(folder, fmtID(loss)+"-0.jpg")
+	if _, err := os.Stat(file); err != nil {
+		t.Fatalf("the screenshot was not stored: %v", err)
+	}
+
+	deleted, err := exams.Delete(t.Context(), testExamID, 1)
+	if err != nil || deleted.Sessions != 1 || deleted.Screenshots != 1 || deleted.FilesPending != 0 {
+		t.Fatalf("deleted = %+v, %v", deleted, err)
+	}
+	// The picture and its folder are gone, and nothing waits to be removed.
+	if _, err := os.Stat(folder); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the session's screenshot folder is still there: %v", err)
+	}
+	if f.count(t, `SELECT count(*) FROM deleted_screenshot_files`) != 0 {
+		t.Fatal("a removed file is still listed")
+	}
+	if _, err := os.Stat(filepath.Join(root, ".exam-platform-owner")); err != nil {
+		t.Fatalf("the screenshot root lost its ownership marker: %v", err)
+	}
+}
+
+func TestAScreenshotFileThatCannotBeRemovedIsCountedAndRemovedLater(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("directory permissions do not keep a file from being removed on Windows")
+	}
+	f := answerFixture(t)
+	login := f.login(t, "0012")
+	shots, root := imageService(t, f)
+	exams := service.NewExams(f.store, f.clock, f.sessions).RemovingFilesWith(shots)
+	loss := eligibleLoss(t, f, login.Token)
+	f.clock.Set(epoch.Add(21 * time.Second))
+	if _, err := shots.Upload(t.Context(), login.Token, loss, 0, nil, bytes.NewReader(imagePNG(t))); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.sessions.Submit(t.Context(), login.Token, domain.Answers{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.NewPublisher(f.store, f.clock).Unpublish(t.Context(), testExamID, true); err != nil {
+		t.Fatal(err)
+	}
+	folder := filepath.Join(root, login.SessionID)
+	file := filepath.Join(folder, fmtID(loss)+"-0.jpg")
+	// A folder nobody may write to keeps its file, which is what a full disk, a busy file or a permissions mistake looks like.
+	if err := os.Chmod(folder, 0500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(folder, 0700) })
+	if os.Geteuid() == 0 {
+		t.Skip("root removes files whatever the folder's permissions")
+	}
+
+	deleted, err := exams.Delete(t.Context(), testExamID, 1)
+	if err != nil || deleted.Sessions != 1 || deleted.Screenshots != 1 || deleted.FilesPending != 1 {
+		t.Fatalf("deleted = %+v, %v", deleted, err)
+	}
+	if f.count(t, `SELECT count(*) FROM exams`) != 0 || f.count(t, `SELECT count(*) FROM deleted_screenshot_files`) != 1 {
+		t.Fatal("the exam is not deleted, or the file that stayed is not listed")
+	}
+	if _, err := os.Stat(file); err != nil {
+		t.Fatalf("the file that could not be removed is gone? %v", err)
+	}
+
+	// Once it can be removed, the next pass of the server's cleanup removes it, whether or not the server restarted.
+	if err := os.Chmod(folder, 0700); err != nil {
+		t.Fatal(err)
+	}
+	report, err := shots.Reconcile(t.Context())
+	if err != nil || report.RemovedDeleted != 1 {
+		t.Fatalf("reconcile = %+v, %v", report, err)
+	}
+	if _, err := os.Stat(folder); !errors.Is(err, fs.ErrNotExist) || f.count(t, `SELECT count(*) FROM deleted_screenshot_files`) != 0 {
+		t.Fatal("the file was not removed, or is still listed")
 	}
 }
 

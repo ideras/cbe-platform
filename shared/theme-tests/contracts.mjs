@@ -205,6 +205,8 @@ export function registerThemeTests() {
       ['on-dark', 'ocean-deep'], ['on-dark', 'action-hover'], ['accent-cyan-soft', 'ocean-deep'], ['accent-cyan-soft', 'action-hover'],
       // The purge dialog: white on its solid button and marks and across its header gradient, and its pale eyebrow on the dark end.
       ['on-dark', 'alert'], ['on-dark', 'alert-deep'], ['on-dark', 'alert-strong'], ['alert-fill', 'alert-deep'],
+      // The delete exam dialog: the pale check on the muted badge of its result, its Download link and its download note on the gate.
+      ['bg-primary', 'text-muted'], ['action-hover', 'bg-primary'], ['ok-text', 'bg-primary'],
     ];
     for (const [fg, bg] of pairs) {
       const ratio = contrast(color(`--${fg}`), color(`--${bg}`));

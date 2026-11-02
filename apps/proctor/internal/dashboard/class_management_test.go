@@ -87,7 +87,7 @@ func TestDeletingAClassNeedsConfirmationAndIsReportedFaithfully(t *testing.T) {
 		case "/admin/class/" + classID:
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusConflict)
-			reply(w, map[string]string{"error": "the class has exams; delete its exams first (exams students have taken cannot be deleted)"})
+			reply(w, map[string]string{"error": "the class has exams; delete its exams first"})
 		case "/admin/class/" + otherClass:
 			reply(w, map[string]any{"class_id": otherClass, "name": "History 11B", "students": 24, "pruned": 3})
 		default:

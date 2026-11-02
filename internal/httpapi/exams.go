@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"mime"
 	"net/http"
+	"strconv"
 	"time"
 
 	"exam-platform/internal/domain"
@@ -19,7 +20,7 @@ import (
 type ExamAPI interface {
 	Create(ctx context.Context, classID string, input service.CreateExamInput) (string, error)
 	Preview(ctx context.Context, input service.CreateExamInput) (service.ExamPreview, error)
-	Delete(ctx context.Context, examID string) (service.DeletedExam, error)
+	Delete(ctx context.Context, examID string, submissions int) (service.DeletedExam, error)
 	Detail(ctx context.Context, examID string) (service.ExamDetail, error)
 	PIN(ctx context.Context, examID string) (service.ExamPIN, error)
 }
@@ -205,17 +206,31 @@ func examPINHandler(exams ExamAPI, logger *slog.Logger) http.HandlerFunc {
 	}
 }
 
+// deleteExamHandler deletes an exam and, with it, the submissions students made in it. An exam students took is deleted only
+// when the request says how many submissions it has, as submissions=N: the caller has been told the number and agrees to lose
+// exactly those, and a different number is refused. Without the query only an exam nobody took can be deleted.
 func deleteExamHandler(exams ExamAPI, logger *slog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if _, ok := proctorQuery(w, r); !ok {
+		query, ok := proctorQuery(w, r, "submissions")
+		if !ok {
 			return
 		}
-		deleted, err := exams.Delete(r.Context(), r.PathValue("id"))
+		submissions := 0
+		if value := query.Get("submissions"); value != "" {
+			// Digits only and a sane size: no sign, no space, nothing a count cannot be.
+			n, err := strconv.ParseUint(value, 10, 31)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, "invalid query")
+				return
+			}
+			submissions = int(n)
+		}
+		deleted, err := exams.Delete(r.Context(), r.PathValue("id"), submissions)
 		if err != nil {
 			serviceError(w, logger, "delete exam", err)
 			return
 		}
-		logger.Info("exam deleted", "exam_id", deleted.ID)
+		logger.Info("exam deleted", "exam_id", deleted.ID, "sessions", deleted.Sessions, "screenshots", deleted.Screenshots, "files_pending", deleted.FilesPending)
 		writeJSON(w, http.StatusOK, deleted)
 	}
 }

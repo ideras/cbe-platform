@@ -21,6 +21,7 @@ Tabler Icons (github.com/tabler/tabler-icons/blob/main/LICENSE):
   eye.svg: eye
   eye-off.svg: eye-off
   file-check.svg: file-check
+  file-x.svg: file-x
   folder.svg: folder-open
   gear.svg: settings
   grip.svg: grip-vertical

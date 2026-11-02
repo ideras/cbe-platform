@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -287,7 +288,17 @@ func TestBuiltServerStartedEmptyIsPreparedAndPublishedFromTheDashboard(t *testin
 		}
 		return len(v.Roster.Sessions) == 1 && len(v.Roster.Missing) == 1 && v.Roster.Missing[0].Account == "0004" && working == 1
 	})
-	if _, err := s.DeleteExam(first, true); err == nil || !strings.Contains(err.Error(), "published or students have taken it") {
+	// The students the dashboard counts for an exam: the number its deletion has to confirm.
+	sessionsOf := func(id string) int {
+		for _, e := range s.Snapshot().Catalog.Exams {
+			if e.ID == id {
+				return e.TotalSessions
+			}
+		}
+		t.Fatalf("exam %s is not in the catalog", id)
+		return 0
+	}
+	if _, err := s.DeleteExam(first, sessionsOf(first), true); err == nil || !strings.Contains(err.Error(), "published or students are still working in it") {
 		t.Fatalf("deleting the published exam = %v", err)
 	}
 
@@ -307,7 +318,8 @@ func TestBuiltServerStartedEmptyIsPreparedAndPublishedFromTheDashboard(t *testin
 		v := s.Snapshot()
 		return v.ExamID == second && v.Loaded && v.Catalog.CurrentExamID == second && v.Catalog.CurrentClassID == classB.ID && !v.Stale
 	})
-	if status, _ := login("0003", "retake-pin"); status != http.StatusOK {
+	status, retakeToken := login("0003", "retake-pin")
+	if status != http.StatusOK || retakeToken == "" {
 		t.Fatalf("login to the newly published exam = %d", status)
 	}
 	if status, _ := login("0004", "retake-pin"); status != http.StatusUnauthorized {
@@ -333,17 +345,45 @@ func TestBuiltServerStartedEmptyIsPreparedAndPublishedFromTheDashboard(t *testin
 		t.Fatalf("login after closing admission = %d", status)
 	}
 
-	// Only an exam nobody has taken can be deleted, and once a class has none left it can be deleted too.
-	if _, err := s.DeleteExam(first, true); err == nil || !strings.Contains(err.Error(), "published or students have taken it") {
-		t.Fatalf("deleting an exam a student took = %v", err)
+	// An exam is deleted when it is not published and nobody is working in it. Students who finished take their submissions with
+	// it, and only for a confirmation of exactly how many there are.
+	wait(t, func() bool { v := s.Snapshot(); return sessionsOf(first) == 1 && sessionsOf(second) == 1 && !v.Busy })
+	for _, id := range []string{first, second} {
+		if _, err := s.DeleteExam(id, 1, true); err == nil || !strings.Contains(err.Error(), "published or students are still working in it") {
+			t.Fatalf("deleting an exam a student is still working in = %v", err)
+		}
 	}
-	if _, err := s.DeleteExam(second, true); err == nil {
-		t.Fatal("deleting an exam a student took was accepted")
-	}
-	if deleted, err := s.DeleteExam(draft, true); err != nil || deleted.ID != draft || deleted.Title != "Draft" {
+	if deleted, err := s.DeleteExam(draft, 0, true); err != nil || deleted.ID != draft || deleted.Title != "Draft" || deleted.Sessions != 0 || deleted.Screenshots != 0 {
 		t.Fatalf("deleting an exam nobody took = %+v, %v", deleted, err)
 	}
-	wait(t, func() bool { v := s.Snapshot(); return len(v.Catalog.Exams) == 2 && !v.Busy })
+	submit, _ := http.NewRequest(http.MethodPost, server+"/submit", strings.NewReader(`{"answers":{}}`))
+	submit.Header.Set("Authorization", "Bearer "+retakeToken)
+	submit.Header.Set("Content-Type", "application/json")
+	if resp, err := http.DefaultClient.Do(submit); err != nil || resp.StatusCode != http.StatusOK {
+		var detail []byte
+		if resp != nil {
+			detail, _ = io.ReadAll(resp.Body)
+		}
+		t.Fatalf("submit = %v %s, %v", resp.Status, detail, err)
+	} else {
+		resp.Body.Close()
+	}
+	s.Refresh()
+	wait(t, func() bool {
+		v := s.Snapshot()
+		return v.Catalog.CurrentExamID == "" && !v.Busy && sessionsOf(second) == 1
+	})
+	if _, err := s.DeleteExam(second, 0, true); err == nil || !strings.Contains(err.Error(), "changed since you were shown") {
+		t.Fatalf("deleting an exam that has a submission without confirming it = %v", err)
+	}
+	deleted, err := s.DeleteExam(second, 1, true)
+	if err != nil || deleted.ID != second || deleted.Title != "Retake" || deleted.Sessions != 1 || deleted.Screenshots != 0 || deleted.FilesPending != 0 {
+		t.Fatalf("deleting an exam with a submission = %+v, %v", deleted, err)
+	}
+	if status, _ := login("0003", "retake-pin"); status != http.StatusServiceUnavailable && status != http.StatusUnauthorized {
+		t.Fatalf("a deleted exam still admits students: %d", status)
+	}
+	wait(t, func() bool { v := s.Snapshot(); return len(v.Catalog.Exams) == 1 && !v.Busy })
 	chosen = write("Class-C.csv", header+"1,0009,Eve,eve@x.invalid,S9\n")
 	if _, err := s.ChooseClassFile(); err != nil {
 		t.Fatal(err)
@@ -357,7 +397,7 @@ func TestBuiltServerStartedEmptyIsPreparedAndPublishedFromTheDashboard(t *testin
 	if _, err := s.DeleteClass(classC.ID, true); err == nil || !strings.Contains(err.Error(), "Delete its exams first") {
 		t.Fatalf("deleting a class with an exam nobody took = %v", err)
 	}
-	if _, err := s.DeleteExam(spare, true); err != nil {
+	if _, err := s.DeleteExam(spare, 0, true); err != nil {
 		t.Fatal(err)
 	}
 	if deleted, err := s.DeleteClass(classC.ID, true); err != nil || deleted.Name != "Class C" || deleted.Students != 1 || deleted.Pruned != 1 {
@@ -383,7 +423,7 @@ func TestBuiltServerStartedEmptyIsPreparedAndPublishedFromTheDashboard(t *testin
 		t.Fatalf("the published exam was forgotten by a restart: %d", status)
 	}
 	wait(t, func() bool { v := s.Snapshot(); return v.Catalog.CurrentExamID == first && !v.Stale })
-	if v := s.Snapshot(); len(v.Classes) != 2 || len(v.Catalog.Exams) != 2 {
+	if v := s.Snapshot(); len(v.Classes) != 2 || len(v.Catalog.Exams) != 1 {
 		t.Fatalf("the classes or exams were forgotten by a restart: %+v", v)
 	}
 

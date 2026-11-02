@@ -109,3 +109,24 @@ func (t *sessionTransaction) MarkScreenshotPurge(ctx context.Context, exam strin
 	_, err := t.tx.ExecContext(ctx, `UPDATE screenshots SET state='deleting' WHERE session_id IN (SELECT session_id FROM sessions WHERE exam_id=?)`, exam)
 	return err
 }
+
+func (t *sessionTransaction) DeletedFiles(ctx context.Context) ([]string, error) {
+	rows, err := t.tx.QueryContext(ctx, `SELECT file_path FROM deleted_screenshot_files ORDER BY file_path`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var paths []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		paths = append(paths, name)
+	}
+	return paths, rows.Err()
+}
+func (t *sessionTransaction) ForgetDeletedFile(ctx context.Context, name string) error {
+	_, err := t.tx.ExecContext(ctx, `DELETE FROM deleted_screenshot_files WHERE file_path=?`, name)
+	return err
+}
