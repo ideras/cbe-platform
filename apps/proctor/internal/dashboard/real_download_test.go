@@ -243,4 +243,50 @@ func TestRealServerDownloadedSubmissionsAreTheExamWithAnswers(t *testing.T) {
 	if err != nil || renamed.NeedsConfirmation || len(renamed.Files) != 1 || renamed.Folder != filepath.Join(chosenFolder, "Notas del Parcial") {
 		t.Fatalf("renamed download = %+v, %v", renamed, err)
 	}
+
+	// The same exam as an answers-only download: the saved answers of the final version under the exam's field labels, and
+	// nothing of the questions, the figure or the exam's Markdown.
+	if preview.AnswersOnlyFolderName != preview.FolderName+"-AnswersOnly" {
+		t.Fatalf("answers-only folder = %q, complete folder = %q", preview.AnswersOnlyFolderName, preview.FolderName)
+	}
+	onlyAnswers, err := s.DownloadSubmissionsWithMode(imported.ExamID, preview.AnswersOnlyFolderName, FormatAnswersOnly, false, true)
+	if err != nil || onlyAnswers.NeedsConfirmation || onlyAnswers.Format != FormatAnswersOnly || len(onlyAnswers.Files) != 1 || onlyAnswers.Files[0] != "Jose_Nunez_Martinez.md" ||
+		len(onlyAnswers.Skipped) != 1 || len(onlyAnswers.Failed) != 0 || len(onlyAnswers.Warnings) != 0 {
+		t.Fatalf("answers-only download = %+v, %v", onlyAnswers, err)
+	}
+	record, err := os.ReadFile(filepath.Join(onlyAnswers.Folder, "Jose_Nunez_Martinez.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`export_format: "answers-only"`, `student: "José Ñúñez Martínez"`, `account_number: "0001"`, `exam_id: "` + imported.ExamID + `"`, `status: "submitted by the student"`,
+		"**Field:** `1.q1`  \n**Kind:** `blank`  \n**Answer state:** `answered`\n\n```text title=\"1.q1\"\n16\n```\n",
+		"**Field:** `1.code`  \n**Kind:** `code`  \n**Answer state:** `answered`\n\n```mips title=\"1.code\"\nmult $s0, $s1\n```\n",
+	} {
+		if !strings.Contains(string(record), want) {
+			t.Errorf("answers-only file does not contain %q:\n%s", want, record)
+		}
+	}
+	for _, unwanted := range []string{"Cantidad", "figura.png", "base64", "<img", "points=10", "times_locked"} {
+		if strings.Contains(string(record), unwanted) {
+			t.Errorf("answers-only file contains %q:\n%s", unwanted, record)
+		}
+	}
+	checklist, err := os.ReadFile(filepath.Join(onlyAnswers.Folder, indexFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`export_format: "answers-only"`, "| Bruno | 0002 | still working |", "| written | [Jose_Nunez_Martinez.md](Jose_Nunez_Martinez.md) |", "| Carla | 0003 | never logged in |"} {
+		if !strings.Contains(string(checklist), want) {
+			t.Errorf("answers-only _index.md does not contain %q:\n%s", want, checklist)
+		}
+	}
+	if err := s.OpenDownloadFolder(); err != nil || opened != onlyAnswers.Folder {
+		t.Fatalf("open folder = %q, %v", opened, err)
+	}
+	// Asking for the other format in the complete download's folder names the format that is there before replacing it.
+	crossed, err := s.DownloadSubmissionsWithMode(imported.ExamID, preview.AnswersOnlyFolderName, FormatComplete, false, true)
+	if err != nil || !crossed.NeedsConfirmation || crossed.ExistingFormat != FormatAnswersOnly || crossed.Format != FormatComplete {
+		t.Fatalf("complete into the answers-only folder = %+v, %v", crossed, err)
+	}
 }

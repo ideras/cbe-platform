@@ -30,10 +30,25 @@ type downloadServer struct {
 	failing           map[string]bool
 	holdSubmission    chan struct{}
 	submissionStarted chan struct{}
+	// requests lists "METHOD /path" of every request since the last resetRequests.
+	requests []string
+}
+
+func (d *downloadServer) resetRequests() {
+	d.mu.Lock()
+	d.requests = nil
+	d.mu.Unlock()
+}
+
+func (d *downloadServer) requested() []string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return append([]string(nil), d.requests...)
 }
 
 func (d *downloadServer) handler(w http.ResponseWriter, r *http.Request) {
 	d.mu.Lock()
+	d.requests = append(d.requests, r.Method+" "+r.URL.Path)
 	detail, roster, subs, failing := d.detail, d.roster, d.subs, d.failing
 	hold, started := d.holdSubmission, d.submissionStarted
 	d.mu.Unlock()

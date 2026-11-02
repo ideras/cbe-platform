@@ -150,3 +150,9 @@ func downloadFolderName(className, examTitle string) string {
 	}
 	return class + "-" + exam
 }
+
+// answersOnlyFolderName is the folder offered for an answers-only download: the complete download's name and -AnswersOnly. The
+// student file names do not change with the format, so a different folder is what keeps the two formats apart.
+func answersOnlyFolderName(className, examTitle string) string {
+	return downloadFolderName(className, examTitle) + "-AnswersOnly"
+}

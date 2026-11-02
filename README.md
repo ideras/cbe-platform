@@ -12,6 +12,8 @@ CBE Portal is a computer-based examination platform for supervised exams on an i
 
 For grace extensions, class-wide end times and their effect on late arrivals, see [Managing exam time](docs/exam-timing.md).
 
+For downloading finished submissions, either as the complete exam or as answers only, see [Downloading submissions](docs/submission-downloads.md).
+
 The student app and proctor dashboard are native desktop applications. Each embeds its frontend and communicates with the server through Go services exposed by Wails.
 
 ## Development stack
@@ -56,7 +58,7 @@ shared/examdoc/      Markdown exam compiler and examc command
 shared/examimage/    Checks and writes the pictures embedded in exams
 shared/exam/         Shared exam rendering helpers
 shared/theme/        Shared styles and Svelte components
-docs/                Deployment documentation
+docs/                Deployment, exam format, exam timing and submission download documentation
 Makefile             Build and verification commands
 ```
 

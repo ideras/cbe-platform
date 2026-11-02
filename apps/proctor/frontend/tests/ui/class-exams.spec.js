@@ -423,7 +423,7 @@ test('choosing a folder only fills the path; Start download shows progress and k
   await expect(dialog).toBeVisible();
   await dialog.locator('.actions').getByRole('button', { name: 'Close' }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
-  expect((await calls(page)).download).toEqual([{ examId: EXAM, folderName: 'My Notes', replace: false, confirmed: true }]);
+  expect((await calls(page)).download).toEqual([{ examId: EXAM, folderName: 'My Notes', mode: 'complete', replace: false, confirmed: true }]);
 });
 
 test('a failure to open the folder is shown in the dialog, which stays open', async ({ page }) => {
@@ -456,7 +456,7 @@ test('an existing download folder is replaced only after the question, and notes
   await page.getByRole('dialog').getByRole('button', { name: 'Replace files' }).click();
   await expect(page.getByRole('dialog').getByRole('status')).toContainText('Downloaded 28 submissions');
   const done = await calls(page);
-  expect(done.download).toEqual([{ examId: EXAM, folderName: 'Mathematics_10A-Databases_midterm', replace: false, confirmed: true }, { examId: EXAM, folderName: 'Mathematics_10A-Databases_midterm', replace: false, confirmed: true }, { examId: EXAM, folderName: 'Mathematics_10A-Databases_midterm', replace: true, confirmed: true }]);
+  expect(done.download).toEqual([{ examId: EXAM, folderName: 'Mathematics_10A-Databases_midterm', mode: 'complete', replace: false, confirmed: true }, { examId: EXAM, folderName: 'Mathematics_10A-Databases_midterm', mode: 'complete', replace: false, confirmed: true }, { examId: EXAM, folderName: 'Mathematics_10A-Databases_midterm', mode: 'complete', replace: true, confirmed: true }]);
   await page.getByRole('dialog').locator('.actions').getByRole('button', { name: 'Close' }).click();
 });
 
@@ -559,6 +559,207 @@ test('a download that wrote no student file offers no Open folder', async ({ pag
   await dialog.locator('.actions').getByRole('button', { name: 'Close' }).click();
   await expect(exams.getByRole('status')).toContainText('Downloaded 0 submissions');
   await expect(exams.getByRole('button', { name: 'Open folder' })).toHaveCount(0);
+});
+
+// The download format: Complete exam (the default) or Answers only. Choosing it only changes what the dialog says.
+const COMPLETE_NAME = 'Mathematics_10A-Databases_midterm';
+const ANSWERS_NAME = 'Mathematics_10A-Databases_midterm-AnswersOnly';
+async function openDownload(page, prepare) {
+  const exams = await connect(page, prepare);
+  await exams.getByRole('button', { name: 'Download submissions of Databases midterm…' }).click();
+  return { exams, dialog: page.getByRole('dialog', { name: 'Download submissions — Databases midterm' }) };
+}
+const formatGroup = dialog => dialog.getByRole('group', { name: 'Download format' });
+
+test('the download dialog offers Complete exam, selected, and Answers only, with their help text', async ({ page }) => {
+  const { dialog } = await openDownload(page);
+  const complete = formatGroup(dialog).getByRole('radio', { name: 'Complete exam' });
+  const answers = formatGroup(dialog).getByRole('radio', { name: 'Answers only' });
+  await expect(formatGroup(dialog).getByRole('radio')).toHaveCount(2);
+  await expect(complete).toBeChecked(); await expect(answers).not.toBeChecked();
+  await expect(complete).toHaveAccessibleDescription('Includes the exam text with each student’s answers inserted.');
+  await expect(answers).toHaveAccessibleDescription('Includes saved answers and field labels, without the exam questions.');
+  await expect(dialog).toContainText('One Markdown file per student, with their answers in the exam.');
+  await expect(dialog).not.toContainText('Answers-only files need the original exam');
+  await expect(dialog.getByLabel('Output folder name')).toHaveValue(COMPLETE_NAME);
+});
+
+test('choosing Answers only changes the text and the untouched folder name, and sends nothing', async ({ page }) => {
+  const { dialog } = await openDownload(page);
+  await formatGroup(dialog).getByRole('radio', { name: 'Answers only' }).check();
+  await expect(formatGroup(dialog).getByRole('radio', { name: 'Answers only' })).toBeChecked();
+  await expect(dialog).not.toContainText('with their answers in the exam');
+  await expect(dialog).toContainText('without the exam questions');
+  await expect(dialog).toContainText('Answers-only files need the original exam for grading context.');
+  await expect(dialog.getByLabel('Output folder name')).toHaveValue(ANSWERS_NAME);
+  // Back to the complete exam: the text and the suggestion come back with it.
+  await formatGroup(dialog).getByRole('radio', { name: 'Complete exam' }).check();
+  await expect(dialog).toContainText('One Markdown file per student, with their answers in the exam.');
+  await expect(dialog.getByLabel('Output folder name')).toHaveValue(COMPLETE_NAME);
+  const done = await calls(page);
+  expect(done.download).toEqual([]); expect(done.chooseDownloadFolder).toEqual([]);
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  const cancelled = await calls(page);
+  expect(cancelled.download).toEqual([]); expect(cancelled.chooseDownloadFolder).toEqual([]); expect(cancelled.prepareDownload).toEqual([EXAM]);
+});
+
+test('a folder name the proctor typed survives a change of format', async ({ page }) => {
+  const { dialog } = await openDownload(page);
+  const name = dialog.getByLabel('Output folder name');
+  await name.fill('My Notes');
+  await formatGroup(dialog).getByRole('radio', { name: 'Answers only' }).check();
+  await expect(name).toHaveValue('My Notes');
+  await formatGroup(dialog).getByRole('radio', { name: 'Complete exam' }).check();
+  await expect(name).toHaveValue('My Notes');
+  // Even a name typed over the suggestion of the other format is the proctor's now.
+  await formatGroup(dialog).getByRole('radio', { name: 'Answers only' }).check();
+  await name.fill(ANSWERS_NAME);
+  await formatGroup(dialog).getByRole('radio', { name: 'Complete exam' }).check();
+  await expect(name).toHaveValue(ANSWERS_NAME);
+});
+
+test('Answers only is sent with its folder, and the result says which format was written', async ({ page }) => {
+  const { exams, dialog } = await openDownload(page);
+  await dialog.getByRole('button', { name: 'Choose folder…' }).click();
+  await formatGroup(dialog).getByRole('radio', { name: 'Answers only' }).check();
+  await expect(dialog).toContainText(`Files go into /home/proctor/Downloads/${ANSWERS_NAME}.`);
+  await dialog.getByRole('button', { name: 'Start download' }).click();
+  await expect(dialog.getByRole('status')).toContainText(`Downloaded 28 answers-only submissions to /home/proctor/Downloads/${ANSWERS_NAME}.`);
+  await expect(dialog).toContainText('Format: Answers only.');
+  await expect(dialog.getByRole('button', { name: 'Open folder' })).toBeVisible();
+  // The format control is locked once the result is shown, like the other fields.
+  await expect(formatGroup(dialog).getByRole('radio', { name: 'Complete exam' })).toBeDisabled();
+  await expect(formatGroup(dialog).getByRole('radio', { name: 'Answers only' })).toBeDisabled();
+  await dialog.locator('.actions').getByRole('button', { name: 'Close' }).click();
+  expect((await calls(page)).download).toEqual([{ examId: EXAM, folderName: ANSWERS_NAME, mode: 'answers-only', replace: false, confirmed: true }]);
+  // The panel keeps the result, and Open folder, after the dialog is closed.
+  const line = exams.getByRole('status');
+  await expect(line).toContainText(`Downloaded 28 answers-only submissions to /home/proctor/Downloads/${ANSWERS_NAME}.`);
+  await line.getByRole('button', { name: 'Open folder' }).click();
+  expect((await calls(page)).openDownloadFolder).toBe(1);
+});
+
+test('the complete exam is sent by default and its result names the complete format', async ({ page }) => {
+  const { dialog } = await openDownload(page);
+  await dialog.getByRole('button', { name: 'Choose folder…' }).click();
+  await dialog.getByRole('button', { name: 'Start download' }).click();
+  await expect(dialog.getByRole('status')).toContainText(`Downloaded 28 submissions to /home/proctor/Downloads/${COMPLETE_NAME}.`);
+  await expect(dialog).toContainText('Format: Complete exam.');
+  await dialog.locator('.actions').getByRole('button', { name: 'Close' }).click();
+  expect((await calls(page)).download).toEqual([{ examId: EXAM, folderName: COMPLETE_NAME, mode: 'complete', replace: false, confirmed: true }]);
+});
+
+test('the format control locks while the download runs', async ({ page }) => {
+  const { dialog } = await openDownload(page, () => window.ProctorHarness.holdDownload());
+  await dialog.getByRole('button', { name: 'Choose folder…' }).click();
+  await formatGroup(dialog).getByRole('radio', { name: 'Answers only' }).check();
+  await dialog.getByRole('button', { name: 'Start download' }).click();
+  await expect(dialog.getByRole('button', { name: 'Downloading…' })).toBeDisabled();
+  await expect(formatGroup(dialog).getByRole('radio', { name: 'Complete exam' })).toBeDisabled();
+  await expect(formatGroup(dialog).getByRole('radio', { name: 'Answers only' })).toBeDisabled();
+  await expect(dialog.getByLabel('Output folder name')).toBeDisabled();
+  await page.evaluate(() => window.ProctorHarness.releaseDownload());
+  await expect(dialog.getByRole('status')).toContainText('Downloaded 28 answers-only submissions');
+});
+
+test('the format control locks while the replace question is open', async ({ page }) => {
+  const { dialog } = await openDownload(page, () => window.ProctorHarness.downloadNeedsReplace());
+  await dialog.getByRole('button', { name: 'Choose folder…' }).click();
+  await formatGroup(dialog).getByRole('radio', { name: 'Answers only' }).check();
+  await dialog.getByRole('button', { name: 'Start download' }).click();
+  await expect(dialog).toContainText('Replace the 28 files from the earlier download?');
+  await expect(formatGroup(dialog).getByRole('radio', { name: 'Complete exam' })).toBeDisabled();
+  await expect(formatGroup(dialog).getByRole('radio', { name: 'Answers only' })).toBeDisabled();
+  await expect(formatGroup(dialog).getByRole('radio', { name: 'Answers only' })).toBeChecked();
+  await expect(dialog.getByLabel('Output folder name')).toBeDisabled();
+});
+
+test('the replace question repeats the same format and folder, and names a different format in the folder', async ({ page }) => {
+  const { dialog } = await openDownload(page, () => { window.ProctorHarness.downloadNeedsReplace(); window.ProctorHarness.downloadExistingFormat('complete'); });
+  await dialog.getByRole('button', { name: 'Choose folder…' }).click();
+  await formatGroup(dialog).getByRole('radio', { name: 'Answers only' }).check();
+  await dialog.getByLabel('Output folder name').fill('Grading copies');
+  await dialog.getByRole('button', { name: 'Start download' }).click();
+  await expect(dialog).toContainText('Replace the 28 files from the earlier download?');
+  await expect(dialog).toContainText('The earlier download in this folder is complete-exam, and this one is answers-only. Its files change format.');
+  await expect(dialog).toContainText('Notes you wrote in them are lost. Files you added yourself are left alone.');
+  await dialog.getByRole('button', { name: 'Replace files' }).click();
+  await expect(dialog.getByRole('status')).toContainText('Downloaded 28 answers-only submissions to /home/proctor/Downloads/Grading copies.');
+  expect((await calls(page)).download).toEqual([
+    { examId: EXAM, folderName: 'Grading copies', mode: 'answers-only', replace: false, confirmed: true },
+    { examId: EXAM, folderName: 'Grading copies', mode: 'answers-only', replace: true, confirmed: true },
+  ]);
+});
+
+test('the replace question says nothing about formats when the folder holds the same one, or none can be told', async ({ page }) => {
+  for (const existing of ['answers-only', '']) {
+    const { dialog } = await openDownload(page, () => { window.ProctorHarness.downloadNeedsReplace(); });
+    await page.evaluate(format => window.ProctorHarness.downloadExistingFormat(format), existing);
+    await dialog.getByRole('button', { name: 'Choose folder…' }).click();
+    await formatGroup(dialog).getByRole('radio', { name: 'Answers only' }).check();
+    await dialog.getByRole('button', { name: 'Start download' }).click();
+    await expect(dialog).toContainText('Replace the 28 files from the earlier download?');
+    await expect(dialog).not.toContainText('change format');
+    await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+  }
+});
+
+test('a complete download in an answers-only folder is warned about before replacing it', async ({ page }) => {
+  const { dialog } = await openDownload(page, () => { window.ProctorHarness.downloadNeedsReplace(); window.ProctorHarness.downloadExistingFormat('answers-only'); });
+  await dialog.getByRole('button', { name: 'Choose folder…' }).click();
+  await dialog.getByLabel('Output folder name').fill('Shared folder');
+  await dialog.getByRole('button', { name: 'Start download' }).click();
+  await expect(dialog).toContainText('The earlier download in this folder is answers-only, and this one is complete-exam. Its files change format.');
+  await dialog.getByRole('button', { name: 'Replace files' }).click();
+  await expect(dialog.getByRole('status')).toContainText('Downloaded 28 submissions to');
+  await expect(dialog).toContainText('Format: Complete exam.');
+});
+
+test('a missing exam source is not mentioned in either format', async ({ page }) => {
+  const { dialog } = await openDownload(page, () => window.ProctorHarness.downloadPreview({ source_available: false }));
+  for (const label of ['Complete exam', 'Answers only']) {
+    await formatGroup(dialog).getByRole('radio', { name: label }).check();
+    await expect(dialog).not.toContainText('not on the server');
+    await expect(dialog).not.toContainText('stored Markdown');
+    await expect(dialog).not.toContainText('no longer matches');
+    await expect(dialog).not.toContainText('answers without the questions');
+    await expect(dialog.getByRole('alert')).toHaveCount(0);
+  }
+  await dialog.getByRole('button', { name: 'Choose folder…' }).click();
+  await dialog.getByRole('button', { name: 'Start download' }).click();
+  await expect(dialog.getByRole('status')).toContainText('Downloaded 28 answers-only submissions');
+  await expect(dialog.locator('.callout.warning')).toHaveCount(0);
+});
+
+test('an answers-only download shows the fields the instructor must check, and a partial failure names the students', async ({ page }) => {
+  const warnings = ['2 students’ files have answer fields with no saved value (Ana, Luis). They are marked missing in the file and listed in _index.md.'];
+  const { dialog } = await openDownload(page, () => { window.ProctorHarness.downloadFailure('Student 099'); });
+  await page.evaluate(value => window.ProctorHarness.downloadWarnings(value), warnings);
+  await formatGroup(dialog).getByRole('radio', { name: 'Answers only' }).check();
+  await dialog.getByRole('button', { name: 'Choose folder…' }).click();
+  await dialog.getByRole('button', { name: 'Start download' }).click();
+  await expect(dialog.getByRole('status')).toContainText('Downloaded 27 answers-only submissions');
+  await expect(dialog.getByRole('alert')).toContainText('PARTIAL: 1 could not be written. Retry for Student 099.');
+  await expect(dialog.locator('.callout.warning').filter({ hasText: 'no saved value (Ana, Luis)' })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Open folder' })).toBeVisible();
+  await dialog.locator('.actions').getByRole('button', { name: 'Close' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'PARTIAL: downloaded 27 of 28 answers-only submissions to /home/proctor/Downloads/' + ANSWERS_NAME })).toContainText('Retry for Student 099.');
+});
+
+test('an error keeps the chosen format so the proctor can try again', async ({ page }) => {
+  const { dialog } = await openDownload(page, () => window.ProctorHarness.downloadFails('Server unreachable. The download did not start.'));
+  await dialog.getByRole('button', { name: 'Choose folder…' }).click();
+  await formatGroup(dialog).getByRole('radio', { name: 'Answers only' }).check();
+  await dialog.getByRole('button', { name: 'Start download' }).click();
+  await expect(dialog.getByRole('alert')).toContainText('Server unreachable. The download did not start.');
+  await expect(formatGroup(dialog).getByRole('radio', { name: 'Answers only' })).toBeChecked();
+  await expect(formatGroup(dialog).getByRole('radio', { name: 'Answers only' })).toBeEnabled();
+  await page.evaluate(() => window.ProctorHarness.downloadFails(''));
+  await dialog.getByRole('button', { name: 'Start download' }).click();
+  await expect(dialog.getByRole('status')).toContainText('Downloaded 28 answers-only submissions');
+  expect((await calls(page)).download.map(item => item.mode)).toEqual(['answers-only', 'answers-only']);
 });
 
 test('the import preview and the exam row say which calculator the exam gives its students', async ({ page }) => {

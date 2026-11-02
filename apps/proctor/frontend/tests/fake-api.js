@@ -55,6 +55,10 @@ let settingsStale = false;
 // Downloading submissions: the Go side counts the sessions and writes the files; these stand in for it.
 let downloadPreviewOverride = {};
 let downloadNeedsReplace = false;
+// The format the replace question says the existing folder holds ('' when the folder has no readable index) and the warnings a
+// finished download reports.
+let downloadExistingFormat = '';
+let downloadWarnings = [];
 let downloadFails = '';
 let downloadFailureFor = null;
 let openFolderFails = '';
@@ -349,7 +353,7 @@ export async function ReleaseLogin(sessionID, reason, confirmed) {
 function downloadPreview(examId) {
   const entry = exams.find(item => item.exam_id === examId);
   const folderName = `${(className(entry?.class_id) || 'Class').replace(/\s+/g, '_')}-${(entry?.title || 'Exam').replace(/\s+/g, '_')}`;
-  return { exam_id: examId, title: entry?.title ?? '', class_name: className(entry?.class_id), folder_name: folderName,
+  return { exam_id: examId, title: entry?.title ?? '', class_name: className(entry?.class_id), folder_name: folderName, answers_only_folder_name: `${folderName}-AnswersOnly`,
     finished: 28, working: 2, finishing: 0, never_logged_in: 3, source_available: true, ...downloadPreviewOverride };
 }
 export async function PrepareDownload(examId) {
@@ -362,14 +366,20 @@ export async function ChooseDownloadFolder() {
   return downloadFolder;
 }
 export async function DownloadProgress() { return lastDownloadProgress; }
+// The two download formats, as the Go side accepts them: anything else fails before the server is asked anything.
+const DOWNLOAD_FORMATS = ['complete', 'answers-only'];
 export async function DownloadSubmissions(examId, folderName, replace, confirmed) {
-  calls.download.push({ examId, folderName, replace, confirmed });
+  return DownloadSubmissionsWithMode(examId, folderName, 'complete', replace, confirmed);
+}
+export async function DownloadSubmissionsWithMode(examId, folderName, mode, replace, confirmed) {
+  calls.download.push({ examId, folderName, mode, replace, confirmed });
+  if (!DOWNLOAD_FORMATS.includes(mode)) throw new Error('Unknown download format; nothing was sent.');
   if (downloadFails) throw new Error(downloadFails);
   const preview = downloadPreview(examId);
   const folder = `${downloadFolder}/${folderName}`;
   const skipped = [];
   if (downloadNeedsReplace && !replace) {
-    return { needs_confirmation: true, folder, folder_name: folderName, replace_count: 28, files: [], skipped: [], failed: [], warnings: [] };
+    return { needs_confirmation: true, folder, folder_name: folderName, format: mode, existing_format: downloadExistingFormat, replace_count: 28, files: [], skipped: [], failed: [], warnings: [] };
   }
   lastDownloadProgress = { running: true, done: 0, total: preview.finished, current: 'Student 001' };
   if (downloadHeld) await new Promise(resolve => { releaseDownload = resolve; });
@@ -379,7 +389,7 @@ export async function DownloadSubmissions(examId, folderName, replace, confirmed
   for (let i = 0; i < preview.working; i++) skipped.push({ student_name: `Student ${String(29 + i).padStart(3, '0')}`, account_number: String(29 + i).padStart(4, '0'), status: 'working' });
   for (let i = 0; i < preview.finishing; i++) skipped.push({ student_name: `Student ${String(40 + i).padStart(3, '0')}`, account_number: String(40 + i).padStart(4, '0'), status: 'finishing' });
   lastDownloadProgress = { running: false, done: preview.finished, total: preview.finished, current: '' };
-  return { needs_confirmation: false, folder, folder_name: folderName, replace_count: 0, files, skipped, failed, warnings: [] };
+  return { needs_confirmation: false, folder, folder_name: folderName, format: mode, existing_format: '', replace_count: 0, files, skipped, failed, warnings: [...downloadWarnings] };
 }
 export async function OpenDownloadFolder() { calls.openDownloadFolder++; if (openFolderFails) throw new Error(openFolderFails); }
 export async function PurgeScreenshots(exam, confirmed) { calls.purge.push({ exam, confirmed }); imageMissing = true; return { exam_id: exam, deleted: 1, complete: !partialPurge, failed_screenshot_ids: partialPurge ? [7] : [] }; }
@@ -410,7 +420,7 @@ window.ProctorHarness = {
   renameFails(value) { renameFails = value; }, holdRename() { deferRename = true; }, releaseRename() { deferRename = false; releaseRename?.(); }, deleteFails(value) { deleteFails = value; }, replaceFails(value) { replaceFails = value; }, rosterChange(value) { nextRosterChange = value; }, pruned(value) { pruned = value; },
   working(value) { workingStudents = value; }, examFile(value) { nextExamFile = { content: sampleContent, ...value }; }, importFails(value) { importFails = value; }, publishFails(value) { publishFails = value; }, deleteExamFails(value) { deleteExamFails = value; }, catalogDown(value) { catalogDown = value; }, stale(value) { stale = value; }, imagesMissing(value) { imageMissing = value; },
   failForce(value) { failForce = value; }, holdForce() { deferForce = true; }, releaseForce() { releaseForce?.(); }, originalSubmit() { forceStatus = 'submitted'; }, partialPurge() { partialPurge = true; },
-  downloadPreview(value) { downloadPreviewOverride = value; }, downloadNeedsReplace(value = true) { downloadNeedsReplace = value; }, downloadFails(value) { downloadFails = value; }, downloadFailure(value) { downloadFailureFor = value; }, openFolderFails(value) { openFolderFails = value; },
+  downloadPreview(value) { downloadPreviewOverride = value; }, downloadNeedsReplace(value = true) { downloadNeedsReplace = value; }, downloadExistingFormat(value) { downloadExistingFormat = value; }, downloadWarnings(value) { downloadWarnings = value; }, downloadFails(value) { downloadFails = value; }, downloadFailure(value) { downloadFailureFor = value; }, openFolderFails(value) { openFolderFails = value; },
   downloadFolder(value) { downloadFolder = value; }, chooseFolderFails(value) { chooseFolderFails = value; }, holdDownload() { downloadHeld = true; }, releaseDownload() { downloadHeld = false; releaseDownload?.(); releaseDownload = null; }, downloadProgress(value) { lastDownloadProgress = value; },
   holdHistory() { deferHistory = true; }, releaseHistory() { releaseHistory?.(); }, untrustedName() { rows[0].student_name = '<script>student name</script>'; },
   finished(index) { rows[index] = { ...rows[index], status: 'submitted', presence: { ...rows[index].presence, monitoring: false, connectivity: 'terminal' } }; },
