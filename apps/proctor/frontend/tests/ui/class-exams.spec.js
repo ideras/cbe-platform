@@ -360,16 +360,17 @@ test('download submissions is offered only for exams somebody has taken, with an
   await expect(published.getByRole('button', { name: 'Download submissions of Databases midterm…' })).toBeVisible();
   await expect(practice.getByRole('button', { name: 'Download submissions of Practice exam…' })).toBeVisible();
   await published.getByRole('button', { name: 'Download submissions of Databases midterm…' }).click();
-  const dialog = page.getByRole('dialog', { name: 'Download submissions — Databases midterm' });
-  await expect(dialog).toContainText('One Markdown file per student, with their answers in the exam.');
-  await expect(dialog).toContainText('28'); await expect(dialog).toContainText('finished'); await expect(dialog).toContainText('will be downloaded');
-  await expect(dialog).toContainText('2'); await expect(dialog).toContainText('still working'); await expect(dialog).toContainText('skipped; download again when they finish');
+  const dialog = page.getByRole('dialog', { name: 'Download submissions' });
+  await expect(dialog).toContainText('Databases midterm');
+  await expect(dialog).toContainText('Format · one Markdown file per student');
+  await expect(dialog).toContainText('28'); await expect(dialog).toContainText('finished'); await expect(dialog).toContainText('one file each');
+  await expect(dialog).toContainText('2'); await expect(dialog).toContainText('still working'); await expect(dialog).toContainText('skipped'); await expect(dialog).toContainText('Download again when they finish.');
   await expect(dialog).toContainText('3'); await expect(dialog).toContainText('never logged in'); await expect(dialog).toContainText('listed in _index.md only');
   const name = dialog.getByLabel('Output folder name');
   await expect(name).toHaveValue('Mathematics_10A-Databases_midterm');
-  const parent = dialog.getByLabel('Selected folder');
-  await expect(parent).toHaveValue(''); await expect(parent).toHaveAttribute('readonly', '');
-  await expect(dialog.getByRole('button', { name: 'Start download' })).toBeDisabled();
+  await expect(dialog.locator('.path')).toContainText('No folder chosen');
+  await expect(dialog.getByText('Files go into')).toHaveCount(0);
+  await expect(dialog.getByRole('button', { name: 'Download 28 files' })).toBeDisabled();
   await expect(dialog).not.toContainText('not on the server');
   expect((await calls(page)).prepareDownload).toEqual([EXAM]);
 });
@@ -383,45 +384,44 @@ test('cancelling the download dialog sends nothing', async ({ page }) => {
   expect(done.download).toEqual([]); expect(done.chooseDownloadFolder).toEqual([]);
 });
 
-test('choosing a folder only fills the path; Start download shows progress and keeps the dialog open', async ({ page }) => {
+test('choosing a folder only fills the path; the download button shows progress and keeps the dialog open', async ({ page }) => {
   const exams = await connect(page, () => window.ProctorHarness.holdDownload());
   await exams.getByRole('button', { name: 'Download submissions of Databases midterm…' }).click();
   const dialog = page.getByRole('dialog');
   await dialog.getByRole('button', { name: 'Choose folder…' }).click();
   // The folder is selected, but nothing has been written and the dialog is still there.
   await expect(dialog).toBeVisible();
-  await expect(dialog.getByLabel('Selected folder')).toHaveValue('/home/proctor/Downloads');
-  await expect(dialog.getByLabel('Selected folder')).toHaveAttribute('readonly', '');
-  await expect(dialog.getByRole('button', { name: 'Start download' })).toBeEnabled();
+  await expect(dialog.locator('.path')).toContainText('/home/proctor/Downloads');
+  await expect(dialog.getByRole('button', { name: 'Download 28 files' })).toBeEnabled();
   expect((await calls(page)).download).toEqual([]);
 
   await dialog.getByLabel('Output folder name').fill('My Notes');
-  await expect(dialog).toContainText('Files go into /home/proctor/Downloads/My Notes.');
-  await dialog.getByRole('button', { name: 'Start download' }).click();
+  await expect(dialog).toContainText('Files go into /home/proctor/Downloads/My Notes');
+  await dialog.getByRole('button', { name: 'Download 28 files' }).click();
   await expect(dialog.getByRole('button', { name: 'Downloading…' })).toBeDisabled();
   await expect(dialog.getByRole('button', { name: 'Choose folder…' })).toBeDisabled();
   await expect(dialog.getByLabel('Output folder name')).toBeDisabled();
-  await expect(dialog.getByLabel('Selected folder')).toBeDisabled();
   const bar = dialog.getByRole('progressbar', { name: 'Downloading submissions' });
   await expect(bar).toBeVisible();
   // Meaningful progress: the dialog shows the file count the server reports while the download runs.
   await page.evaluate(() => window.ProctorHarness.downloadProgress({ running: true, done: 2, total: 5, current: 'Student 003' }));
   await expect(bar).toHaveAttribute('aria-valuenow', '2');
-  await expect(dialog).toContainText('2 of 5 files — Student 003');
+  await expect(dialog).toContainText('Writing files… Student 003'); await expect(dialog).toContainText('2 / 5');
 
   await page.evaluate(() => window.ProctorHarness.releaseDownload());
-  await expect(dialog.getByRole('status')).toContainText('Downloaded 28 submissions to /home/proctor/Downloads/My Notes.');
-  await expect(dialog).toContainText('2 students still working and were skipped.');
-  await expect(dialog.getByRole('button', { name: 'Start download' })).toHaveCount(0);
+  await expect(dialog.getByRole('status')).toContainText('28 submissions downloaded');
+  await expect(dialog.locator('.summary')).toContainText('/home/proctor/Downloads/My Notes');
+  await expect(dialog.locator('.summary')).toContainText('2 still working');
+  await expect(dialog.getByRole('button', { name: 'Download 28 files' })).toHaveCount(0);
   await expect(dialog.getByRole('button', { name: 'Cancel' })).toHaveCount(0);
-  await expect(dialog.locator('.actions').getByRole('button', { name: 'Close' })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Done' })).toBeVisible();
   const open = dialog.getByRole('button', { name: 'Open folder' });
   await expect(open).toBeVisible();
   await open.click();
   expect((await calls(page)).openDownloadFolder).toBe(1);
   // The dialog stays open until Close is clicked.
   await expect(dialog).toBeVisible();
-  await dialog.locator('.actions').getByRole('button', { name: 'Close' }).click();
+  await dialog.getByRole('button', { name: 'Done' }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   expect((await calls(page)).download).toEqual([{ examId: EXAM, folderName: 'My Notes', mode: 'complete', replace: false, confirmed: true }]);
 });
@@ -431,12 +431,12 @@ test('a failure to open the folder is shown in the dialog, which stays open', as
   await exams.getByRole('button', { name: 'Download submissions of Databases midterm…' }).click();
   const dialog = page.getByRole('dialog');
   await dialog.getByRole('button', { name: 'Choose folder…' }).click();
-  await dialog.getByRole('button', { name: 'Start download' }).click();
-  await expect(dialog.getByRole('status')).toContainText('Downloaded 28 submissions');
+  await dialog.getByRole('button', { name: 'Download 28 files' }).click();
+  await expect(dialog.getByRole('status')).toContainText('28 submissions downloaded');
   await dialog.getByRole('button', { name: 'Open folder' }).click();
   await expect(dialog.getByRole('alert')).toContainText('The download folder is no longer there.');
   await expect(dialog).toBeVisible();
-  await dialog.locator('.actions').getByRole('button', { name: 'Close' }).click();
+  await dialog.getByRole('button', { name: 'Done' }).click();
 });
 
 test('an existing download folder is replaced only after the question, and notes in it are lost', async ({ page }) => {
@@ -444,20 +444,21 @@ test('an existing download folder is replaced only after the question, and notes
   await exams.getByRole('button', { name: 'Download submissions of Databases midterm…' }).click();
   const dialog = page.getByRole('dialog');
   await dialog.getByRole('button', { name: 'Choose folder…' }).click();
-  await dialog.getByRole('button', { name: 'Start download' }).click();
+  await dialog.getByRole('button', { name: 'Download 28 files' }).click();
   await expect(dialog).toContainText('Replace the 28 files from the earlier download?');
   await expect(dialog).toContainText('Notes you wrote in them are lost. Files you added yourself are left alone.');
+  await expect(dialog).toContainText('existing folder · files replaced');
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
 
   await exams.getByRole('button', { name: 'Download submissions of Databases midterm…' }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Choose folder…' }).click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Start download' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Download 28 files' }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Replace files' }).click();
-  await expect(page.getByRole('dialog').getByRole('status')).toContainText('Downloaded 28 submissions');
+  await expect(page.getByRole('dialog').getByRole('status')).toContainText('28 submissions downloaded');
   const done = await calls(page);
   expect(done.download).toEqual([{ examId: EXAM, folderName: 'Mathematics_10A-Databases_midterm', mode: 'complete', replace: false, confirmed: true }, { examId: EXAM, folderName: 'Mathematics_10A-Databases_midterm', mode: 'complete', replace: false, confirmed: true }, { examId: EXAM, folderName: 'Mathematics_10A-Databases_midterm', mode: 'complete', replace: true, confirmed: true }]);
-  await page.getByRole('dialog').locator('.actions').getByRole('button', { name: 'Close' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Done' }).click();
 });
 
 test('a partial download names the students to retry, and still offers the folder', async ({ page }) => {
@@ -465,12 +466,12 @@ test('a partial download names the students to retry, and still offers the folde
   await exams.getByRole('button', { name: 'Download submissions of Databases midterm…' }).click();
   const dialog = page.getByRole('dialog');
   await dialog.getByRole('button', { name: 'Choose folder…' }).click();
-  await dialog.getByRole('button', { name: 'Start download' }).click();
-  await expect(dialog.getByRole('status')).toContainText('Downloaded 27 submissions');
+  await dialog.getByRole('button', { name: 'Download 28 files' }).click();
+  await expect(dialog.getByRole('status')).toContainText('27 of 28 submissions downloaded');
   await expect(dialog.getByRole('alert')).toContainText('PARTIAL');
   await expect(dialog.getByRole('alert')).toContainText('Student 099');
   await expect(dialog.getByRole('button', { name: 'Open folder' })).toBeVisible();
-  await dialog.locator('.actions').getByRole('button', { name: 'Close' }).click();
+  await dialog.getByRole('button', { name: 'Done' }).click();
 });
 
 test('an error stops progress, keeps the dialog open, and lets the proctor try again', async ({ page }) => {
@@ -478,18 +479,18 @@ test('an error stops progress, keeps the dialog open, and lets the proctor try a
   await exams.getByRole('button', { name: 'Download submissions of Databases midterm…' }).click();
   const dialog = page.getByRole('dialog');
   await dialog.getByRole('button', { name: 'Choose folder…' }).click();
-  await dialog.getByRole('button', { name: 'Start download' }).click();
+  await dialog.getByRole('button', { name: 'Download 28 files' }).click();
   await expect(dialog.getByRole('alert')).toContainText('Server unreachable. The download did not start.');
   await expect(dialog.getByRole('progressbar')).toHaveCount(0);
   await expect(dialog.getByRole('button', { name: 'Choose folder…' })).toBeEnabled();
   await expect(dialog.getByLabel('Output folder name')).toBeEnabled();
-  await expect(dialog.getByRole('button', { name: 'Start download' })).toBeEnabled();
+  await expect(dialog.getByRole('button', { name: 'Download 28 files' })).toBeEnabled();
   await expect(dialog).toBeVisible();
 
   await page.evaluate(() => window.ProctorHarness.downloadFails(''));
-  await dialog.getByRole('button', { name: 'Start download' }).click();
-  await expect(dialog.getByRole('status')).toContainText('Downloaded 28 submissions');
-  await dialog.locator('.actions').getByRole('button', { name: 'Close' }).click();
+  await dialog.getByRole('button', { name: 'Download 28 files' }).click();
+  await expect(dialog.getByRole('status')).toContainText('28 submissions downloaded');
+  await dialog.getByRole('button', { name: 'Done' }).click();
 });
 
 test('the folder chooser can fail or be cancelled without starting anything', async ({ page }) => {
@@ -498,7 +499,7 @@ test('the folder chooser can fail or be cancelled without starting anything', as
   const dialog = page.getByRole('dialog');
   await dialog.getByRole('button', { name: 'Choose folder…' }).click();
   await expect(dialog.getByRole('alert')).toContainText('The folder dialog failed.');
-  await expect(dialog.getByRole('button', { name: 'Start download' })).toBeDisabled();
+  await expect(dialog.getByRole('button', { name: 'Download 28 files' })).toBeDisabled();
   expect((await calls(page)).download).toEqual([]);
   await dialog.getByRole('button', { name: 'Cancel' }).click();
 });
@@ -509,7 +510,7 @@ test('an exam without a stored source still downloads without a missing-source w
   const dialog = page.getByRole('dialog');
   await expect(dialog).not.toContainText('not on the server');
   await expect(dialog).not.toContainText('answers without the questions');
-  await expect(dialog).toContainText('2'); await expect(dialog).toContainText('still finishing'); await expect(dialog).toContainText('the server is finalizing their answers');
+  await expect(dialog).toContainText('2'); await expect(dialog).toContainText('still finishing'); await expect(dialog).toContainText('skipped; being finalized');
 });
 
 test('the result wraps a long output path inside the dialog', async ({ page }) => {
@@ -518,16 +519,16 @@ test('the result wraps a long output path inside the dialog', async ({ page }) =
   await exams.getByRole('button', { name: 'Download submissions of Databases midterm…' }).click();
   const dialog = page.getByRole('dialog');
   await dialog.getByRole('button', { name: 'Choose folder…' }).click();
-  await dialog.getByRole('button', { name: 'Start download' }).click();
-  await expect(dialog.getByRole('status')).toContainText('Downloaded 28 submissions to');
+  await dialog.getByRole('button', { name: 'Download 28 files' }).click();
+  await expect(dialog.getByRole('status')).toContainText('28 submissions downloaded');
   // The long path wraps instead of widening the dialog past the window.
   const box = await dialog.boundingBox();
   expect(box.x).toBeGreaterThanOrEqual(0);
   expect(box.x + box.width).toBeLessThanOrEqual(760);
-  const path = dialog.locator('.result code');
+  const path = dialog.locator('.summary .path-text');
   expect(await path.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
   expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
-  await dialog.locator('.actions').getByRole('button', { name: 'Close' }).click();
+  await dialog.getByRole('button', { name: 'Done' }).click();
 });
 
 test('the panel keeps the result and Open folder after the download dialog is closed', async ({ page }) => {
@@ -535,9 +536,9 @@ test('the panel keeps the result and Open folder after the download dialog is cl
   await exams.getByRole('button', { name: 'Download submissions of Databases midterm…' }).click();
   const dialog = page.getByRole('dialog');
   await dialog.getByRole('button', { name: 'Choose folder…' }).click();
-  await dialog.getByRole('button', { name: 'Start download' }).click();
-  await expect(dialog.getByRole('status')).toContainText('Downloaded 27 submissions');
-  await dialog.locator('.actions').getByRole('button', { name: 'Close' }).click();
+  await dialog.getByRole('button', { name: 'Download 28 files' }).click();
+  await expect(dialog.getByRole('status')).toContainText('27 of 28 submissions downloaded');
+  await dialog.getByRole('button', { name: 'Done' }).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   const line = exams.getByRole('status');
   await expect(line).toContainText('PARTIAL: downloaded 27 of 28 submissions to /home/proctor/Downloads/Mathematics_10A-Databases_midterm. Retry for Student 099.');
@@ -553,10 +554,11 @@ test('a download that wrote no student file offers no Open folder', async ({ pag
   await exams.getByRole('button', { name: 'Download submissions of Databases midterm…' }).click();
   const dialog = page.getByRole('dialog');
   await dialog.getByRole('button', { name: 'Choose folder…' }).click();
-  await dialog.getByRole('button', { name: 'Start download' }).click();
-  await expect(dialog.getByRole('status')).toContainText('Downloaded 0 submissions');
+  await expect(dialog).toContainText('Only _index.md will be written');
+  await dialog.getByRole('button', { name: 'Download index only' }).click();
+  await expect(dialog.getByRole('status')).toContainText('0 submissions downloaded');
   await expect(dialog.getByRole('button', { name: 'Open folder' })).toHaveCount(0);
-  await dialog.locator('.actions').getByRole('button', { name: 'Close' }).click();
+  await dialog.getByRole('button', { name: 'Done' }).click();
   await expect(exams.getByRole('status')).toContainText('Downloaded 0 submissions');
   await expect(exams.getByRole('button', { name: 'Open folder' })).toHaveCount(0);
 });
@@ -567,9 +569,9 @@ const ANSWERS_NAME = 'Mathematics_10A-Databases_midterm-AnswersOnly';
 async function openDownload(page, prepare) {
   const exams = await connect(page, prepare);
   await exams.getByRole('button', { name: 'Download submissions of Databases midterm…' }).click();
-  return { exams, dialog: page.getByRole('dialog', { name: 'Download submissions — Databases midterm' }) };
+  return { exams, dialog: page.getByRole('dialog', { name: 'Download submissions' }) };
 }
-const formatGroup = dialog => dialog.getByRole('group', { name: 'Download format' });
+const formatGroup = dialog => dialog.getByRole('group', { name: 'Format' });
 
 test('the download dialog offers Complete exam, selected, and Answers only, with their help text', async ({ page }) => {
   const { dialog } = await openDownload(page);
@@ -577,24 +579,19 @@ test('the download dialog offers Complete exam, selected, and Answers only, with
   const answers = formatGroup(dialog).getByRole('radio', { name: 'Answers only' });
   await expect(formatGroup(dialog).getByRole('radio')).toHaveCount(2);
   await expect(complete).toBeChecked(); await expect(answers).not.toBeChecked();
-  await expect(complete).toHaveAccessibleDescription('Includes the exam text with each student’s answers inserted.');
-  await expect(answers).toHaveAccessibleDescription('Includes saved answers and field labels, without the exam questions.');
-  await expect(dialog).toContainText('One Markdown file per student, with their answers in the exam.');
-  await expect(dialog).not.toContainText('Answers-only files need the original exam');
+  await expect(complete).toHaveAccessibleDescription('The exam text with each student’s answers inserted. Self-contained for grading');
+  await expect(answers).toHaveAccessibleDescription('Saved answers and field labels, without the exam questions. Needs the original exam to grade');
+  await expect(dialog).toContainText('Format · one Markdown file per student');
   await expect(dialog.getByLabel('Output folder name')).toHaveValue(COMPLETE_NAME);
 });
 
-test('choosing Answers only changes the text and the untouched folder name, and sends nothing', async ({ page }) => {
+test('choosing Answers only changes the untouched folder name, and sends nothing', async ({ page }) => {
   const { dialog } = await openDownload(page);
   await formatGroup(dialog).getByRole('radio', { name: 'Answers only' }).check();
   await expect(formatGroup(dialog).getByRole('radio', { name: 'Answers only' })).toBeChecked();
-  await expect(dialog).not.toContainText('with their answers in the exam');
-  await expect(dialog).toContainText('without the exam questions');
-  await expect(dialog).toContainText('Answers-only files need the original exam for grading context.');
   await expect(dialog.getByLabel('Output folder name')).toHaveValue(ANSWERS_NAME);
-  // Back to the complete exam: the text and the suggestion come back with it.
+  // Back to the complete exam: the suggestion comes back with it.
   await formatGroup(dialog).getByRole('radio', { name: 'Complete exam' }).check();
-  await expect(dialog).toContainText('One Markdown file per student, with their answers in the exam.');
   await expect(dialog.getByLabel('Output folder name')).toHaveValue(COMPLETE_NAME);
   const done = await calls(page);
   expect(done.download).toEqual([]); expect(done.chooseDownloadFolder).toEqual([]);
@@ -619,19 +616,89 @@ test('a folder name the proctor typed survives a change of format', async ({ pag
   await expect(name).toHaveValue(ANSWERS_NAME);
 });
 
+test('a typed folder name can be reset to the default, and a name the dashboard refuses is flagged', async ({ page }) => {
+  const { dialog } = await openDownload(page);
+  await dialog.getByRole('button', { name: 'Choose folder…' }).click();
+  const name = dialog.getByLabel('Output folder name');
+  const start = dialog.getByRole('button', { name: 'Download 28 files' });
+  await expect(dialog.getByRole('button', { name: 'Use default name' })).toHaveCount(0);
+  await name.fill('Grading copies');
+  await expect(dialog.getByRole('button', { name: 'Use default name' })).toBeVisible();
+  await expect(start).toBeEnabled();
+  await name.fill('Grading/copies');
+  await expect(name).toHaveAttribute('aria-invalid', 'true');
+  await expect(dialog).toContainText('The output folder name cannot contain / \\ : * ? " < > or |.');
+  await expect(start).toBeDisabled();
+  await name.fill('');
+  await expect(dialog).toContainText('Enter a name for the output folder.');
+  await expect(start).toBeDisabled();
+  await dialog.getByRole('button', { name: 'Use default name' }).click();
+  await expect(name).toHaveValue(COMPLETE_NAME);
+  await expect(name).toHaveAttribute('aria-invalid', 'false');
+  await expect(dialog.getByRole('button', { name: 'Use default name' })).toHaveCount(0);
+  await expect(start).toBeEnabled();
+  // Following the format again: the default is the other format's suggestion once Answers only is chosen.
+  await formatGroup(dialog).getByRole('radio', { name: 'Answers only' }).check();
+  await expect(name).toHaveValue(ANSWERS_NAME);
+  expect((await calls(page)).download).toEqual([]);
+});
+
+test('in a short window the header and the buttons stay in view while the steps scroll', async ({ page }) => {
+  await page.setViewportSize({ width: 900, height: 520 });
+  const { dialog } = await openDownload(page);
+  await dialog.getByRole('button', { name: 'Choose folder…' }).click();
+  const header = dialog.getByRole('heading', { name: 'Download submissions' });
+  const start = dialog.getByRole('button', { name: 'Download 28 files' });
+  expect(await dialog.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true);
+  for (const top of [0, 10000]) {
+    await dialog.evaluate((element, value) => { element.scrollTop = value; }, top);
+    await expect(header).toBeInViewport(); await expect(dialog.getByRole('button', { name: 'Close', exact: true })).toBeInViewport();
+    await expect(start).toBeInViewport(); await expect(dialog.getByRole('button', { name: 'Cancel', exact: true })).toBeInViewport();
+  }
+  // At the end of the scroll the last step is reachable above the footer.
+  await expect(dialog.getByLabel('Output folder name')).toBeInViewport();
+});
+
+test('the tiles count who is included, with a fourth for students who are still finishing', async ({ page }) => {
+  const { dialog } = await openDownload(page, () => window.ProctorHarness.downloadPreview({ finished: 1, working: 0, finishing: 2, never_logged_in: 0 }));
+  await expect(dialog.locator('.who .w')).toHaveCount(4);
+  await expect(dialog.locator('.who .w').first()).toContainText('1');
+  await expect(dialog.locator('.who .w').first()).toContainText('finished');
+  await expect(dialog.locator('.who .w').nth(1)).toContainText('0'); await expect(dialog.locator('.who .w').nth(1)).toContainText('still working');
+  await expect(dialog.locator('.who .w').nth(2)).toContainText('2'); await expect(dialog.locator('.who .w').nth(2)).toContainText('still finishing');
+  await expect(dialog).toContainText('Download again when they finish.');
+  await expect(dialog.getByRole('button', { name: 'Download 1 file' })).toBeVisible();
+  await expect(dialog).toContainText('1 file will be written');
+});
+
+test('the result lists who was not included and copies the folder path', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  const { dialog } = await openDownload(page);
+  await dialog.getByRole('button', { name: 'Choose folder…' }).click();
+  await dialog.getByRole('button', { name: 'Download 28 files' }).click();
+  const summary = dialog.locator('.summary');
+  await expect(summary).toContainText('28 student files + _index.md');
+  await expect(summary).toContainText('2 still working, 3 never logged in (listed in the index)');
+  await summary.getByRole('button', { name: 'Copy path' }).click();
+  await expect(summary.getByRole('button', { name: 'Copied!' })).toBeVisible();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(`/home/proctor/Downloads/${COMPLETE_NAME}`);
+  await dialog.getByRole('button', { name: 'Done' }).click();
+});
+
 test('Answers only is sent with its folder, and the result says which format was written', async ({ page }) => {
   const { exams, dialog } = await openDownload(page);
   await dialog.getByRole('button', { name: 'Choose folder…' }).click();
   await formatGroup(dialog).getByRole('radio', { name: 'Answers only' }).check();
-  await expect(dialog).toContainText(`Files go into /home/proctor/Downloads/${ANSWERS_NAME}.`);
-  await dialog.getByRole('button', { name: 'Start download' }).click();
-  await expect(dialog.getByRole('status')).toContainText(`Downloaded 28 answers-only submissions to /home/proctor/Downloads/${ANSWERS_NAME}.`);
-  await expect(dialog).toContainText('Format: Answers only.');
+  await expect(dialog).toContainText(`Files go into /home/proctor/Downloads/${ANSWERS_NAME}`);
+  await dialog.getByRole('button', { name: 'Download 28 files' }).click();
+  await expect(dialog.getByRole('status')).toContainText('28 submissions downloaded');
+  await expect(dialog.getByRole('status')).toContainText('Answers only · plus _index.md');
+  await expect(dialog.locator('.summary')).toContainText(`/home/proctor/Downloads/${ANSWERS_NAME}`);
+  await expect(dialog).toContainText('Answers-only files don’t include the questions.');
   await expect(dialog.getByRole('button', { name: 'Open folder' })).toBeVisible();
-  // The format control is locked once the result is shown, like the other fields.
-  await expect(formatGroup(dialog).getByRole('radio', { name: 'Complete exam' })).toBeDisabled();
-  await expect(formatGroup(dialog).getByRole('radio', { name: 'Answers only' })).toBeDisabled();
-  await dialog.locator('.actions').getByRole('button', { name: 'Close' }).click();
+  // The result replaces the options, so the format can no longer be changed.
+  await expect(formatGroup(dialog)).toHaveCount(0);
+  await dialog.getByRole('button', { name: 'Done' }).click();
   expect((await calls(page)).download).toEqual([{ examId: EXAM, folderName: ANSWERS_NAME, mode: 'answers-only', replace: false, confirmed: true }]);
   // The panel keeps the result, and Open folder, after the dialog is closed.
   const line = exams.getByRole('status');
@@ -643,10 +710,12 @@ test('Answers only is sent with its folder, and the result says which format was
 test('the complete exam is sent by default and its result names the complete format', async ({ page }) => {
   const { dialog } = await openDownload(page);
   await dialog.getByRole('button', { name: 'Choose folder…' }).click();
-  await dialog.getByRole('button', { name: 'Start download' }).click();
-  await expect(dialog.getByRole('status')).toContainText(`Downloaded 28 submissions to /home/proctor/Downloads/${COMPLETE_NAME}.`);
-  await expect(dialog).toContainText('Format: Complete exam.');
-  await dialog.locator('.actions').getByRole('button', { name: 'Close' }).click();
+  await dialog.getByRole('button', { name: 'Download 28 files' }).click();
+  await expect(dialog.getByRole('status')).toContainText('28 submissions downloaded');
+  await expect(dialog.getByRole('status')).toContainText('Complete exam · plus _index.md');
+  await expect(dialog.locator('.summary')).toContainText(`/home/proctor/Downloads/${COMPLETE_NAME}`);
+  await expect(dialog).not.toContainText('Answers-only files don’t include the questions.');
+  await dialog.getByRole('button', { name: 'Done' }).click();
   expect((await calls(page)).download).toEqual([{ examId: EXAM, folderName: COMPLETE_NAME, mode: 'complete', replace: false, confirmed: true }]);
 });
 
@@ -654,20 +723,20 @@ test('the format control locks while the download runs', async ({ page }) => {
   const { dialog } = await openDownload(page, () => window.ProctorHarness.holdDownload());
   await dialog.getByRole('button', { name: 'Choose folder…' }).click();
   await formatGroup(dialog).getByRole('radio', { name: 'Answers only' }).check();
-  await dialog.getByRole('button', { name: 'Start download' }).click();
+  await dialog.getByRole('button', { name: 'Download 28 files' }).click();
   await expect(dialog.getByRole('button', { name: 'Downloading…' })).toBeDisabled();
   await expect(formatGroup(dialog).getByRole('radio', { name: 'Complete exam' })).toBeDisabled();
   await expect(formatGroup(dialog).getByRole('radio', { name: 'Answers only' })).toBeDisabled();
   await expect(dialog.getByLabel('Output folder name')).toBeDisabled();
   await page.evaluate(() => window.ProctorHarness.releaseDownload());
-  await expect(dialog.getByRole('status')).toContainText('Downloaded 28 answers-only submissions');
+  await expect(dialog.getByRole('status')).toContainText('28 submissions downloaded');
 });
 
 test('the format control locks while the replace question is open', async ({ page }) => {
   const { dialog } = await openDownload(page, () => window.ProctorHarness.downloadNeedsReplace());
   await dialog.getByRole('button', { name: 'Choose folder…' }).click();
   await formatGroup(dialog).getByRole('radio', { name: 'Answers only' }).check();
-  await dialog.getByRole('button', { name: 'Start download' }).click();
+  await dialog.getByRole('button', { name: 'Download 28 files' }).click();
   await expect(dialog).toContainText('Replace the 28 files from the earlier download?');
   await expect(formatGroup(dialog).getByRole('radio', { name: 'Complete exam' })).toBeDisabled();
   await expect(formatGroup(dialog).getByRole('radio', { name: 'Answers only' })).toBeDisabled();
@@ -680,12 +749,13 @@ test('the replace question repeats the same format and folder, and names a diffe
   await dialog.getByRole('button', { name: 'Choose folder…' }).click();
   await formatGroup(dialog).getByRole('radio', { name: 'Answers only' }).check();
   await dialog.getByLabel('Output folder name').fill('Grading copies');
-  await dialog.getByRole('button', { name: 'Start download' }).click();
+  await dialog.getByRole('button', { name: 'Download 28 files' }).click();
   await expect(dialog).toContainText('Replace the 28 files from the earlier download?');
   await expect(dialog).toContainText('The earlier download in this folder is complete-exam, and this one is answers-only. Its files change format.');
   await expect(dialog).toContainText('Notes you wrote in them are lost. Files you added yourself are left alone.');
   await dialog.getByRole('button', { name: 'Replace files' }).click();
-  await expect(dialog.getByRole('status')).toContainText('Downloaded 28 answers-only submissions to /home/proctor/Downloads/Grading copies.');
+  await expect(dialog.getByRole('status')).toContainText('Answers only · plus _index.md');
+  await expect(dialog.locator('.summary')).toContainText('/home/proctor/Downloads/Grading copies');
   expect((await calls(page)).download).toEqual([
     { examId: EXAM, folderName: 'Grading copies', mode: 'answers-only', replace: false, confirmed: true },
     { examId: EXAM, folderName: 'Grading copies', mode: 'answers-only', replace: true, confirmed: true },
@@ -698,7 +768,7 @@ test('the replace question says nothing about formats when the folder holds the 
     await page.evaluate(format => window.ProctorHarness.downloadExistingFormat(format), existing);
     await dialog.getByRole('button', { name: 'Choose folder…' }).click();
     await formatGroup(dialog).getByRole('radio', { name: 'Answers only' }).check();
-    await dialog.getByRole('button', { name: 'Start download' }).click();
+    await dialog.getByRole('button', { name: 'Download 28 files' }).click();
     await expect(dialog).toContainText('Replace the 28 files from the earlier download?');
     await expect(dialog).not.toContainText('change format');
     await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
@@ -710,11 +780,10 @@ test('a complete download in an answers-only folder is warned about before repla
   const { dialog } = await openDownload(page, () => { window.ProctorHarness.downloadNeedsReplace(); window.ProctorHarness.downloadExistingFormat('answers-only'); });
   await dialog.getByRole('button', { name: 'Choose folder…' }).click();
   await dialog.getByLabel('Output folder name').fill('Shared folder');
-  await dialog.getByRole('button', { name: 'Start download' }).click();
+  await dialog.getByRole('button', { name: 'Download 28 files' }).click();
   await expect(dialog).toContainText('The earlier download in this folder is answers-only, and this one is complete-exam. Its files change format.');
   await dialog.getByRole('button', { name: 'Replace files' }).click();
-  await expect(dialog.getByRole('status')).toContainText('Downloaded 28 submissions to');
-  await expect(dialog).toContainText('Format: Complete exam.');
+  await expect(dialog.getByRole('status')).toContainText('Complete exam · plus _index.md');
 });
 
 test('a missing exam source is not mentioned in either format', async ({ page }) => {
@@ -728,9 +797,9 @@ test('a missing exam source is not mentioned in either format', async ({ page })
     await expect(dialog.getByRole('alert')).toHaveCount(0);
   }
   await dialog.getByRole('button', { name: 'Choose folder…' }).click();
-  await dialog.getByRole('button', { name: 'Start download' }).click();
-  await expect(dialog.getByRole('status')).toContainText('Downloaded 28 answers-only submissions');
-  await expect(dialog.locator('.callout.warning')).toHaveCount(0);
+  await dialog.getByRole('button', { name: 'Download 28 files' }).click();
+  await expect(dialog.getByRole('status')).toContainText('28 submissions downloaded');
+  await expect(dialog.locator('.tip').filter({ hasText: /stored Markdown|no longer matches|not on the server/ })).toHaveCount(0);
 });
 
 test('an answers-only download shows the fields the instructor must check, and a partial failure names the students', async ({ page }) => {
@@ -739,12 +808,12 @@ test('an answers-only download shows the fields the instructor must check, and a
   await page.evaluate(value => window.ProctorHarness.downloadWarnings(value), warnings);
   await formatGroup(dialog).getByRole('radio', { name: 'Answers only' }).check();
   await dialog.getByRole('button', { name: 'Choose folder…' }).click();
-  await dialog.getByRole('button', { name: 'Start download' }).click();
-  await expect(dialog.getByRole('status')).toContainText('Downloaded 27 answers-only submissions');
+  await dialog.getByRole('button', { name: 'Download 28 files' }).click();
+  await expect(dialog.getByRole('status')).toContainText('27 of 28 submissions downloaded');
   await expect(dialog.getByRole('alert')).toContainText('PARTIAL: 1 could not be written. Retry for Student 099.');
-  await expect(dialog.locator('.callout.warning').filter({ hasText: 'no saved value (Ana, Luis)' })).toBeVisible();
+  await expect(dialog.locator('.tip').filter({ hasText: 'no saved value (Ana, Luis)' })).toBeVisible();
   await expect(dialog.getByRole('button', { name: 'Open folder' })).toBeVisible();
-  await dialog.locator('.actions').getByRole('button', { name: 'Close' }).click();
+  await dialog.getByRole('button', { name: 'Done' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'PARTIAL: downloaded 27 of 28 answers-only submissions to /home/proctor/Downloads/' + ANSWERS_NAME })).toContainText('Retry for Student 099.');
 });
 
@@ -752,13 +821,13 @@ test('an error keeps the chosen format so the proctor can try again', async ({ p
   const { dialog } = await openDownload(page, () => window.ProctorHarness.downloadFails('Server unreachable. The download did not start.'));
   await dialog.getByRole('button', { name: 'Choose folder…' }).click();
   await formatGroup(dialog).getByRole('radio', { name: 'Answers only' }).check();
-  await dialog.getByRole('button', { name: 'Start download' }).click();
+  await dialog.getByRole('button', { name: 'Download 28 files' }).click();
   await expect(dialog.getByRole('alert')).toContainText('Server unreachable. The download did not start.');
   await expect(formatGroup(dialog).getByRole('radio', { name: 'Answers only' })).toBeChecked();
   await expect(formatGroup(dialog).getByRole('radio', { name: 'Answers only' })).toBeEnabled();
   await page.evaluate(() => window.ProctorHarness.downloadFails(''));
-  await dialog.getByRole('button', { name: 'Start download' }).click();
-  await expect(dialog.getByRole('status')).toContainText('Downloaded 28 answers-only submissions');
+  await dialog.getByRole('button', { name: 'Download 28 files' }).click();
+  await expect(dialog.getByRole('status')).toContainText('28 submissions downloaded');
   expect((await calls(page)).download.map(item => item.mode)).toEqual(['answers-only', 'answers-only']);
 });
 

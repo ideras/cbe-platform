@@ -32,7 +32,8 @@
   .body { padding: var(--space-3) var(--space-5) var(--space-5); }
   /* Opt-in framed dialogs keep the default layout and focus behavior for every other modal. */
   dialog.deep::backdrop { backdrop-filter: blur(2px); }
-  .deep header { justify-content: flex-start; padding: 1rem 1.1rem; background: var(--header-strong); color: var(--on-dark); }
+  /* The header stays in view while a tall dialog scrolls, as the mockups' dialogs do. */
+  .deep header { position: sticky; top: 0; z-index: 1; justify-content: flex-start; padding: 1rem 1.1rem; background: var(--header-strong); color: var(--on-dark); }
   .deep h2 { color: inherit; font-size: var(--text-lg); line-height: 1.2; overflow-wrap: anywhere; }
   .deep .heading p { color: var(--side-text); font-size: .82rem; overflow-wrap: anywhere; }
   .deep .heading-icon { background: var(--side-active); border: 1px solid var(--cyan-chip-border); color: var(--accent-cyan-soft); }

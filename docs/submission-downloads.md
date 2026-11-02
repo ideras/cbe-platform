@@ -4,14 +4,14 @@ After an exam, the proctor dashboard writes one Markdown file per finished stude
 
 ## Choose a format
 
-The dialog's **Download format** has two choices. **Complete exam** is selected first.
+The dialog reads top to bottom in three steps: **Format**, **Who is included** and **Destination**. The **Format** step has two choices, shown as cards. **Complete exam** is selected first.
 
 | Format | What each student's file holds | Use it for |
 |---|---|---|
 | **Complete exam** | The exam's text with each student's answers inserted. | The archival record, and grading with the questions in front of you. |
 | **Answers only** | Each answer field's ID, kind and saved answer, under the exam's exercise and item labels. No questions, instructions, examples, tables, pictures or supplied code. | Giving students their own responses next to a separate evaluation report, and giving an AI grader compact per-student files together with one shared exam, rubric and reference solution. |
 
-Choosing a format changes only what the dialog says and the folder it suggests. Nothing is downloaded until **Start download**. The format cannot be changed while the download runs, while the replace question is open, or after the result is shown.
+Choosing a format changes only the folder name the dialog suggests. Nothing is downloaded until you press the download button at the bottom, which says how many student files it will write (for example **Download 28 files**). **Who is included** counts the finished students (one file each), those still working or finishing (skipped; download again when they finish) and those who never logged in (listed in `_index.md` only). The format cannot be changed while the download runs or while the replace question is open, and the result replaces the options once the download is done.
 
 Keep the complete downloads as the archival evidence. An answers-only file is a faithful record of what was saved. It is not a corrected answer, a model solution or an evaluation, and it cannot be graded without the original exam, which you supply yourself: the rubric and the reference solution are never part of a student's file.
 
@@ -22,7 +22,9 @@ Each student has the same file name in both formats (for example `Jose_Nunez_Mar
 - Complete exam: `<class>-<exam>`, for example `CCC403-Examen_I_Parcial`.
 - Answers only: the same name followed by `-AnswersOnly`.
 
-Once you type a folder name yourself, changing the format leaves it alone. Choose the parent folder with **Choose folder…**; the dashboard creates the output folder inside it.
+Once you type a folder name yourself, changing the format leaves it alone, and **Use default name** brings the suggestion back. A name with a character the dashboard refuses (`/ \ : * ? " < > |`) is flagged while you type, and the download button stays disabled until it is fixed. Choose the parent folder with **Choose folder…**; the dashboard creates the output folder inside it, and the dialog shows the full path the files will go into.
+
+When the download is done the dialog shows the folder (with **Copy path**), how many student files were written, who was not included, and any warnings. **Open folder** opens the folder in the file manager and **Done** closes the dialog.
 
 If the output folder already exists, the dialog asks before replacing its files, because you may have written grading notes in them. When the folder's `_index.md` says it holds the other format, the question says so (an `_index.md` without a format is a complete download from an earlier version). Replacing writes only the files of this download; files you added yourself are left alone. The replace question repeats exactly the format and folder name of the first attempt.
 
