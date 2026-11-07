@@ -2,9 +2,10 @@
   import { onMount } from 'svelte';
   import Icon from '../../../../shared/theme/Icon.svelte';
   // A modal dialog with a title, a close button and a body. While `busy` it cannot be dismissed, so an action in flight
-  // is never abandoned by accident. Focus returns to whatever opened it. The tone `deep alarm` is the framed dialog of an
+  // is never abandoned by accident. Focus returns to whatever opened it. closeLabel is what the X says it does, for a dialog where
+  // "Close" could be taken for the thing the dialog asks about. The tone `deep alarm` is the framed dialog of an
   // irreversible action: an alert-colored header, and a click on the backdrop nudges the dialog instead of doing nothing.
-  let { title, titleId = 'modal-title', tone = '', subtitle = '', eyebrow = '', icon = '', busy = false, onClose, children, width = '34rem' } = $props();
+  let { title, titleId = 'modal-title', tone = '', subtitle = '', eyebrow = '', icon = '', busy = false, onClose, children, width = '34rem', closeLabel = 'Close' } = $props();
   let dialog;
   onMount(() => {
     const previous = document.activeElement;
@@ -26,7 +27,7 @@
   <header>
     {#if icon}<span class="heading-icon"><Icon name={icon} size={20} /></span>{/if}
     <div class="heading">{#if eyebrow}<span class="eyebrow">{eyebrow}</span>{/if}<h2 id={titleId}>{title}</h2>{#if subtitle}<p>{subtitle}</p>{/if}</div>
-    <button type="button" class="close" aria-label="Close" title="Close" disabled={busy} onclick={onClose}><Icon name="close" size={20} /></button>
+    <button type="button" class="close" aria-label={closeLabel} title={closeLabel} disabled={busy} onclick={onClose}><Icon name="close" size={20} /></button>
   </header>
   <div class="body">{@render children()}</div>
 </dialog>

@@ -38,6 +38,7 @@ Tabler Icons (github.com/tabler/tabler-icons/blob/main/LICENSE):
   screen.svg: screenshot
   search.svg: search
   server.svg: server-2
+  shield-check.svg: shield-check
   volume.svg: volume
   warning.svg: alert-triangle
 

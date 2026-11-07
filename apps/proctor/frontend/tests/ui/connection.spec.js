@@ -210,7 +210,7 @@ test('Close asks before the application quits, from the button or the window', a
   await item(page, 'Close').click();
   const dialog = page.getByRole('dialog', { name: 'Close the dashboard?' });
   await expect(dialog).toContainText('Students keep working');
-  await dialog.getByRole('button', { name: 'Keep it open' }).click();
+  await dialog.locator('.foot').getByRole('button', { name: 'Keep it open' }).click();
   await expect(dialog).toHaveCount(0);
   await page.keyboard.press('Escape');
   expect((await calls(page)).quit).toBe(0);
@@ -223,6 +223,47 @@ test('Close asks before the application quits, from the button or the window', a
   await item(page, 'Close').click();
   await dialog.getByRole('button', { name: 'Close the dashboard' }).click();
   expect((await calls(page)).quit).toBe(1);
+});
+
+test('the X of the close question says it keeps the dashboard open, and the safe choice has the focus', async ({ page }) => {
+  await page.goto('/');
+  await item(page, 'Close').click();
+  const dialog = page.getByRole('dialog', { name: 'Close the dashboard?' });
+  // "Close" next to "Close the dashboard" could be read as either, so the X says what it does.
+  const x = dialog.locator('header').getByRole('button', { name: 'Keep it open' });
+  await expect(x).toBeVisible(); await expect(x).toHaveAttribute('title', 'Keep it open');
+  await expect(dialog.getByRole('button', { name: 'Close', exact: true })).toHaveCount(0);
+  // Enter on the dialog as it opens cannot quit the application.
+  await expect(dialog.locator('.foot').getByRole('button', { name: 'Keep it open' })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(dialog).toHaveCount(0);
+  expect((await calls(page)).quit).toBe(0);
+  // The X does the same.
+  await item(page, 'Close').click();
+  await dialog.locator('header').getByRole('button', { name: 'Keep it open' }).click();
+  await expect(dialog).toHaveCount(0);
+  expect((await calls(page)).quit).toBe(0);
+});
+
+test('closing the dashboard says when students are locked, since nobody can unlock them from a closed dashboard', async ({ page }) => {
+  await connect(page);
+  await item(page, 'Close').click();
+  const dialog = page.getByRole('dialog', { name: 'Close the dashboard?' });
+  // Nobody locked: the reassurance is all there is.
+  await expect(dialog).toContainText('Students keep working'); await expect(dialog).not.toContainText('locked');
+  await dialog.locator('.foot').getByRole('button', { name: 'Keep it open' }).click();
+  await page.evaluate(() => window.ProctorHarness.lock(0));
+  await item(page, 'Close').click();
+  await expect(dialog).toContainText('1 student is locked');
+  await expect(dialog).toContainText('They stay locked until a proctor opens a dashboard and unlocks them');
+  // The reassurance no longer covers everybody.
+  await expect(dialog).toContainText('Students who are not locked keep working'); await expect(dialog).not.toContainText('Students keep working');
+  // The count follows the server while the question is open.
+  await page.evaluate(() => window.ProctorHarness.lock(1));
+  await expect(dialog).toContainText('2 students are locked'); await expect(dialog).toContainText('They stay locked until');
+  await page.evaluate(() => { window.ProctorHarness.unlock(0); window.ProctorHarness.unlock(1); });
+  await expect(dialog).not.toContainText('locked'); await expect(dialog).toContainText('Students keep working');
+  expect((await calls(page)).quit).toBe(0);
 });
 
 test('the navigation stays usable on a narrow window', async ({ page }) => {
