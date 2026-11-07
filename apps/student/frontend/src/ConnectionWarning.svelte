@@ -1,6 +1,7 @@
 <script>
   import Card from '../../../../shared/theme/Card.svelte';
   import ConfirmDialog from './ConfirmDialog.svelte';
+  import Icon from '../../../../shared/theme/Icon.svelte';
 
   // The app cannot reach the server. It says so, says when the exam locks if that goes on, and, while the student has
   // requests left, offers to lock the exam now so they can go and reconnect to the exam network without the alarm. The
@@ -36,11 +37,13 @@
 </Card>
 
 {#if confirming}
-  <ConfirmDialog title="Lock your exam to change network?" confirmLabel="Lock my exam" cancelLabel="Keep working" disabled={busy} onConfirm={lock} onCancel={() => confirming = false}>
-    <p>Your exam locks now and the alarm stays quiet while you reconnect to the exam network. The window stops being full screen, so you can reach your network settings; it goes back to full screen when your instructor unlocks the exam.</p>
-    <p><strong>Only your instructor can unlock it, and the exam time keeps running while it is locked.</strong> Tell your instructor when you are connected and back in this window.</p>
-    <p>While it is locked, screenshots of all your screens are taken, as when you leave the exam window. Only your instructor sees them.</p>
-    <p>You can do this {left === 1 ? 'one more time' : `${left} more times`}.</p>
+  <ConfirmDialog icon="wifiOff" title="Lock your exam to change network?" confirmLabel="Lock my exam" cancelLabel="Keep working" disabled={busy} onConfirm={lock} onCancel={() => confirming = false}>
+    <div class="facts">
+      <div class="fact warn"><span class="mk"><Icon name="lock" size={13} /></span><div><p class="h">Your exam locks now</p><p>The alarm stays quiet while you reconnect to the exam network. The window stops being full screen, so you can reach your network settings; it goes back to full screen when your instructor unlocks the exam.</p></div></div>
+      <div class="fact"><span class="mk"><Icon name="clock" size={13} /></span><div><p class="h">While it is locked</p><p><strong>Only your instructor can unlock it, and the exam time keeps running while it is locked.</strong></p><p>Screenshots of all your screens are taken, as when you leave the exam window. Only your instructor sees them.</p></div></div>
+      <div class="fact ok"><span class="mk"><Icon name="check" size={13} /></span><div><p class="h">When you are connected again</p><p>Tell your instructor when you are connected and back in this window.</p></div></div>
+    </div>
+    <p class="note"><Icon name="info" size={16} /><span>You can do this {left === 1 ? 'one more time' : `${left} more times`}.</span></p>
   </ConfirmDialog>
 {/if}
 

@@ -255,3 +255,41 @@ test('a capture that failed during a lock can be retested on the lock screen at 
   await page.evaluate(() => window.__studentHarness.unlock(0));
   await expect(page.getByRole('textbox', { name: 'Answer for q1' })).toHaveAttribute('contenteditable', 'true');
 });
+
+test('the dialog for changing network is centered in the window, says what happens in three parts, and counts the requests in words', async ({ page }) => {
+  await page.setViewportSize({ width: 1100, height: 760 });
+  await page.goto('/');
+  await login(page);
+  await connectionLost(page, { network_locks_left: 1 });
+  await page.getByRole('button', { name: 'I need to change network' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Lock your exam to change network?' });
+  await expect(dialog.getByText('Your exam locks now')).toBeVisible();
+  await expect(dialog.getByText('While it is locked', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('When you are connected again')).toBeVisible();
+  await expect(dialog.getByText('Tell your instructor when you are connected and back in this window.')).toBeVisible();
+  await expect(dialog.getByText('You can do this one more time.')).toBeVisible();
+  await expect(dialog.getByRole('button')).toHaveCount(2);
+  // The window's own layout cannot take its automatic margins away: it is as far from the top as from the bottom.
+  const box = await dialog.boundingBox();
+  expect(box.y).toBeGreaterThan(10);
+  expect(Math.abs(box.y - (760 - box.y - box.height))).toBeLessThan(2);
+});
+
+test('the dialog for changing network keeps its header and its choices in view in a short or a narrow window', async ({ page }) => {
+  await page.goto('/');
+  await login(page);
+  await connectionLost(page);
+  // Short: the content scrolls between the header and the footer, which stay where they are.
+  await page.setViewportSize({ width: 900, height: 480 });
+  await page.getByRole('button', { name: 'I need to change network' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Lock your exam to change network?' });
+  await expect(dialog.getByRole('heading', { name: 'Lock your exam to change network?' })).toBeInViewport({ ratio: 1 });
+  await expect(dialog.getByRole('button', { name: 'Lock my exam' })).toBeInViewport({ ratio: 1 });
+  await expect(dialog.getByRole('button', { name: 'Keep working' })).toBeInViewport({ ratio: 1 });
+  // Narrow: the choices are one above the other as in the proctor's dialogs, the primary on top, as wide as the dialog, and nothing runs out sideways.
+  await page.setViewportSize({ width: 420, height: 760 });
+  const [safe, lock] = [await dialog.getByRole('button', { name: 'Keep working' }).boundingBox(), await dialog.getByRole('button', { name: 'Lock my exam' }).boundingBox()];
+  expect(lock.y).toBeLessThan(safe.y);
+  expect(Math.abs(safe.width - lock.width)).toBeLessThan(2);
+  expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+});
