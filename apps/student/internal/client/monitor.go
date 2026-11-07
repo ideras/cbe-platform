@@ -6,6 +6,7 @@ import (
 	"math"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -81,6 +82,27 @@ type MonitoringView struct {
 	Locked     bool       `json:"locked"`
 	LockReason string     `json:"lock_reason,omitempty"`
 	LockSince  *time.Time `json:"lock_since,omitempty"`
+	// ContactLost says that nothing has reached the server for as long as the policy calls a lost connection. While it holds,
+	// NoContactMillis is how long it has lasted and NoContactLockInMillis how long is left before the application locks the
+	// exam for it (nil when that lock is off). Neither is set once the exam is locked.
+	ContactLost           bool   `json:"contact_lost"`
+	NoContactMillis       int64  `json:"no_contact_ms"`
+	NoContactLockInMillis *int64 `json:"no_contact_lock_in_ms,omitempty"`
+	// NetworkLockAvailable says that the student may lock the exam now to reconnect to the exam network: the connection is
+	// lost and they have requests left. NetworkLocksLeft is how many requests are left.
+	NetworkLockAvailable bool `json:"network_lock_available"`
+	NetworkLocksLeft     int  `json:"network_locks_left"`
+	// Remote is what the application has found that says the computer is watched or controlled from elsewhere: a Remote Desktop
+	// session, or remote-control software running. The instructor is told of it; the student is told that they are.
+	Remote []RemoteFinding `json:"remote"`
+}
+
+// RemoteFinding is one thing found that says the computer is watched or controlled from elsewhere: Kind is "remote_session" or
+// "remote_tool", Name the session or the program, and Detail more when there is, such as the computer a session comes from.
+type RemoteFinding struct {
+	Kind   string `json:"kind"`
+	Name   string `json:"name"`
+	Detail string `json:"detail,omitempty"`
 }
 
 // MonitorOptions are the local defaults until the server's policy arrives, and the callbacks. OnAlert runs for every beep
@@ -94,7 +116,20 @@ type MonitorOptions struct {
 	OnCapture                                     func(Incident, int)
 	OnIncident                                    func(Incident)
 	OnLossAcknowledged                            func(Incident)
-	Sound                                         func() SoundReport
+	// OnLockCapture asks for the index-th screenshot of a lock the student asked for (at most limit of them), and OnLockRecorded
+	// says which record the server made of that lock, once it has answered the report.
+	OnLockCapture  func(lock uint64, index, limit int)
+	OnLockRecorded func(lock uint64, event int64)
+	// OnWindowRelaxed says when the window should be small enough for the student to reach the computer's network settings
+	// (true) and when it should be full screen again (false). It is called on one goroutine, never with the monitor locked.
+	OnWindowRelaxed func(relaxed bool)
+	// OnLockEnded says that a lock the application was watching by screenshots has ended, so the capture manager can let go of
+	// the screenshots that never got a record to be sent under.
+	OnLockEnded func(lock uint64)
+	// OnSessionAway says what took the student's session off screen when it left, and "" when it is back. It is called with the
+	// monitor locked, so it must only record the value.
+	OnSessionAway func(reason string)
+	Sound         func() SoundReport
 	// SoundCheck, when set, takes the place of Sound for a heartbeat: it asks for a fresh check of the sound and waits for it
 	// a bounded time.
 	SoundCheck func(context.Context) SoundReport
@@ -112,11 +147,19 @@ func (o MonitorOptions) validate() error {
 }
 
 type clientEvent struct {
+	// source says what the report comes from: the window ("native_window", the default) or the session ("session_inactive").
+	// session is what took the session off screen, for a report of an absence it was part of.
+	source   string
+	session  string
+	remote   []RemoteFinding // for a remote_changed event: everything found at that moment
 	kind     string
 	at       time.Time
 	incident uint64
-	// reason says why the application locked the exam, for an away_lock event.
+	// reason says why the application locked the exam, and lock which lock it is, for an away_lock event.
 	reason string
+	lock   uint64
+	// since is when the lock began, for an away_lock event: the report may be made long after, with the server out of reach.
+	since  time.Time
 	closed chan struct{}
 }
 type eventAck struct {
@@ -137,14 +180,48 @@ type monitor struct {
 	pollNow                                                    chan struct{}
 	base, token, hostname                                      string
 	active, ready, closing, known, focused, resync, recovering bool
+	// focused is whether the student is in the exam window: the window has the focus and the student's session is the one on
+	// screen. windowKnown, windowFocused and sessionAway are the two things it is made of, as the native side reports them: the
+	// window loses its focus when the student switches to another window, and the session stops being on screen when the
+	// student switches to a text console or to another user, which does not change the focus of the window at all.
+	windowKnown, windowFocused, sessionAway bool
+	// awayReason is what took the session off screen, from the moment it left until the absence it began ends. The window may lose
+	// its focus first, as it can when the student switches user, so the return names the reason too.
+	awayReason string
+	// remoteFound is what remote_changed last said, and remoteTools the program names the server asked to look for.
+	remoteFound []RemoteFinding
+	remoteTools []string
+	// remoteLost is that a remote_changed report got no answer from the server, so what it holds may not be what the server has: it
+	// is said again when the connection is back, even when it is that nothing is found.
+	remoteLost bool
 	// locked is the exam's lock as the application knows it. The application locks itself when its own measurement reaches a
 	// limit; lockConfirmed says that a status from the server has reported the lock since, so a later status without one
 	// means a proctor unlocked the exam. lockIncident is the absence the student was in when the exam locked (0 for none):
 	// only its alarm keeps going while the exam is locked.
-	locked, lockConfirmed, lockReportPending              bool
-	lockReason                                            string
-	lockSince, lockReportedAt, lastContact, unlockedAt    time.Time
-	lockIncident                                          uint64
+	locked, lockConfirmed, lockReportPending           bool
+	lockReason                                         string
+	lockSince, lockReportedAt, lastContact, unlockedAt time.Time
+	lockIncident                                       uint64
+	// networkLocksLeft is how many more times the student may lock the exam themselves to reconnect to the network, as the
+	// server last said; a request the server has not recorded yet is already taken out of it.
+	networkLocksLeft int
+	// lockSeq counts the locks of this run; shotLock is the one the student asked for, whose screenshots the application takes,
+	// and lockCaptures how many it has asked for.
+	lockSeq, shotLock uint64
+	// shotFrom is when the screenshots of that lock are counted from. bindSeq and bindEvent are a lock whose record the server
+	// named in its status, which the capture manager has yet to be told.
+	shotFrom  time.Time
+	bindSeq   uint64
+	bindEvent int64
+	// boundSeq is the lock whose record the status named last, and endedSeq a watched lock that ended, which the capture
+	// manager has yet to be told.
+	boundSeq, endedSeq uint64
+	lockCaptures       int
+	// windowRelaxed is what OnWindowRelaxed was last told.
+	windowRelaxed bool
+	// awayFrom is when a lock the student asked for ended. The student left the window to change network, as the lock allowed, so
+	// an absence they are still in counts from here: it is then that they are expected back.
+	awayFrom                                              time.Time
 	policy                                                Policy
 	policySource                                          string
 	queue                                                 []*clientEvent
@@ -196,6 +273,8 @@ func (m *monitor) start(base, token string, policy *Policy) {
 		return
 	}
 	m.base, m.token, m.active = base, token, true
+	// The window is full screen from the login on (OnParticipation); a lock that asks otherwise says so afterwards.
+	m.windowRelaxed = false
 	// The login reached the server: the no-contact clock starts now, however long the application waited before it.
 	m.lastContact = time.Now()
 	if policy != nil && policy.valid() {
@@ -206,6 +285,7 @@ func (m *monitor) start(base, token string, policy *Policy) {
 	if m.known {
 		m.baselineLocked(time.Now())
 	}
+	m.remoteBaselineLocked()
 	signal(m.heartbeatWake)
 }
 
@@ -235,15 +315,95 @@ func (m *monitor) baselineLocked(now time.Time) {
 		}
 		seq = m.incident.Sequence
 	}
-	m.enqueueLocked(&clientEvent{kind: kind, at: now, incident: seq})
+	m.enqueueLocked(&clientEvent{kind: kind, at: now, incident: seq, source: m.focusSource(), session: m.awayReason})
 }
 func (m *monitor) focus(focused bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.windowKnown, m.windowFocused = true, focused
+	m.applyFocusLocked("native_window")
+}
+
+// session takes whether the student's session is the one on screen, and when it is not, what took it off. A student who
+// switches to a text console (Ctrl+Alt+F3) or to another user leaves the exam as much as one who switches to another window, but
+// the window may keep its focus, so this is told apart from it.
+func (m *monitor) session(active bool, reason string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.sessionAway == !active {
+		return
+	}
+	m.sessionAway = !active
+	source := "session_active"
+	if m.sessionAway {
+		source = "session_inactive"
+		m.awayReason = reason
+	} else {
+		reason = ""
+	}
+	if m.options.OnSessionAway != nil {
+		m.options.OnSessionAway(reason)
+	}
+	m.applyFocusLocked(source)
+}
+
+// remote takes everything the watch has found that shows the computer is watched or controlled from elsewhere, and tells the
+// server when that is not what it was told last.
+func (m *monitor) remote(findings []RemoteFinding) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if slices.Equal(m.remoteFound, findings) {
+		return
+	}
+	m.remoteFound = slices.Clone(findings)
+	if m.active && !m.closing {
+		m.enqueueLocked(&clientEvent{kind: "remote_changed", at: time.Now(), source: "remote_watch", remote: slices.Clone(findings)})
+	}
+}
+
+// remoteBaselineLocked tells the server what has been found, as at the login or after contact was lost: what it was told before may
+// not have reached it. Nothing is said when nothing has been found, as that is what it assumes, unless a report that said so (that
+// something had gone) got no answer: the server would go on showing what it had been told before.
+func (m *monitor) remoteBaselineLocked() {
+	if m.active && !m.closing && (len(m.remoteFound) > 0 || m.remoteLost) {
+		m.remoteLost = false
+		m.enqueueLocked(&clientEvent{kind: "remote_changed", at: time.Now(), source: "remote_watch", remote: slices.Clone(m.remoteFound)})
+	}
+}
+func (m *monitor) setRemoteTools(tools []string) {
+	m.mu.Lock()
+	m.remoteTools = slices.Clone(tools)
+	m.mu.Unlock()
+}
+func (m *monitor) remoteToolList() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return slices.Clone(m.remoteTools)
+}
+
+// focusSource is what the focus being lost is down to now.
+func (m *monitor) focusSource() string {
+	if m.sessionAway {
+		return "session_inactive"
+	}
+	return "native_window"
+}
+
+// applyFocusLocked works out whether the student is in the exam window and, when that changed, reports it.
+func (m *monitor) applyFocusLocked(source string) {
+	if !m.windowKnown {
+		return
+	}
+	focused := m.windowFocused && !m.sessionAway
 	if m.known && m.focused == focused {
 		return
 	}
 	m.known, m.focused = true, focused
+	// The reason the session left belongs to the absence it began: it goes with the return, whether or not that is reported.
+	reason := m.awayReason
+	if focused {
+		m.awayReason = ""
+	}
 	if !m.active || m.closing {
 		return
 	}
@@ -256,7 +416,7 @@ func (m *monitor) focus(focused bool) {
 		m.incident = &Incident{Sequence: m.sequence, ClientLostAt: now}
 		seq = m.sequence
 	}
-	m.enqueueLocked(&clientEvent{kind: kind, at: now, incident: seq})
+	m.enqueueLocked(&clientEvent{kind: kind, at: now, incident: seq, source: source, session: reason})
 }
 func (m *monitor) stopLocked(reason string) {
 	m.cancel()
@@ -292,16 +452,86 @@ func (m *monitor) view() MonitoringView {
 		since := m.lockSince
 		v.LockSince = &since
 	}
+	v.NetworkLocksLeft = m.networkLocksLeft
+	v.Remote = append([]RemoteFinding(nil), m.remoteFound...)
+	if now := time.Now(); !m.locked && m.contactLostLocked(now) {
+		v.ContactLost = true
+		v.NoContactMillis = now.Sub(m.lastContact).Milliseconds()
+		if limit := m.policy.LockNoContactAfterMillis; limit > 0 {
+			left := max(0, limit-v.NoContactMillis)
+			v.NoContactLockInMillis = &left
+		}
+		v.NetworkLockAvailable = m.networkLocksLeft > 0
+	}
 	return v
 }
+
+// contactLostLocked says that nothing has reached the server for as long as the policy calls a lost connection.
+func (m *monitor) contactLostLocked(now time.Time) bool {
+	return m.active && !m.closing && !m.lastContact.IsZero() && now.Sub(m.lastContact) >= time.Duration(m.policy.OverdueMillis)*time.Millisecond
+}
+
+// networkLockReason is the reason of a lock the student asked for, and noContactLockReason the one for lack of contact.
+const (
+	networkLockReason   = "network"
+	noContactLockReason = "no_contact"
+)
+
+// lockForNetwork says whether a lock is one of the two that come from the network: the student asked for it to change network,
+// or the app could not reach the server for too long. The student needs the computer's network settings during either, so the
+// window stops being full screen, and the application watches the screen by screenshots meanwhile instead of by the alarm.
+func lockForNetwork(reason string) bool {
+	return reason == networkLockReason || reason == noContactLockReason
+}
+
+// setNetworkLocksLeft takes how many requests the server says the student has left. A request the server has not recorded
+// yet is already counted here, and its answer must not give it back.
+func (m *monitor) setNetworkLocksLeft(left int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.locked && m.lockReason == networkLockReason && !m.lockConfirmed {
+		return
+	}
+	m.networkLocksLeft = max(0, left)
+}
+
+// requestNetworkLock locks the exam at the student's request, so they can go and reconnect to the exam network without the
+// alarm. It is allowed only while the connection is lost and the student has requests left; the server is told as soon as
+// it can be reached, and only a proctor unlocks the exam.
+func (m *monitor) requestNetworkLock() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	now := time.Now()
+	switch {
+	case !m.active || m.closing:
+		return errors.New("The exam is not being monitored right now.")
+	case m.locked:
+		return errors.New("Your exam is locked already. Call your instructor.")
+	case m.networkLocksLeft <= 0:
+		return errors.New("You cannot lock the exam to change network any more. Call your instructor.")
+	case !m.contactLostLocked(now):
+		return errors.New("The exam can be locked this way only while the app cannot reach the server.")
+	}
+	m.networkLocksLeft--
+	m.lockLocked(networkLockReason, now)
+	m.watchLockLocked(now)
+	return nil
+}
+
+// watchLockLocked has the application take screenshots while the current lock lasts, the first at from and the next every
+// capture interval, and hold them until the server has recorded the lock.
+func (m *monitor) watchLockLocked(from time.Time) { m.shotLock, m.shotFrom = m.lockSeq, from }
 
 // isLocked says whether the exam is locked, by the application itself or by the server.
 func (m *monitor) isLocked() bool { m.mu.Lock(); defer m.mu.Unlock(); return m.locked }
 
-// lockLocked locks the exam. The alarm of the absence the student is in, if any, keeps going until the student returns.
+// lockLocked locks the exam. The alarm of the absence the student is in, if any, keeps going until the student returns, unless the
+// lock is one for the network: that lock lets the student use the computer to reconnect, and the alarm is quiet during it.
 func (m *monitor) lockLocked(reason string, since time.Time) {
+	m.lockSeq++
+	m.lockCaptures = 0
 	m.locked, m.lockReason, m.lockSince, m.lockIncident = true, reason, since, 0
-	if m.known && !m.focused && m.incident != nil {
+	if m.known && !m.focused && m.incident != nil && !lockForNetwork(reason) {
 		m.lockIncident = m.incident.Sequence
 	}
 }
@@ -315,11 +545,33 @@ func (m *monitor) setServerLock(lock *Lock) {
 	if lock != nil {
 		if !m.locked {
 			m.lockLocked(lock.Reason, lock.Since)
+			if lockForNetwork(lock.Reason) && lock.EventID > 0 {
+				// The application did not make this lock: the server did, or the application was started during it. The server
+				// names its record, so the screenshots of the lock go under it, taken from now on.
+				m.watchLockLocked(time.Now())
+			}
+		}
+		if lock.EventID > 0 && m.shotLock == m.lockSeq && m.boundSeq != m.lockSeq {
+			// The server names the record of the lock the screenshots are being taken for. When the application made the lock itself
+			// and the server made it too, this is the only way to learn it: the report of the lock is not sent once the status has
+			// confirmed it, so there is no acknowledgment to take the record from.
+			m.boundSeq = m.lockSeq
+			m.bindSeq, m.bindEvent = m.lockSeq, lock.EventID
 		}
 		m.lockConfirmed = true
 		return
 	}
 	if m.locked && m.lockConfirmed {
+		if lockForNetwork(m.lockReason) {
+			m.awayFrom = time.Now()
+			if m.incident != nil {
+				// An absence that was under way when the lock came counts from the unlock: its beeps and screenshots start over.
+				m.incident.Beep, m.incident.Captures = 0, 0
+			}
+		}
+		if m.shotLock == m.lockSeq {
+			m.endedSeq = m.lockSeq
+		}
 		m.locked, m.lockConfirmed, m.lockReason, m.lockSince, m.lockIncident = false, false, "", time.Time{}, 0
 		m.lockReportedAt, m.lockReportPending = time.Time{}, false
 		// The next absence counts from the unlock, even when the student has not come back to the window yet.
@@ -384,8 +636,11 @@ func (m *monitor) heartbeatLoop() {
 			m.lastContact = time.Now()
 			m.heartbeatError = ""
 			backoff = 0
-			if m.ready && m.recovering && m.known {
-				m.baselineLocked(time.Now())
+			if m.ready && m.recovering {
+				if m.known {
+					m.baselineLocked(time.Now())
+				}
+				m.remoteBaselineLocked()
 			}
 			m.ready = true
 			m.recovering = false
@@ -427,9 +682,24 @@ func (m *monitor) eventLoop() {
 					return
 				}
 				reply = eventAck{}
-				detail := map[string]any{"client_time": event.at.UTC().Format(time.RFC3339Nano), "local_incident": event.incident, "source": "native_window"}
+				source := event.source
+				if source == "" {
+					source = "native_window"
+				}
+				detail := map[string]any{"client_time": event.at.UTC().Format(time.RFC3339Nano), "local_incident": event.incident, "source": source}
+				if event.session != "" {
+					detail["session_reason"] = event.session
+				}
+				if event.kind == "remote_changed" {
+					detail["source"] = "remote_watch"
+					detail["active"] = append([]RemoteFinding{}, event.remote...)
+				}
 				if event.kind == "away_lock" && event.reason != "" {
 					detail["reason"] = event.reason
+					if !event.since.IsZero() {
+						// The age is measured here, so the student's clock being off the server's does not matter.
+						detail["lock_age_ms"] = time.Since(event.since).Milliseconds()
+					}
 				}
 				err = requestJSON(m.ctx, m.http, base, token, http.MethodPost, "/event", struct {
 					Type   string         `json:"event_type"`
@@ -472,7 +742,16 @@ func (m *monitor) eventLoop() {
 			if event.kind == "away_lock" {
 				m.lockReportPending = false
 			}
-			if err != nil {
+			if err != nil && unreachable(err) && (event.kind == "focus_lost" || event.kind == "focus_regained" || event.kind == "remote_changed" || event.kind == "away_lock") {
+				// The server could not be reached, as it cannot while the student changes network. The server has the gap on its
+				// record, and the first heartbeat that gets through sends the current focus state and what the watch found again, so
+				// the history is not left with a wrong state: there is nothing lost to warn the student about. A lock report is sent
+				// again every heartbeat interval until the server has it.
+				m.recovering = true
+				if event.kind == "remote_changed" {
+					m.remoteLost = true
+				}
+			} else if err != nil {
 				m.dropped++
 				m.eventError = "An event could not be confirmed after bounded retries; monitoring history may be incomplete."
 				if failureCode(err) == 401 || failureCode(err) == 403 {
@@ -481,6 +760,9 @@ func (m *monitor) eventLoop() {
 				}
 			} else {
 				m.lastContact = time.Now()
+				if event.kind == "remote_changed" {
+					m.remoteLost = false
+				}
 				if m.dropped == 0 {
 					m.eventError = ""
 				}
@@ -496,6 +778,10 @@ func (m *monitor) eventLoop() {
 			if err == nil && event.kind == "focus_lost" && m.options.OnLossAcknowledged != nil {
 				m.options.OnLossAcknowledged(Incident{Sequence: event.incident, LossEventID: reply.ID, ClientLostAt: event.at})
 			}
+			if err == nil && event.kind == "away_lock" && m.options.OnLockRecorded != nil {
+				// The acknowledgment of the report is the record of the lock, which the screenshots of the lock are sent under.
+				m.options.OnLockRecorded(event.lock, reply.ID)
+			}
 		}
 	}
 }
@@ -510,7 +796,8 @@ func (m *monitor) incidentLoop() {
 		case <-ticker.C:
 		}
 		var alert, hook *Incident
-		capture := -1
+		capture, lockShot, lockShotLimit := -1, -1, 0
+		var lockShotSeq uint64
 		m.mu.Lock()
 		if m.active && !m.closing {
 			now := time.Now()
@@ -528,6 +815,9 @@ func (m *monitor) incidentLoop() {
 				}
 				if reason != "" {
 					m.lockLocked(reason, now)
+					if reason == noContactLockReason {
+						m.watchLockLocked(now)
+					}
 				}
 			}
 			// The server is told about a lock it has not reported yet, again every heartbeat interval until it does: a report
@@ -535,14 +825,24 @@ func (m *monitor) incidentLoop() {
 			if m.locked && !m.lockConfirmed && !m.lockReportPending &&
 				(m.lockReportedAt.IsZero() || now.Sub(m.lockReportedAt) >= time.Duration(m.policy.HeartbeatMillis)*time.Millisecond) {
 				m.lockReportedAt = now
-				m.lockReportPending = m.enqueueLocked(&clientEvent{kind: "away_lock", at: now, reason: m.lockReason})
+				m.lockReportPending = m.enqueueLocked(&clientEvent{kind: "away_lock", at: now, reason: m.lockReason, lock: m.lockSeq, since: m.lockSince})
+			}
+			// A lock the student asked for is watched by screenshots, the first at once and then every capture interval. The
+			// application holds them until the server has recorded the lock, since the student asked for it while the server was
+			// out of reach.
+			if m.locked && m.shotLock == m.lockSeq && m.policy.CaptureMillis > 0 {
+				due := int(now.Sub(m.shotFrom)/(time.Duration(m.policy.CaptureMillis)*time.Millisecond)) + 1
+				if m.lockCaptures < min(due, m.policy.IncidentCaptures) {
+					lockShot, lockShotSeq, lockShotLimit = due-1, m.lockSeq, m.policy.IncidentCaptures
+					m.lockCaptures = due
+				}
 			}
 			// The alarm of the absence that caused the lock keeps going until the student returns to the window; a later
 			// absence starts neither the alarm nor the screenshots.
 			if m.known && !m.focused && m.incident != nil && (!m.locked || m.lockIncident != 0 && m.lockIncident == m.incident.Sequence) {
 				// The alert repeats every AlertMillis and the screen is captured every CaptureMillis, both counted from the
 				// threshold, until the student returns: focus regained replaces the incident.
-				away := now.Sub(m.incident.ClientLostAt)
+				away := now.Sub(latest(m.incident.ClientLostAt, m.awayFrom))
 				threshold := time.Duration(m.policy.FocusMillis) * time.Millisecond
 				if away > threshold {
 					sustained := away - threshold
@@ -567,16 +867,38 @@ func (m *monitor) incidentLoop() {
 				}
 			}
 		}
+		// The window is small while the student reconnects after asking for it, and full screen at any other time.
+		var bindSeq, endedSeq uint64
+		var bindEvent int64
+		if m.bindEvent > 0 {
+			bindSeq, bindEvent, m.bindSeq, m.bindEvent = m.bindSeq, m.bindEvent, 0, 0
+		}
+		endedSeq, m.endedSeq = m.endedSeq, 0
+		relaxed := m.locked && lockForNetwork(m.lockReason) && !m.closing
+		windowChanged := relaxed != m.windowRelaxed
+		m.windowRelaxed = relaxed
 		var captured Incident
 		if capture >= 0 && m.incident != nil {
 			captured = *m.incident
 		}
 		m.mu.Unlock()
+		if bindEvent > 0 && m.options.OnLockRecorded != nil {
+			m.options.OnLockRecorded(bindSeq, bindEvent)
+		}
+		if endedSeq > 0 && m.options.OnLockEnded != nil {
+			m.options.OnLockEnded(endedSeq)
+		}
+		if windowChanged && m.options.OnWindowRelaxed != nil {
+			m.options.OnWindowRelaxed(relaxed)
+		}
 		if alert != nil && m.options.OnAlert != nil {
 			m.options.OnAlert(*alert)
 		}
 		if capture >= 0 && m.options.OnCapture != nil {
 			m.options.OnCapture(captured, capture)
+		}
+		if lockShot >= 0 && m.options.OnLockCapture != nil {
+			m.options.OnLockCapture(lockShotSeq, lockShot, lockShotLimit)
 		}
 		if hook != nil && m.options.OnIncident != nil {
 			m.options.OnIncident(*hook)
@@ -621,8 +943,19 @@ func ObserveNativeFocus(s *Service, read func() bool) {
 
 // Package functions keep native lifecycle entry points out of frontend bindings.
 func ReportNativeFocus(s *Service, focused bool) { s.monitor.focus(focused) }
-func CloseMonitoring(s *Service)                 { s.monitor.close() }
-func (s *Service) AcknowledgeRules()             { s.mu.Lock(); s.rulesAccepted = true; s.mu.Unlock() }
+
+// ReportRemote says everything that has been found that shows the computer is watched or controlled from elsewhere, each time that
+// changes; none when it is all gone. The instructor is told, once the exam is running.
+func ReportRemote(s *Service, findings []RemoteFinding) { s.monitor.remote(findings) }
+
+// RemoteTools are the program names to look for, as the server gave them at the login; none before it.
+func RemoteTools(s *Service) []string { return s.monitor.remoteToolList() }
+
+// ReportSessionActive says whether the student's session is the one on screen, as opposed to a text console or another user's, and
+// what took it off screen when it is not.
+func ReportSessionActive(s *Service, active bool, reason string) { s.monitor.session(active, reason) }
+func CloseMonitoring(s *Service)                                 { s.monitor.close() }
+func (s *Service) AcknowledgeRules()                             { s.mu.Lock(); s.rulesAccepted = true; s.mu.Unlock() }
 func (s *Service) ReportAlertFailure(sequence uint64) {
 	s.monitor.mu.Lock()
 	defer s.monitor.mu.Unlock()

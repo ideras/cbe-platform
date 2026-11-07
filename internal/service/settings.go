@@ -150,6 +150,8 @@ type Rules struct {
 	LockAwayMillis int64 `json:"lock_away_millis"`
 	// LockNoContactMillis is how long the application may be out of contact before the exam locks; 0 means off.
 	LockNoContactMillis int64 `json:"lock_no_contact_millis"`
+	// NetworkLockLimit is how many times a student may lock the exam themselves to reconnect to the network.
+	NetworkLockLimit int `json:"network_lock_limit"`
 }
 
 // Rules reads the times the student rules show: the published exam's frozen ones, or the current settings when no exam is
@@ -173,7 +175,7 @@ func (s *Sessions) Rules(ctx context.Context) (Rules, error) {
 			policy = exam.Policy
 		}
 		rules = Rules{AlarmMillis: policy.FocusThreshold.Milliseconds(), CaptureMillis: policy.CaptureInterval.Milliseconds(),
-			LockAwayMillis: policy.LockAwayAfter.Milliseconds(), LockNoContactMillis: policy.LockNoContactAfter.Milliseconds()}
+			LockAwayMillis: policy.LockAwayAfter.Milliseconds(), LockNoContactMillis: policy.LockNoContactAfter.Milliseconds(), NetworkLockLimit: domain.NetworkLockLimit}
 		return nil
 	})
 	if err != nil {

@@ -43,6 +43,17 @@ type Presence struct {
 	Focus        Focus      `json:"focus"`
 	Volume       *int       `json:"volume_percent"`
 	Muted        *bool      `json:"volume_muted"`
+	// Remote is what the student application last said it found that shows the computer is watched or controlled from elsewhere:
+	// a Remote Desktop session, or remote-control software running. Empty when it found nothing.
+	Remote []RemoteFinding `json:"remote"`
+}
+
+// RemoteFinding is one thing the student application found: Kind is "remote_session" or "remote_tool", Name the session or the
+// program and Detail more when it has it (the computer a session comes from). It is the application's own word: shown as text.
+type RemoteFinding struct {
+	Kind   string `json:"kind"`
+	Name   string `json:"name"`
+	Detail string `json:"detail,omitempty"`
 }
 type FinalSummary struct {
 	VersionID      int64     `json:"final_version_id"`

@@ -8,6 +8,7 @@
   import ConfirmDialog from './ConfirmDialog.svelte';
   import CaptureStatus from './CaptureStatus.svelte';
   import LockScreen from './LockScreen.svelte';
+  import ConnectionWarning from './ConnectionWarning.svelte';
   import SoundStatus from './SoundStatus.svelte';
   import Toasts from './Toasts.svelte';
   import Card from '../../../../shared/theme/Card.svelte';
@@ -121,6 +122,10 @@
     lastUnlockNote = note;
   });
   function fail(problem) { notifier.post('action', describeProblem(problem), { kind: 'error', sticky: true }); }
+  // The student locks the exam to go and reconnect to the exam network; the native side decides whether it may be done.
+  async function lockForNetwork() {
+    try { apply(await api.RequestNetworkLock()); } catch (problem) { fail(problem); }
+  }
   const queue = new AnswerQueue(async (snapshot, sequence) => { await api.UpdateAnswers(snapshot, sequence); answerBridgeError = ''; }, problem => answerBridgeError = String(problem));
   // The calculator: the button and the modal exist only while the exam itself is shown (D11), and only when the
   // exam enables a mode this build implements. The allowed set and the results come from Go; the history lives
@@ -156,6 +161,8 @@
   let alarmTime = $derived(rules?.alarm_millis ? `more than ${duration(rules.alarm_millis)}` : 'a few seconds');
   let lockAway = $derived(rules?.lock_away_millis ? duration(rules.lock_away_millis) : 'several minutes');
   let lockNoContact = $derived(rules?.lock_no_contact_millis ? duration(rules.lock_no_contact_millis) : 'several minutes');
+  // How many times the student may lock the exam themselves to reconnect; an older server says nothing, and that is none.
+  let networkLocks = $derived(rules?.network_lock_limit > 0 ? rules.network_lock_limit : 0);
   // How much time the instructor gave back, in the words the note uses.
   function addedTime(seconds) {
     const minutes = Math.floor(seconds / 60);
@@ -255,6 +262,9 @@
   }
   async function closeWindow() { try { await api.CloseCompletedWindow(); } catch (problem) { fail(problem); } }
   async function retry() { try { if (revision > 0 && view.phase === 'exam' && !view.submitting && !view.advancing) queue.stage(answers, revision); await api.Retry(); await refresh(); } catch (problem) { fail(problem); } }
+  // What was found, in the words the student knows: a program by its name, a Remote Desktop session by where it comes from.
+  const remoteNames = found => found.map(item => item.kind === 'remote_session'
+    ? (item.detail ? `a Remote Desktop session from ${item.detail}` : 'a Remote Desktop session') : item.name).join(', ');
   async function testScreenshot() {
     if (capturing || busy || view.phase === 'complete' || view.submitting) return;
     capturing = true; captureTest = { state: 'running' };
@@ -272,6 +282,13 @@
   }
 </script>
 <h1 class="visually-hidden">CBE Portal</h1>
+<!-- The screenshot retest, shown as soon as a capture has failed: on the exam page, and on the lock screen too, so that a capture
+     that failed during a lock (as when another user has the screen) can be tested the moment the student is back, without
+     waiting for the unlock to bring the exam page back. -->
+{#snippet retest()}
+  <p class="callout danger">{view.capture.block_reason || 'Screenshot retest required: editing is paused until a screenshot test succeeds.'} The server timer continues.</p>
+  <CaptureStatus capture={view.capture} testable {capturing} {captureTest} {busy} onTest={testScreenshot} onCancel={() => pendingCapture?.cancel()} />
+{/snippet}
 <main>
   {#if view.phase !== 'login' && view.phase !== 'loading'}
     <ExamToolbar title={exam?.title || 'Exam'} position={exercises.length ? `Exercise ${page + 1} of ${exercises.length}` : ''}
@@ -291,11 +308,13 @@
         </div>
         <Card title="During the exam" icon="clock" level={3}>
           <ul class="rule-list">
-            <li><strong>Stay in this window until you submit.</strong> If you leave it for {alarmTime}, an alarm sounds until you come back.</li>
+            <li><strong>Stay in this window until you submit.</strong> If you leave it for {alarmTime}, an alarm sounds until you come back. Switching to a text console or to another user counts as leaving it.</li>
             <li><strong>While you are away, screenshots of all your screens are taken</strong>, including anything else open on them. Only your instructor sees them, and they are deleted after grading.</li>
             <li><strong>Keep your sound on.</strong> The app turns it up during the exam and restores it afterwards.</li>
             <li>Your instructor sees whether you are connected, your computer's name and when you leave this window.</li>
-            <li class="critical"><strong>If you stay away from this window for {lockAway}, or the app cannot reach the server for {lockNoContact}, your exam locks.</strong> Only your instructor can unlock it, and the exam time keeps running.</li>
+            <li>The app tells your instructor if it finds that this computer is being used through Remote Desktop, or that remote-control software (such as TeamViewer or AnyDesk) is running on it. Only the name of the program is sent.</li>
+            <li class="critical"><strong>If you stay away from this window for {lockAway}, or the app cannot reach the server for {lockNoContact}, your exam locks.</strong> Only your instructor can unlock it, and the exam time keeps running. If it locked because the app could not reach the server, the window also stops being full screen so you can reach your network settings, and screenshots of all your screens are taken until your instructor unlocks it.</li>
+            {#if networkLocks}<li>If the app cannot reach the server, it warns you and shows how long is left. To change network, you can lock your exam yourself, up to {networkLocks} time{networkLocks === 1 ? '' : 's'}: the alarm stays quiet while it is locked, but screenshots of all your screens are taken. The window stops being full screen so you can reach your network settings, and goes back to full screen when your instructor unlocks the exam. Only your instructor can unlock it, and the exam time keeps running.</li>{/if}
           </ul>
         </Card>
         <CaptureStatus capture={view.capture} admission checking={checkingCapture} />
@@ -333,6 +352,7 @@
   {:else if examLocked}
     <div class="exam-main">
       <LockScreen lock={view.locked} policy={view.monitoring?.policy} status={view.status} timingStale={view.timing_stale || !!bridgeError} />
+      {#if view.phase === 'exam' && captureBlocked}{@render retest()}{/if}
       <p class="muted">Unacknowledged text is retained only while this process stays open. Closing or crashing can lose it. Only server-acknowledged work is durable.</p>
     </div>
   {:else}
@@ -349,10 +369,14 @@
     {/if}
     {#if view.phase === 'exam'}
     <div class="exam-main">
-        {#if view.phase === 'exam' && captureBlocked}
-          <p class="callout danger">{view.capture.block_reason || 'Screenshot retest required: editing is paused until a screenshot test succeeds.'} The server timer continues.</p>
-          <CaptureStatus capture={view.capture} testable {capturing} {captureTest} {busy} onTest={testScreenshot} onCancel={() => pendingCapture?.cancel()} />
-        {/if}
+        {#if view.monitoring?.contact_lost}<ConnectionWarning monitoring={view.monitoring} onLock={lockForNetwork} />{/if}
+        <!-- The window can be in front and still not the active one, as when the instructor unlocks the exam and the computer does
+             not hand it the focus. The alarm goes on until it is, so the student is told what to do about it. -->
+        {#if view.monitoring?.focus === 'unfocused'}<p role="status" class="callout warning">This window is not the active one. Click anywhere in it to continue: the alarm stops when it is active.</p>{/if}
+        <!-- What the app found that shows this computer is watched or controlled from elsewhere is told to the instructor, and to the
+             student, so that it is no surprise and so that a mistake (a program they did not know was running) is put right. -->
+        {#if view.monitoring?.remote?.length}<p role="status" class="callout warning">Your instructor has been told that this computer is being used remotely or has remote-control software running: {remoteNames(view.monitoring.remote)}. If this is a mistake, close it and tell your instructor.</p>{/if}
+        {#if view.phase === 'exam' && captureBlocked}{@render retest()}{/if}
         <p aria-label="Save status" role="status" class="callout" class:danger={!!view.save_error}
           class:pending={!view.save_error && (view.save_state === 'saving' || revision > view.acknowledged_revision)}>{saveLabel(view, revision)}</p>
         {#if view.submitting}<p role="status" class="callout pending">Submission awaiting server confirmation. Editing is locked; ambiguous failures retry the same snapshot.</p>{/if}

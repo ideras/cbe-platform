@@ -41,6 +41,29 @@ func (t *sessionTransaction) LatestFocusEvent(ctx context.Context, sessionID str
 	return event, err
 }
 
+// LatestRemoteEvent is the latest report of what the student application found, made since the latest login: a report belongs to
+// the run of the application that made it, and a new login is a new run, which tells what it finds as it starts.
+func (t *sessionTransaction) LatestRemoteEvent(ctx context.Context, sessionID string) (domain.Event, error) {
+	var event domain.Event
+	var occurred string
+	var detail sql.NullString
+	err := t.tx.QueryRowContext(ctx, `SELECT id, session_id, event_type, occurred_at, detail FROM event_log
+		WHERE session_id = ? AND event_type = 'remote_changed'
+		AND id > COALESCE((SELECT MAX(id) FROM event_log WHERE session_id = ? AND event_type = 'login'), 0)
+		ORDER BY id DESC LIMIT 1`, sessionID, sessionID).Scan(&event.ID, &event.SessionID, &event.Type, &occurred, &detail)
+	if errors.Is(err, sql.ErrNoRows) {
+		return event, domain.ErrNotFound
+	}
+	if err != nil {
+		return event, err
+	}
+	if detail.Valid {
+		event.Detail = []byte(detail.String)
+	}
+	event.OccurredAt, err = time.Parse(time.RFC3339Nano, occurred)
+	return event, err
+}
+
 func (t *sessionTransaction) EverOverdue(ctx context.Context, sessionID string) (bool, error) {
 	var overdue bool
 	err := t.tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM event_log WHERE session_id = ? AND event_type = 'network_gap')`, sessionID).Scan(&overdue)

@@ -27,8 +27,10 @@ type Session struct {
 	Policy Policy
 	// LockedAt is when the session was locked; nil while it is not locked.
 	LockedAt *time.Time
-	// LockReason says why the session was locked: "away" or "no_contact".
+	// LockReason says why the session was locked: "away", "no_contact" or "network" (the student asked for it).
 	LockReason string
+	// NetworkLocks is how many times the student has locked the exam themselves to reconnect to the network.
+	NetworkLocks int
 	// UnlockedAt is when a proctor last unlocked the session; the absence and no-contact clocks start again from it.
 	UnlockedAt      *time.Time
 	Hostname        string
@@ -43,7 +45,7 @@ type LockRecord struct {
 	Type string `json:"type"`
 	// At is when the lock or the unlock happened.
 	At time.Time `json:"at"`
-	// Reason says why the exam was locked: "away" or "no_contact".
+	// Reason says why the exam was locked: "away", "no_contact" or "network" (the student asked for it).
 	Reason string `json:"reason,omitempty"`
 	// OperatorReason is the proctor's reason for an unlock.
 	OperatorReason string `json:"operator_reason,omitempty"`
@@ -126,4 +128,11 @@ func EvaluateSession(session Session, now time.Time) Lifecycle {
 		seconds++
 	}
 	return Lifecycle{Status: Active, SecondsRemaining: seconds}
+}
+
+// NetworkGap is a stretch in which the server heard nothing from a student's application, as its record in the history has it.
+type NetworkGap struct {
+	Start time.Time
+	// End is when contact came back; nil while it has not.
+	End *time.Time
 }

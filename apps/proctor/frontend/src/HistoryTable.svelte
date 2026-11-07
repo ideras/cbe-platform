@@ -36,6 +36,7 @@
           {:else if row.kind === 'away'}
             {#if row.until}{time(row.at)} → {time(row.until)} · <strong>{duration(row.duration)}</strong>{#if row.beyond} <span class="badge beyond">beyond threshold</span>{/if}
             {:else}Not back by the end of this page{/if}
+            {#if row.note}<br /><span class="muted">{row.note}</span>{/if}
           {:else if row.note}
             {row.note}
           {:else if row.duration != null}
@@ -45,7 +46,7 @@
         <td><div class="images">
           {#each row.images.slice(0, MAX_THUMBS) as image, index (image.screenshot_id)}<Thumbnail {image} set={row.images} {index} />{/each}
           {#if row.images.length > MAX_THUMBS}<span class="muted">+{row.images.length - MAX_THUMBS} more</span>{/if}
-          {#if row.kind === 'away' && row.images.length === 0}<span class="muted" title="Capture may be pending, unsupported, failed, missing or purged — not evidence of misconduct.">none</span>{/if}
+          {#if (row.kind === 'away' || row.expectsImages) && row.images.length === 0}<span class="muted" title="Capture may be pending, unsupported, failed, missing or purged — not evidence of misconduct.">none</span>{/if}
         </div></td>
         <td class="more"><button type="button" class="link" aria-expanded={!!open[row.id]} onclick={() => toggle(row.id)}>{open[row.id] ? 'Hide' : row.kind === 'answers' ? 'Answers' : 'Details'}</button></td>
       </tr>

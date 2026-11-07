@@ -775,6 +775,8 @@ func lockSummary(locks []LockRecord) string {
 		reason := record.Reason
 		if reason == "no_contact" {
 			reason = "no contact"
+		} else if reason == "network" {
+			reason = "network change"
 		} else if reason == "" {
 			reason = "away"
 		}

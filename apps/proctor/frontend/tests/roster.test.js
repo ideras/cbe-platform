@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { rosterCounts, filterRoster, sortRoster, needsAttention, inProgress, isSubmitted, canForce, initials, lockLabel, lowTime, networkBadge, focusBadge, lifecycleBadge, sound, examLength, loginGate } from '../src/roster.js';
+import { rosterCounts, filterRoster, sortRoster, needsAttention, inProgress, isSubmitted, canForce, initials, lockLabel, lowTime, networkBadge, focusBadge, lifecycleBadge, sound, examLength, loginGate, remoteFindings } from '../src/roster.js';
 
 const row = (name, status = 'active', extra = {}) => ({ student_name: name, account_number: name, status,
   presence: { monitoring: status === 'active', connectivity: 'healthy', focus: { state: 'focused' } }, ...extra });
@@ -51,6 +51,8 @@ test('remaining time and lock age never use a local ticking clock', () => {
   const observation = '2035-01-01T00:02:00Z';
   const locked = row('Ada', 'active', { locked: { since: '2035-01-01T00:00:00Z', reason: 'away' }, seconds_remaining: 400 });
   assert.deepEqual(lockLabel(locked, { lock_away_after_ms: 300000 }, observation), { reason: 'away 5 min', ago: '2 min ago' });
+  const changing = row('Grace', 'active', { locked: { since: locked.locked.since, reason: 'network' } });
+  assert.deepEqual(lockLabel(changing, { lock_away_after_ms: 300000 }, observation), { reason: 'changing network', ago: '2 min ago' });
   assert.equal(lowTime(locked, observation), false);
   assert.equal(lowTime({ ...locked, seconds_remaining: 300 }, observation), true);
   assert.equal(lowTime(row('Ada', 'submitted', { seconds_remaining: 0 }), observation), false);
@@ -92,4 +94,18 @@ test('a login refused while the account was open is reported until a release is 
   assert.equal(needsAttention(row({ refusals: 1, last_refused_at: 'x', released_at: 'y' })), false);
   assert.equal(needsAttention(row(null)), false);
   assert.equal(rosterCounts([row({ refusals: 1, last_refused_at: 'x', released_at: null }), row(null)]).attention, 1);
+});
+
+test('what the application found on the student\'s computer is listed in its own words, and makes the row need attention', () => {
+  const found = [{ kind: 'remote_session', name: 'Remote Desktop', detail: 'LAPTOP-1' }, { kind: 'remote_tool', name: 'AnyDesk.exe' }];
+  const watched = row('Ada', 'active', { presence: { monitoring: true, connectivity: 'healthy', focus: { state: 'focused' }, remote: found } });
+  assert.deepEqual(remoteFindings(watched), ['Remote Desktop from LAPTOP-1', 'AnyDesk.exe']);
+  assert.equal(needsAttention(watched), true);
+  assert.equal(rosterCounts([watched, row('Alan')]).attention, 1);
+  // A session that does not say where it comes from is still named; nothing found, or an older server, says nothing.
+  assert.deepEqual(remoteFindings(row('x', 'active', { presence: { remote: [{ kind: 'remote_session', name: 'Remote Desktop' }] } })), ['Remote Desktop session']);
+  for (const nothing of [row('Alan'), row('Dennis', 'submitted', { presence: { remote: [] } }), { presence: { remote: 'not a list' } }, { presence: { remote: [null, { kind: 'remote_tool' }, { name: 7 }] } }, {}]) {
+    assert.deepEqual(remoteFindings(nothing), []);
+    assert.equal(needsAttention({ ...nothing, status: 'active' }), false);
+  }
 });

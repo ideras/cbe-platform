@@ -568,3 +568,11 @@ func TestTheDownloadRecordsTheLocksOfTheExam(t *testing.T) {
 		t.Errorf("_index.md does not show the locks:\n%s", index)
 	}
 }
+
+// The checklist names the reason of every lock, including the ones the student asked for.
+func TestTheLockSummaryNamesEveryReason(t *testing.T) {
+	got := lockSummary([]LockRecord{{Type: "locked", Reason: "away"}, {Type: "unlocked"}, {Type: "locked", Reason: "network"}, {Type: "locked", Reason: "no_contact"}})
+	if got != "3 (away, network change, no contact)" {
+		t.Fatalf("lock summary = %q", got)
+	}
+}

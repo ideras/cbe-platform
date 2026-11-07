@@ -16,6 +16,9 @@ func (s *Service) notifyCompletion() {
 	s.phase = "complete"
 	callback := s.options.OnCompletion
 	s.mu.Unlock()
+	// With the exam over there is no lock left to learn a record from: what is held for a lock the server never named is let go,
+	// instead of being shown as pending for as long as the window stays open.
+	s.capture.releaseUnboundAtEnd()
 	_ = s.sound.restore()
 	if callback != nil {
 		callback()

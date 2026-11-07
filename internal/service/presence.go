@@ -139,7 +139,7 @@ func (s *Sessions) presence(ctx context.Context, tx SessionTransaction, session 
 	policy := session.Policy
 	lifecycle := domain.EvaluateSession(session, now)
 	monitoring := lifecycle.Status == domain.Active || lifecycle.Status == domain.Grace
-	result := domain.Presence{SessionID: session.ID, ServerTime: now, Monitoring: monitoring, Connectivity: "no_heartbeat", Hostname: session.Hostname, RemoteAddr: session.RemoteAddr, LastSeen: session.LastSeen, EverOverdue: ever, Focus: domain.Focus{State: domain.FocusUnknown}, VolumePercent: session.Sound.VolumePercent, VolumeMuted: session.Sound.Muted}
+	result := domain.Presence{SessionID: session.ID, ServerTime: now, Monitoring: monitoring, Connectivity: "no_heartbeat", Hostname: session.Hostname, RemoteAddr: session.RemoteAddr, LastSeen: session.LastSeen, EverOverdue: ever, Focus: domain.Focus{State: domain.FocusUnknown}, VolumePercent: session.Sound.VolumePercent, VolumeMuted: session.Sound.Muted, Remote: []domain.RemoteFinding{}}
 	if session.LastSeen != nil {
 		// Monitoring ends with the session: a finished one is measured up to its submission (or the end of grace, when
 		// it expired), so its heartbeat age and missed intervals stop growing.
@@ -181,6 +181,16 @@ func (s *Sessions) presence(ctx context.Context, tx SessionTransaction, session 
 				duration := elapsed.Milliseconds()
 				result.Focus = domain.Focus{State: domain.FocusUnfocused, Since: &event.OccurredAt, IncidentID: &event.ID, DurationMillis: &duration, ThresholdExceeded: elapsed > policy.FocusThreshold}
 			}
+		}
+	}
+	if monitoring && session.LastSeen != nil {
+		// What the application last said it found stays the last word, even while contact is lost: it is the latest there is.
+		event, err := tx.LatestRemoteEvent(ctx, session.ID)
+		if err != nil && !errors.Is(err, domain.ErrNotFound) {
+			return domain.Presence{}, err
+		}
+		if err == nil {
+			result.Remote = remoteFindings(event.Detail)
 		}
 	}
 	return result, nil

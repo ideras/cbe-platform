@@ -334,14 +334,22 @@ export async function OpenMonitoring() { if (!selectedExam) throw new Error('Cho
 export async function OpenReview(id) { calls.windows.push({ name: `review-${id}`, url: `/#/review/${id}` }); }
 export async function OpenImage(ids, times, index) { calls.windows.push({ name: `image-${ids[0]}`, url: `/#/image?set=${ids.join('%2C')}&at=${index}` }); }
 export async function SaveImage(id) { calls.saved.push(id); if (imageMissing) throw new Error('Image missing or purged.'); return saveCancelled ? '' : `/home/proctor/screenshot-${id}.png`; }
+// What the first focus loss of the history says it came from: untrusted text unless the page is opened with ?lost=<source>.
+const lostSource = new URLSearchParams(location.search).get('lost') ?? '<script>untrusted</script>';
+// What took the session off screen, as the loss (?reason=) or the return (?returned=) of that absence says.
+const lostReason = new URLSearchParams(location.search).get('reason');
+// With ?remote=found the history has a report of remote access, and with ?remote=gone one that nothing is found any more.
+const remoteInHistory = new URLSearchParams(location.search).get('remote');
+const returnedReason = new URLSearchParams(location.search).get('returned');
 export async function Timeline(id, cursor) {
   calls.timeline.push({ id, cursor });
   const oldExam = selectedExam;
   if (deferHistory) await new Promise(resolve => releaseHistory = resolve);
   return { server_time: AT, session: { ...structuredClone(rows[0]), exam_id: oldExam, final_version: final }, items: cursor ? [{ id: 'answer_version:12', kind: 'answer_version', occurred_at: AT, answer_version: { version_id: 12, version_seq: 3, answers: { q1: 'Final answer 🧪' }, is_final: true } }] : [
     { id: 'answer_version:1', kind: 'answer_version', occurred_at: AT, answer_version: { version_id: 1, version_seq: 1, answers: { q1: '<img src=x onerror="window.injected=true">student text' }, is_final: false } },
-    { id: 'event:31', kind: 'event', occurred_at: AT, event: { event_log_id: 31, event_type: 'focus_lost', detail: { client: { source: '<script>untrusted</script>' } }, screenshots: [7, 8, 9].map(id => ({ screenshot_id: id, event_log_id: 31, captured_at: AT, width: 1, height: 1, byte_size: 68 })) } },
-    { id: 'event:33', kind: 'event', occurred_at: '2035-01-01T00:02:30Z', event: { event_log_id: 33, event_type: 'focus_regained', detail: { focus_lost_event_log_id: 31, unfocused_duration_ms: 150000, threshold_exceeded: true }, screenshots: [] } },
+    { id: 'event:31', kind: 'event', occurred_at: AT, event: { event_log_id: 31, event_type: 'focus_lost', detail: { client: { source: lostSource, ...(lostReason && { session_reason: lostReason }) } }, screenshots: [7, 8, 9].map(id => ({ screenshot_id: id, event_log_id: 31, captured_at: AT, width: 1, height: 1, byte_size: 68 })) } },
+    { id: 'event:33', kind: 'event', occurred_at: '2035-01-01T00:02:30Z', event: { event_log_id: 33, event_type: 'focus_regained', detail: { focus_lost_event_log_id: 31, unfocused_duration_ms: 150000, threshold_exceeded: true, ...(returnedReason && { client: { session_reason: returnedReason } }) }, screenshots: [] } },
+    ...(remoteInHistory ? [{ id: 'event:50', kind: 'event', occurred_at: AT, event: { event_log_id: 50, event_type: 'remote_changed', detail: { client: { source: 'remote_watch', active: remoteInHistory === 'found' ? [{ kind: 'remote_session', name: 'Remote Desktop', detail: 'LAPTOP-1' }, { kind: 'remote_tool', name: '<b>AnyDesk.exe</b>' }] : [] } }, screenshots: [] } }] : []),
     { id: 'event:32', kind: 'event', occurred_at: AT, event: { event_log_id: 32, event_type: 'network_gap', detail: { overdue_after: AT }, screenshots: [] } },
     { id: 'event:40', kind: 'event', occurred_at: AT, event: { event_log_id: 40, event_type: 'calc_opened', detail: { client: { client_time: AT, mode: 'scientific' } }, screenshots: [] } },
     { id: 'event:41', kind: 'event', occurred_at: AT, event: { event_log_id: 41, event_type: 'calc_evaluated', detail: { client: { client_time: AT, mode: 'scientific', expression: 'sin(30)', ok: true, display: '0.5', angle_mode: 'deg' } }, screenshots: [] } },
@@ -478,6 +486,8 @@ window.ProctorHarness = {
   lock(index = 0, reason = 'away') { rows[index] = { ...rows[index], locked: { since: '2035-01-01T00:00:00Z', reason } }; },
   unlock(index = 0) { rows[index] = { ...rows[index], locked: null }; },
   // Someone tried to open the account of the student at `index` while it was open on that student's computer.
+  // What the application says it found on a student's computer: a list of { kind, name, detail }; none says it found nothing.
+  remoteFound(index = 0, found = []) { rows[index] = { ...rows[index], presence: { ...rows[index].presence, remote: found } }; },
   loginRefused(index = 0, count = 1, addr = '10.0.9.9', at = '2035-01-01T00:00:50Z') { rows[index] = { ...rows[index], login_gate: { refusals: count, last_refused_at: at, last_refused_addr: addr, released_at: null } }; },
   // The student's next login was accepted: the report and any release it waited for are over.
   loggedIn(index = 0) { rows[index] = { ...rows[index], login_gate: null }; },

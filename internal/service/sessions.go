@@ -51,6 +51,9 @@ type SessionTransaction interface {
 	Finalize(context.Context, string, int64, domain.SessionStatus, time.Time) error
 	RecordEvent(context.Context, domain.Event) (int64, error)
 	LatestFocusEvent(context.Context, string) (domain.Event, error)
+	// LatestRemoteEvent is the latest report of what the student application found that shows the computer is watched or controlled
+	// from elsewhere, made since the session's latest login; domain.ErrNotFound when there is none.
+	LatestRemoteEvent(context.Context, string) (domain.Event, error)
 	EverOverdue(context.Context, string) (bool, error)
 	SetNetworkGap(context.Context, string, time.Time) error
 	TouchHeartbeat(context.Context, string, string, string, domain.Sound, time.Time) error
@@ -69,12 +72,16 @@ type SessionTransaction interface {
 	SaveSettings(context.Context, domain.Policy, time.Time) error
 	// AverageScreenshotBytes is the mean size of the stored screenshots; nil when there are none.
 	AverageScreenshotBytes(context.Context) (*int64, error)
-	// LockSession locks a running session; false means it was locked already or is over.
-	LockSession(context.Context, string, time.Time, string) (bool, error)
+	// LockSession locks a running session; false means it was locked already or is over. A counted lock is one of the requests the
+	// student is allowed to make, and adds to the session's count of them.
+	LockSession(context.Context, string, time.Time, string, bool) (bool, error)
 	// UnlockSession lifts the lock and moves the deadline and grace; false means it was not locked or is over.
 	UnlockSession(context.Context, string, time.Time, time.Time, time.Time) (bool, error)
 	// LatestLockEvent is the record of the session's latest lock.
 	LatestLockEvent(context.Context, string) (domain.Event, error)
+	// LatestGap is the session's latest network gap, when it began and, once contact is back, when that was; domain.ErrNotFound when
+	// it had none.
+	LatestGap(context.Context, string) (domain.NetworkGap, error)
 	// FocusEventAtLock is the focus state the session was in when it was last locked.
 	FocusEventAtLock(context.Context, string) (domain.Event, error)
 	// LockHistories reads the locks and unlocks of every session of an exam, keyed by session.
@@ -121,12 +128,19 @@ type LoginResult struct {
 	MinVolumePercent int
 	// Locked says that the session is locked, since when and why; nil while it is not.
 	Locked *LockInfo
+	// NetworkLocksLeft is how many more times the student may lock the exam themselves to reconnect to the network.
+	NetworkLocksLeft int
+	// RemoteTools are the names of the programs the application looks for while the exam runs.
+	RemoteTools []string
 }
 
 // LockInfo says that a session is locked, since when and why.
 type LockInfo struct {
 	Since  time.Time `json:"since"`
 	Reason string    `json:"reason"`
+	// EventID is the record of the lock in the session's history, which the student application sends the screenshots of the
+	// lock under. Only what a student is told carries it.
+	EventID int64 `json:"event_id,omitempty"`
 }
 
 // lockInfo is the lock of a session, or nil when it is not locked.
@@ -137,6 +151,23 @@ func lockInfo(session domain.Session) *LockInfo {
 	return &LockInfo{Since: *session.LockedAt, Reason: session.LockReason}
 }
 
+// lockInfoForStudent is the lock of a session with its record, for what the student application is told. It costs a lookup, so the
+// worker's tick and the proctor's operations, which only need to know whether the session is locked, do not ask for it.
+func lockInfoForStudent(ctx context.Context, tx SessionTransaction, session domain.Session) (*LockInfo, error) {
+	info := lockInfo(session)
+	if info == nil {
+		return nil, nil
+	}
+	event, err := tx.LatestLockEvent(ctx, session.ID)
+	if err != nil && !errors.Is(err, domain.ErrNotFound) {
+		return nil, err
+	}
+	if err == nil {
+		info.EventID = event.ID
+	}
+	return info, nil
+}
+
 type Principal struct {
 	FinalReason string
 	Policy      ClientPolicy
@@ -145,6 +176,8 @@ type Principal struct {
 	ServerTime  time.Time
 	// Locked says that the exam is locked, since when and why; nil while it is not.
 	Locked *LockInfo
+	// NetworkLocksLeft is how many more times the student may lock the exam themselves to reconnect to the network.
+	NetworkLocksLeft int
 }
 
 func (s *Sessions) Login(ctx context.Context, accountNumber, pin string) (LoginResult, error) {
@@ -256,7 +289,10 @@ func (s *Sessions) Login(ctx context.Context, accountNumber, pin string) (LoginR
 			return err
 		}
 		deadline, _ := principal.Session.EffectiveTimes()
-		result = LoginResult{Policy: principal.Policy, Token: session.Token, SessionID: session.ID, DeadlineAt: deadline, ServerTime: now, MinVolumePercent: exam.MinVolumePercent, Locked: lockInfo(principal.Session)}
+		if principal.Locked, err = lockInfoForStudent(ctx, tx, principal.Session); err != nil {
+			return err
+		}
+		result = LoginResult{Policy: principal.Policy, Token: session.Token, SessionID: session.ID, DeadlineAt: deadline, ServerTime: now, MinVolumePercent: exam.MinVolumePercent, Locked: principal.Locked, NetworkLocksLeft: NetworkLocksLeft(principal.Session), RemoteTools: domain.DefaultRemoteTools()}
 		return nil
 	})
 	if err != nil {
@@ -282,7 +318,10 @@ func (s *Sessions) Authenticate(ctx context.Context, token string) (Principal, e
 		if err != nil {
 			return err
 		}
-		principal, _, err = s.reconcileSession(ctx, tx, session, now)
+		if principal, _, err = s.reconcileSession(ctx, tx, session, now); err != nil {
+			return err
+		}
+		principal.Locked, err = lockInfoForStudent(ctx, tx, principal.Session)
 		return err
 	})
 	if err != nil {
@@ -341,7 +380,7 @@ func (s *Sessions) reconcileSession(ctx context.Context, tx SessionTransaction, 
 			reason = detail.Reason
 		}
 	}
-	return Principal{Policy: clientPolicy(session.Policy), Session: session, Lifecycle: lifecycle, ServerTime: now, Locked: lockInfo(session), FinalReason: reason}, changed, nil
+	return Principal{Policy: clientPolicy(session.Policy), Session: session, Lifecycle: lifecycle, ServerTime: now, Locked: lockInfo(session), NetworkLocksLeft: NetworkLocksLeft(session), FinalReason: reason}, changed, nil
 }
 
 func examTiming(exam domain.Exam) (time.Duration, time.Duration, error) {

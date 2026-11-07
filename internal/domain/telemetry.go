@@ -33,6 +33,9 @@ type Presence struct {
 	Focus              Focus      `json:"focus"`
 	VolumePercent      *int       `json:"volume_percent"`
 	VolumeMuted        *bool      `json:"volume_muted"`
+	// Remote is what the student application last said it found that shows the computer is watched or controlled from elsewhere;
+	// empty when it found nothing, and while the session is not being monitored.
+	Remote []RemoteFinding `json:"remote"`
 }
 
 func NonnegativeElapsed(now, since time.Time) time.Duration {

@@ -17,6 +17,9 @@ type Rules struct {
 	LockAwayMillis int64 `json:"lock_away_millis"`
 	// LockNoContactMillis is how long the application may be out of contact before the exam locks; 0 means off.
 	LockNoContactMillis int64 `json:"lock_no_contact_millis"`
+	// NetworkLockLimit is how many times the student may lock the exam themselves, while the server is out of reach, to
+	// reconnect to the exam network; 0 (or an older server) means the option does not exist.
+	NetworkLockLimit int `json:"network_lock_limit"`
 }
 
 // Rules reads the times the pre-login rules show from the server at address, the one the student typed. It needs no

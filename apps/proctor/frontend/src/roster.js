@@ -16,7 +16,14 @@ export function loginGate(row) {
     released: Boolean(gate.released_at), waiting: gate.refusals > 0 && !gate.released_at };
 }
 // Warnings are independent. A student with several warnings is counted only once.
-export const needsAttention = row => Boolean(row.locked || row.network_warning || row.focus_warning || row.finalization_pending || loginGate(row)?.waiting);
+export const needsAttention = row => Boolean(row.locked || row.network_warning || row.focus_warning || row.finalization_pending || loginGate(row)?.waiting || remoteFindings(row).length);
+/** What the student application says it found that shows the computer is watched or controlled from elsewhere, each as the text the
+ *  roster shows: a Remote Desktop session by where it comes from, a program by its name. The application's words are shown as text. */
+export function remoteFindings(row) {
+  const found = Array.isArray(row.presence?.remote) ? row.presence.remote : [];
+  return found.filter(item => item && typeof item.name === 'string' && item.name)
+    .map(item => item.kind === 'remote_session' ? (item.detail ? `Remote Desktop from ${item.detail}` : 'Remote Desktop session') : item.name);
+}
 export const canForce = row => inProgress(row) || Boolean(row.finalization_pending);
 
 export function rosterCounts(rows) {
@@ -55,7 +62,8 @@ export function sound(presence) {
   return level || 'not reported';
 }
 export function lockLabel(row, policy, serverTime) {
-  const reason = row.locked.reason === 'no_contact' ? 'no contact' : `away ${spoken(policy.lock_away_after_ms)}`;
+  // A lock the student asked for, to change network, is told apart from the two the rules make.
+  const reason = row.locked.reason === 'no_contact' ? 'no contact' : row.locked.reason === 'network' ? 'changing network' : `away ${spoken(policy.lock_away_after_ms)}`;
   // Even lock ages use the last server observation, so stale data never appears live.
   const observed = parseTime(serverTime), since = parseTime(row.locked.since);
   if (!observed || !since) return { reason, ago: 'at an unreported time' };

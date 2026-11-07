@@ -8,10 +8,20 @@ export async function ReportAlertFailure() { record('ReportAlertFailure'); state
 let rulesUnavailable = false;
 export async function Rules(address) { record('Rules');
   if (rulesUnavailable || !address) throw Error('The server did not answer.');
-  return { alarm_millis: 5000, capture_millis: 5000, lock_away_millis: 300000, lock_no_contact_millis: 300000 };
+  return { alarm_millis: 5000, capture_millis: 5000, lock_away_millis: 300000, lock_no_contact_millis: 300000, network_lock_limit: 2 };
 }
 const clock = '2035-01-02T03:04:05Z';
 let closeCalls = 0;
+// The student's lock request: the native side refuses it while the connection is fine or no request is left.
+let networkLockRequests = 0;
+export async function RequestNetworkLock() {
+  record('RequestNetworkLock'); networkLockRequests++;
+  const m = state.monitoring;
+  if (!m?.network_lock_available || state.locked) throw Error('The exam can be locked this way only while the app cannot reach the server.');
+  state.locked = { since: '2035-01-02T03:00:05Z', reason: 'network' };
+  state.monitoring = { ...m, locked: true, lock_reason: 'network', contact_lost: false, no_contact_lock_in_ms: undefined, network_lock_available: false, network_locks_left: (m.network_locks_left ?? 1) - 1 };
+  return result(false);
+}
 export async function CloseCompletedWindow() { record('CloseCompletedWindow'); if (state.phase !== 'complete') throw Error('Session not complete.'); closeCalls++; }
 // Every fake method records its name, so a test can assert that an action called no native method it must
 // not (the calculator may only call the Calc* ones; the app's poll timer may call Snapshot at any time).
@@ -218,6 +228,7 @@ window.__studentHarness = {
   soundNotice(value) { state.sound_notice = value; },
   timeNotices(value) { state.time_notices = value; },
   get closeCalls() { return closeCalls; },
+  get networkLockRequests() { return networkLockRequests; },
   get answers() { return { ...answers }; }, get submitted() { return captured; },
   offline(value) { offline = value; state.timing_stale = value; state.status_error = value ? 'Server unavailable.' : ''; if (!value) { state.save_error = ''; acknowledge(); } },
   loginFailure(code) { failLogin = code; }, loadFailure(value) { failLoad = value; }, lostSubmit(value) { lostSubmit = value; },

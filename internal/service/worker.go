@@ -48,7 +48,7 @@ func (s *Sessions) Reconcile(ctx context.Context) (ReconcileReport, error) {
 			if reason == "" {
 				continue
 			}
-			_, locked, err := lockSession(ctx, tx, principal.Session, reason, now, "server")
+			_, locked, err := lockSession(ctx, tx, principal.Session, reason, now, now, "server")
 			if err != nil {
 				return err
 			}
