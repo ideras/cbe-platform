@@ -15,7 +15,10 @@
     const minutes = Math.max(1, Math.floor(lockedMillis / 60000));
     return minutes === 1 ? '1 minute' : `${minutes} minutes`;
   });
-  let reasonText = $derived(student?.locked?.reason === 'no_contact' ? 'the app could not reach the server' : 'the student was away from the exam window');
+  let network = $derived(student?.locked?.reason === 'network');
+  // Both locks that come from the network leave the student the run of the computer to reconnect, with the alarm quiet.
+  let forNetwork = $derived(network || student?.locked?.reason === 'no_contact');
+  let reasonText = $derived(student?.locked?.reason === 'no_contact' ? 'the app could not reach the server' : network ? 'the student locked the exam to change network' : 'the student was away from the exam window');
   let newDeadline = $derived(student?.deadline_at ? localTime(new Date(new Date(student.deadline_at).getTime() + lockedMillis).toISOString(), '') : '');
   let ready = $derived(reason.trim().length > 0);
 </script>
@@ -24,6 +27,7 @@
   <form onsubmit={event => { event.preventDefault(); if (ready && !busy) onConfirm({ reason: reason.trim(), giveBack }); }}>
     <p><strong>{student?.student_name} ({student?.account_number})</strong></p>
     <p>Locked because {reasonText}, {lockedFor} ago.</p>
+    {#if forNetwork}<p class="muted">The alarm was quiet while it was locked, and the student could use the computer to reconnect (their screens were captured). Unlock it when the student is connected to the exam network again and back in the exam window.</p>{/if}
     <label>Reason<input type="text" bind:value={reason} required maxlength="1024" disabled={busy} /></label>
     <label class="check"><input type="checkbox" bind:checked={giveBack} disabled={busy} /> Give back the {lockedFor} the exam was locked (new deadline {newDeadline})</label>
     <p class="muted">Without this box no time is added: the deadline does not move while the exam is locked.</p>

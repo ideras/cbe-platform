@@ -2,13 +2,14 @@
   import Icon from '../../../../shared/theme/Icon.svelte';
   import { remainingTime } from '../../../../shared/exam/timing.js';
   import { localTime } from './dates.js';
-  import { inProgress, canForce, needsAttention, duration, sound, networkBadge, focusBadge, lifecycleBadge, lockLabel, lowTime, loginGate } from './roster.js';
+  import { inProgress, canForce, needsAttention, duration, sound, networkBadge, focusBadge, lifecycleBadge, lockLabel, lowTime, loginGate, remoteFindings } from './roster.js';
   let { row, serverTime, policy, disabled = false, timingBusy = false, unlockBusy = false, actionBusy = false, releaseBusy = false,
     onReview, onExtend, onUnlock, onForce, onRelease } = $props();
   const network = $derived(networkBadge(row));
   const focus = $derived(focusBadge(row));
   const life = $derived(lifecycleBadge(row, policy, serverTime));
   const gate = $derived(loginGate(row));
+  const remote = $derived(remoteFindings(row));
 </script>
 <tr data-session-id={row.session_id} class:network-row={row.network_warning} class:focus-row={row.focus_warning} class:locked-row={!!row.locked} class:attention-row={needsAttention(row)}>
   <td>
@@ -21,6 +22,10 @@
         {#if gate.released}<Icon name="login" size={13} /><span>Next login allowed {localTime(gate.releasedAt, '')} · waiting for the student</span>
         {:else}<Icon name="warning" size={13} /><span>Login refused ×{gate.refusals} · last {localTime(gate.lastAt, 'at an unknown time')}{gate.addr ? ` from ${gate.addr}` : ''}</span>{/if}
       </div>
+    {/if}
+    {#if remote.length}
+      <!-- The application found a Remote Desktop session or remote-control software: its own words, shown as text. -->
+      <div class="remote"><Icon name="warning" size={13} /><span>Remote access: {remote.join(' · ')}</span></div>
     {/if}
   </td>
   <td>
@@ -74,6 +79,8 @@
   .account { color: var(--action-hover); font-family: var(--font-mono); font-size: .85rem; }
   .gate { display: flex; align-items: flex-start; gap: .35rem; margin-top: .4rem; padding: .25rem .5rem; border-radius: 7px; background: var(--warn-fill); color: var(--warn-text); font-size: .78rem; font-weight: 600; }
   .gate :global(svg) { flex: none; margin-top: .12rem; }
+  .remote { display: flex; align-items: flex-start; gap: .35rem; margin-top: .4rem; padding: .25rem .5rem; border-radius: 7px; background: var(--warn-fill); color: var(--warn-text); font-size: .78rem; font-weight: 600; overflow-wrap: anywhere; }
+  .remote :global(svg) { flex: none; margin-top: .12rem; }
   .gate.released { background: var(--selection-fill); color: var(--action-hover); }
   .host { margin-top: .15rem; color: var(--text-muted); font-family: var(--font-mono); font-size: .78rem; }
   .kv { display: flex; flex-direction: column; gap: .2rem; }

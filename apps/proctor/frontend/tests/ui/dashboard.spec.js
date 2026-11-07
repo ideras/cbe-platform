@@ -67,6 +67,23 @@ test('Monitor opens the monitoring window, and Review opens a window per student
   await expect(page.getByRole('region', { name: 'Session review' })).toHaveCount(0);
 });
 
+test('the history says when a focus loss was a switch to a text console or another user', async ({ page }) => {
+  await page.goto(`/?lost=session_inactive#/review/${SESSION}`);
+  const review = page.getByRole('region', { name: 'Session review' });
+  const away = review.getByRole('table').getByRole('row').filter({ hasText: 'Left the exam window' });
+  await expect(away).toContainText('2 min 30 s');
+  await expect(away).toContainText("The student's session was not the one on screen: a text console or another user.");
+});
+
+test('the history names what took the session off screen, even when only the return says so', async ({ page }) => {
+  // The window lost its focus first (as it can when the student switches user), so the loss says nothing of the session.
+  await page.goto(`/?lost=native_window&returned=other_session#/review/${SESSION}`);
+  const review = page.getByRole('region', { name: 'Session review' });
+  const away = review.getByRole('table').getByRole('row').filter({ hasText: 'Left the exam window' });
+  await expect(away).toContainText('2 min 30 s');
+  await expect(away).toContainText("The student's session was not the one on screen: another user's session was, or (on Windows) a remote connection took the session over.");
+});
+
 test('the review window shows the history as a table, merges a focus loss with its return, and keeps student text inert', async ({ page }) => {
   await page.goto(`/#/review/${SESSION}`);
   const review = page.getByRole('region', { name: 'Session review' });
@@ -168,6 +185,33 @@ test('a locked student comes first, is highlighted and can be unlocked by the pr
   await expect(page.getByRole('status')).toContainText('Unlocked 0001');
   const sent = await page.evaluate(() => window.ProctorHarness.calls.unlock);
   expect(sent).toMatchObject({ reason: 'the student came back', giveBackTime: false, confirmed: true });
+});
+
+test('a lock the student asked for, to change network, says so and is unlocked only by the proctor', async ({ page }) => {
+  await connect(page);
+  await page.evaluate(() => window.ProctorHarness.lock(0, 'network'));
+  const rows = sessionRows(page);
+  await expect(rows.first()).toContainText('Locked · changing network');
+  await rows.first().getByRole('button', { name: 'Unlock 0001…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Unlock exam' });
+  await expect(dialog.getByText('Locked because the student locked the exam to change network,')).toBeVisible();
+  // The proctor is told when to unlock: with the student connected and back in the exam window.
+  await expect(dialog.getByText('connected to the exam network again and back in the exam window', { exact: false })).toBeVisible();
+  await dialog.getByLabel('Reason').fill('connected to the exam network');
+  await dialog.getByRole('button', { name: 'Unlock', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  const sent = await page.evaluate(() => window.ProctorHarness.calls.unlock);
+  expect(sent).toMatchObject({ reason: 'connected to the exam network', giveBackTime: false, confirmed: true });
+});
+
+test('a lock for lack of contact tells the proctor the student could reconnect, and is unlocked only by the proctor', async ({ page }) => {
+  await connect(page);
+  await page.evaluate(() => window.ProctorHarness.lock(0, 'no_contact'));
+  await sessionRows(page).first().getByRole('button', { name: 'Unlock 0001…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Unlock exam' });
+  await expect(dialog.getByText('Locked because the app could not reach the server,')).toBeVisible();
+  await expect(dialog.getByText('the student could use the computer to reconnect', { exact: false })).toBeVisible();
+  await expect(dialog.getByText('connected to the exam network again and back in the exam window', { exact: false })).toBeVisible();
 });
 
 test('the admitting bar says how many students are locked', async ({ page }) => {

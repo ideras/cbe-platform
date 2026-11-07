@@ -1,11 +1,12 @@
 // Turns a page of a session's history into table rows. A focus loss and the return that ends it become one "away" row
 // with its duration; everything else is one row per record. Client-supplied details are untrusted text: they are only
 // ever shown as text, never as markup.
+import { localTime, parseTime } from './dates.js';
 
 const labels = {
   login: 'Logged in', app_started: 'Application started', app_closed: 'Application closed', grace_started: 'Grace period started',
   network_gap: 'Network gap', network_connected: 'Network connected', network_reconnected: 'Network back', connection_changed: 'Connection changed',
-  capture_ready: 'Screenshot test passed', capture_failed: 'Screenshot capture failed', capture_restored: 'Screenshot capture restored', capture_health: 'Screenshot status',
+  capture_ready: 'Screenshot test passed', capture_failed: 'Screenshot capture failed', capture_restored: 'Screenshot capture restored', capture_health: 'Screenshot status', remote_changed: 'Remote access',
   submitted: 'Submitted', force_submitted: 'Force-submitted', focus_lost: 'Left the exam window', focus_regained: 'Back in the exam window', marker: 'Marker',
   login_refused: 'Login refused', login_released: 'Next login allowed',
   locked: 'Exam locked', unlocked: 'Exam unlocked', grace_extended: 'Grace extended', end_time_changed: 'End time changed',
@@ -41,12 +42,46 @@ function group(type) {
   return 'other';
 }
 
-/** What the lock rows say: the reason of a lock, and the reason and time given back of an unlock. */
-export function lockDetail(type, detail) {
+const OFF_SCREEN = 'The student\'s session was not the one on screen';
+// What each reason the application gives says. An application that gives none was a Linux one from before the reasons, which
+// could only name a text console or another user.
+const sessionNotes = {
+  other_console: `${OFF_SCREEN}: a text console or another user.`,
+  other_session: `${OFF_SCREEN}: another user\'s session was, or (on Windows) a remote connection took the session over.`,
+};
+
+/** What an absence says about the student's session, from the reports that made it (the loss, and the return when there is one):
+ *  nothing when the session was not part of it. The application's reason is its own word, so one this page does not know is
+ *  still shown as the session being off screen. */
+function sessionOffScreenNote(...reports) {
+  const reason = reports.map(report => report?.detail?.client?.session_reason).find(value => typeof value === 'string' && value);
+  if (reason) return sessionNotes[reason] ?? `${OFF_SCREEN}.`;
+  return reports.some(report => report?.detail?.client?.source === 'session_inactive') ? sessionNotes.other_console : undefined;
+}
+
+/** What a remote_changed report says: what the student application found that shows the computer is watched or controlled from
+ *  elsewhere, or that it found nothing any more. The names are the application's own word, so they are only ever shown as text. */
+export function remoteDetail(detail) {
+  const active = Array.isArray(detail?.client?.active) ? detail.client.active : [];
+  const names = active.filter(item => item && typeof item.name === 'string' && item.name)
+    .map(item => item.kind === 'remote_session' ? (item.detail ? `Remote Desktop session from ${item.detail}` : 'Remote Desktop session') : item.name);
+  return names.length ? `Found on the student's computer: ${names.join(', ')}.` : 'Nothing found any more: no Remote Desktop session and no remote-control software.';
+}
+
+/** What the lock rows say: the reason of a lock, and the reason and time given back of an unlock. recordedAt is when the server
+ *  made the record: a lock the student asked for while the server was out of reach began earlier, and the row says so. */
+export function lockDetail(type, detail, recordedAt) {
   if (type === 'locked') {
-    const reason = detail?.reason === 'no_contact' ? 'no contact' : 'away from the exam window';
+    const reason = detail?.reason === 'no_contact' ? 'no contact' : detail?.reason === 'network' ? 'the student asked to lock the exam to change network' : 'away from the exam window';
     const source = detail?.source === 'client' ? 'the student application' : 'the server';
-    return `Locked: ${reason} (seen by ${source}).`;
+    // A lock the student asked for says which of the allowed requests it is, so a student past the limit stands out.
+    const request = detail?.request > 0 ? ` Request ${detail.request} of ${detail.limit} allowed${detail.request > detail.limit ? ': over the limit' : ''}.` : '';
+    const asked = parseTime(detail?.since), recorded = parseTime(recordedAt);
+    const before = asked && recorded ? recorded - asked : 0;
+    // Who made the lock decides how it reads: the student asked for the one to change network, the application made the other.
+    const maker = detail?.reason === 'network' ? 'The student asked for it' : 'The application locked it';
+    const earlier = before >= 2000 ? ` ${maker} at ${localTime(detail.since)}, ${duration(before)} before the server heard of it.` : '';
+    return `Locked: ${reason} (seen by ${source}).${request}${earlier}`;
   }
   if (type === 'unlocked') {
     const extended = detail?.extended_ms > 0 ? ` ${duration(detail.extended_ms)} given back.` : ' No time given back.';
@@ -121,11 +156,22 @@ export function historyRows(items, finalVersionId) {
         row.beyond = back.event.detail?.threshold_exceeded === true;
         row.details.push(back.event);
       }
+      // The window may have kept its focus, which it cannot tell: the student switched to a text console or to another user. Either
+      // report of the absence can say what took the session off screen, as the window may have lost its focus first.
+      const sessionNote = sessionOffScreenNote(event, back?.event);
+      if (sessionNote) row.note = sessionNote;
     } else if (event.event_type === 'focus_regained') {
       row.duration = event.detail?.unfocused_duration_ms;
       row.beyond = event.detail?.threshold_exceeded === true;
     } else if (event.event_type === 'locked' || event.event_type === 'unlocked') {
-      row.note = lockDetail(event.event_type, event.detail);
+      row.note = lockDetail(event.event_type, event.detail, item.occurred_at);
+      // The application takes screenshots while a lock the student asked for lasts, so its row says when there are none.
+      row.expectsImages = event.event_type === 'locked' && (event.detail?.reason === 'network' || event.detail?.reason === 'no_contact');
+    } else if (event.event_type === 'remote_changed') {
+      row.note = remoteDetail(event.detail);
+    } else if (event.event_type === 'capture_failed') {
+      // A screen cannot be captured while another user's session has it: when the application says that was the case, it is why.
+      if (event.detail?.client?.session_reason) row.note = 'The student\'s session was not the one on screen, so the screens could not be captured.';
     } else if (event.event_type === 'login') {
       if (event.detail?.resumed) row.note = event.detail.released ? 'Resumed the session after a proctor allowed the login.' : 'Resumed the session.';
     } else if (event.event_type === 'login_refused') {
