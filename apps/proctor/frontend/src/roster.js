@@ -57,7 +57,15 @@ export function unlockChecks(row) {
     window: presence.focus?.state === 'focused',
   };
 }
-export const spoken = ms => ms == null ? 'unknown' : ms < 60000 ? `${Math.round(ms / 1000)} s` : `${Math.round(ms / 60000)} min`;
+// A span in the words the roster uses: seconds under a minute, then minutes with the seconds that are left (90 s is "1 min 30 s"), to the
+// nearest second.
+export function spoken(ms) {
+  if (ms == null) return 'unknown';
+  const total = Math.round(ms / 1000);
+  if (total < 60) return `${total} s`;
+  const minutes = Math.floor(total / 60), seconds = total % 60;
+  return seconds ? `${minutes} min ${seconds} s` : `${minutes} min`;
+}
 // An exam's length in the units `spoken` uses for its grace, but in whole hours when there are some: 2 h, 1 h 30 min, 45 min, 90 s.
 export function examLength(seconds) {
   if (seconds == null || !Number.isFinite(seconds) || seconds < 0) return 'unknown';
