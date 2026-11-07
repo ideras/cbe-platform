@@ -1,22 +1,18 @@
 <script>
   import { remainingTime } from '../../../../shared/exam/timing.js';
   import Card from '../../../../shared/theme/Card.svelte';
+  import { spokenSpan } from './spans.js';
 
   // The lock of the exam, in place of the questions. lock.reason is "away", "no_contact", "network" (the student asked for
   // it, to reconnect) or empty while the server has not said why yet; policy holds the lock times the exam was published with.
   let { lock, policy = {}, status = null, timingStale = true } = $props();
 
-  // A lock time in the words the screen uses.
-  function minutes(millis) {
-    const count = Math.max(1, Math.round(millis / 60000));
-    return count === 1 ? '1 minute' : `${count} minutes`;
-  }
   let reason = $derived.by(() => {
     if (lock?.reason === 'away') {
-      return policy.lock_away_after_ms ? `You were away from the exam window for ${minutes(policy.lock_away_after_ms)}.` : 'You were away from the exam window for too long.';
+      return policy.lock_away_after_ms ? `You were away from the exam window for ${spokenSpan(policy.lock_away_after_ms)}.` : 'You were away from the exam window for too long.';
     }
     if (lock?.reason === 'no_contact') {
-      return policy.lock_no_contact_after_ms ? `The app could not reach the server for ${minutes(policy.lock_no_contact_after_ms)}.` : 'The app could not reach the server for too long.';
+      return policy.lock_no_contact_after_ms ? `The app could not reach the server for ${spokenSpan(policy.lock_no_contact_after_ms)}.` : 'The app could not reach the server for too long.';
     }
     if (lock?.reason === 'network') return 'You locked the exam to change network.';
     return '';

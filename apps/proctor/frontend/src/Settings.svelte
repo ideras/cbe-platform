@@ -3,6 +3,7 @@
   import * as api from '$proctor-api';
   import Panel from './Panel.svelte';
   import { message } from './errors.js';
+  import { spoken } from './roster.js';
   // The proctor's Settings: the monitoring values every student of the next published exam follows. They are stored on the
   // server, so every proctor computer sees the same ones. A published exam keeps the rules it was published with.
   let { disabled = false } = $props();
@@ -12,10 +13,11 @@
   let saved = $state('');
   let reload = $state(false);
 
-  // The form works in the units the proctor thinks in: seconds for the short times, minutes for the locks.
+  // The form works in seconds for every time but the screenshots' counts. The locks run from one second to an hour, so seconds say
+  // them all; what a long one is in minutes is said beside the field.
   let form = $state({
     heartbeatSeconds: 15, overdueSeconds: 30, focusSeconds: 5, alertSeconds: 2, captureSeconds: 5,
-    lockAwayMinutes: 5, lockNoContactMinutes: 5, incidentCaptures: 30, sessionCaptures: 200, graceSeconds: 30,
+    lockAwaySeconds: 300, lockNoContactSeconds: 300, incidentCaptures: 30, sessionCaptures: 200, graceSeconds: 30,
   });
 
   function load(into) {
@@ -25,8 +27,8 @@
       focusSeconds: Math.round(into.focus_threshold_ms / 1000),
       alertSeconds: Math.round(into.alert_interval_ms / 1000),
       captureSeconds: Math.round(into.capture_interval_ms / 1000),
-      lockAwayMinutes: Math.round(into.lock_away_after_ms / 60000),
-      lockNoContactMinutes: Math.round(into.lock_no_contact_after_ms / 60000),
+      lockAwaySeconds: into.lock_away_after_ms / 1000,
+      lockNoContactSeconds: into.lock_no_contact_after_ms / 1000,
       incidentCaptures: into.incident_captures,
       sessionCaptures: into.session_captures,
       graceSeconds: Math.round(into.default_grace_ms / 1000),
@@ -40,11 +42,14 @@
   }
   onMount(read);
 
+  // A lock of a minute or more in the words of the roster ("5 min", "1 min 30 s"); under a minute the number says it all.
+  const said = seconds => Number.isInteger(seconds) && seconds >= 60 ? spoken(seconds * 1000) : '';
+
   // With the away lock on, the number of screenshots per absence is worked out: the screenshots cover the whole absence
   // up to the lock.
   let effectiveCaptures = $derived.by(() => {
-    if (!form.lockAwayMinutes) return form.incidentCaptures;
-    const span = form.lockAwayMinutes * 60 - form.focusSeconds;
+    if (!form.lockAwaySeconds) return form.incidentCaptures;
+    const span = form.lockAwaySeconds - form.focusSeconds;
     return span < 0 ? 1 : Math.floor(span / form.captureSeconds) + 1;
   });
   // How much room the students' screenshots take: the server's average size, or half a megabyte when it has none yet.
@@ -61,14 +66,14 @@
     const found = [];
     const add = (fields, message) => found.push({ fields, message });
     const { heartbeatSeconds: beat, overdueSeconds: lost, focusSeconds: start, alertSeconds: repeat, captureSeconds: capture,
-      lockAwayMinutes: away, lockNoContactMinutes: noContact, incidentCaptures: perAbsence, sessionCaptures: perStudent, graceSeconds: grace } = form;
+      lockAwaySeconds: away, lockNoContactSeconds: noContact, incidentCaptures: perAbsence, sessionCaptures: perStudent, graceSeconds: grace } = form;
     // An empty field is a value nobody chose: it is never sent as a number.
     const empty = value => value === null || value === undefined || Number.isNaN(value);
     const show = value => empty(value) ? 'empty' : value;
     const fields = [['heartbeatSeconds', beat, 'Heartbeat every'], ['overdueSeconds', lost, 'Connection lost after'],
       ['focusSeconds', start, 'Alarm and screenshots start after'], ['alertSeconds', repeat, 'Alarm repeats every'],
-      ['captureSeconds', capture, 'Screenshot every'], ['lockAwayMinutes', away, 'Lock after away for'],
-      ['lockNoContactMinutes', noContact, 'Lock after no contact for'], ['incidentCaptures', perAbsence, 'Screenshots per absence'],
+      ['captureSeconds', capture, 'Screenshot every'], ['lockAwaySeconds', away, 'Lock after away for'],
+      ['lockNoContactSeconds', noContact, 'Lock after no contact for'], ['incidentCaptures', perAbsence, 'Screenshots per absence'],
       ['sessionCaptures', perStudent, 'Screenshots per student'], ['graceSeconds', grace, 'Default grace period']];
     for (const [field, value, label] of fields) {
       if (empty(value)) add([field], `${label} is empty: type the value you want.`);
@@ -79,12 +84,18 @@
     if (!empty(start) && (start < 1 || start > 600)) add(['focusSeconds'], `Alarm and screenshots start after must be between 1 second and 10 minutes (it is ${start} s).`);
     if (!empty(repeat) && (repeat < 1 || repeat > 10)) add(['alertSeconds'], `Alarm repeats every must be between 1 and 10 seconds (it is ${repeat} s).`);
     if (!empty(capture) && (capture < 3 || capture > 60)) add(['captureSeconds'], `Screenshot every must be between 3 and 60 seconds (it is ${capture} s).`);
-    if (!empty(away) && away && (away < 1 || away > 60)) add(['lockAwayMinutes'], `Lock after away must be off or between 1 and 60 minutes (it is ${away} min).`);
-    if (!empty(away) && !empty(start) && !empty(capture) && away && away * 60 < start + capture) add(['lockAwayMinutes', 'focusSeconds', 'captureSeconds'],
-      `Lock after away (${away} min) must come after the alarm starts (${start} s) plus one screenshot interval (${capture} s): raise the lock or lower the alarm start.`);
-    if (!empty(noContact) && noContact && (noContact < 1 || noContact > 60)) add(['lockNoContactMinutes'], `Lock after no contact must be off or between 1 and 60 minutes (it is ${noContact} min).`);
-    if (!empty(noContact) && !empty(lost) && noContact && noContact * 60 <= lost) add(['lockNoContactMinutes', 'overdueSeconds'],
-      `Lock after no contact (${noContact} min) must be longer than the connection lost threshold (${lost} s).`);
+    // A lock is off at zero, otherwise a whole number of seconds from one to an hour. The other values it has to come after are checked
+    // only for a lock that is in range, so one wrong value is one problem.
+    for (const [field, value, label] of [['lockAwaySeconds', away, 'Lock after away'], ['lockNoContactSeconds', noContact, 'Lock after no contact']]) {
+      if (empty(value)) continue;
+      if (!Number.isInteger(value)) add([field], `${label} must be a whole number of seconds (it is ${value}).`);
+      else if (value !== 0 && (value < 1 || value > 3600)) add([field], `${label} must be off or between 1 second and 60 minutes (it is ${value} s).`);
+    }
+    const lock = value => !empty(value) && Number.isInteger(value) && value >= 1 && value <= 3600;
+    if (lock(away) && !empty(start) && !empty(capture) && away < start + capture) add(['lockAwaySeconds', 'focusSeconds', 'captureSeconds'],
+      `Lock after away (${away} s) must come after the alarm starts (${start} s) plus one screenshot interval (${capture} s): raise the lock or lower the alarm start.`);
+    if (lock(noContact) && !empty(lost) && noContact <= lost) add(['lockNoContactSeconds', 'overdueSeconds'],
+      `Lock after no contact (${noContact} s) must be longer than the connection lost threshold (${lost} s).`);
     if (!empty(perAbsence) && !away && (perAbsence < 1 || perAbsence > 500)) add(['incidentCaptures'], `Screenshots per absence must be between 1 and 500 (it is ${perAbsence}).`);
     if (!empty(perStudent) && (perStudent < effectiveCaptures || perStudent > 2000)) add(['sessionCaptures'],
       `Screenshots per student (${perStudent}) must be at least the per-absence count (${effectiveCaptures}) and at most 2000.`);
@@ -103,8 +114,8 @@
       focus_threshold_ms: form.focusSeconds * 1000,
       alert_interval_ms: form.alertSeconds * 1000,
       capture_interval_ms: form.captureSeconds * 1000,
-      lock_away_after_ms: form.lockAwayMinutes * 60000,
-      lock_no_contact_after_ms: form.lockNoContactMinutes * 60000,
+      lock_away_after_ms: form.lockAwaySeconds * 1000,
+      lock_no_contact_after_ms: form.lockNoContactSeconds * 1000,
       incident_captures: form.incidentCaptures,
       session_captures: form.sessionCaptures,
       default_grace_ms: form.graceSeconds * 1000,
@@ -141,13 +152,13 @@
           <label>Alarm and screenshots start after (seconds)<input type="number" min="1" max="600" step="1" bind:value={form.focusSeconds} disabled={busy} aria-invalid={problemsOf('focusSeconds').length > 0} title={problemsOf('focusSeconds').join(' ')} /></label>
           <label>Alarm repeats every (seconds)<input type="number" min="1" max="10" step="1" bind:value={form.alertSeconds} disabled={busy} aria-invalid={problemsOf('alertSeconds').length > 0} title={problemsOf('alertSeconds').join(' ')} /></label>
           <label>Screenshot every (seconds)<input type="number" min="3" max="60" step="1" bind:value={form.captureSeconds} disabled={busy} aria-invalid={problemsOf('captureSeconds').length > 0} title={problemsOf('captureSeconds').join(' ')} /></label>
-          <label>Lock after away for (minutes, 0 = off)<input type="number" min="0" max="60" step="1" bind:value={form.lockAwayMinutes} disabled={busy} aria-invalid={problemsOf('lockAwayMinutes').length > 0} title={problemsOf('lockAwayMinutes').join(' ')} /></label>
-          <label>Lock after no contact for (minutes, 0 = off)<input type="number" min="0" max="60" step="1" bind:value={form.lockNoContactMinutes} disabled={busy} aria-invalid={problemsOf('lockNoContactMinutes').length > 0} title={problemsOf('lockNoContactMinutes').join(' ')} /></label>
-          <label>Screenshots per absence<input type="number" min="1" max="500" step="1" bind:value={form.incidentCaptures} disabled={busy || form.lockAwayMinutes > 0} aria-invalid={problemsOf('incidentCaptures').length > 0} title={problemsOf('incidentCaptures').join(' ')} /></label>
+          <label><span>Lock after away for (seconds, 0 = off){#if said(form.lockAwaySeconds)} <small class="said" aria-hidden="true">{said(form.lockAwaySeconds)}</small>{/if}</span><input type="number" min="0" max="3600" step="1" bind:value={form.lockAwaySeconds} disabled={busy} aria-invalid={problemsOf('lockAwaySeconds').length > 0} title={problemsOf('lockAwaySeconds').join(' ')} /></label>
+          <label><span>Lock after no contact for (seconds, 0 = off){#if said(form.lockNoContactSeconds)} <small class="said" aria-hidden="true">{said(form.lockNoContactSeconds)}</small>{/if}</span><input type="number" min="0" max="3600" step="1" bind:value={form.lockNoContactSeconds} disabled={busy} aria-invalid={problemsOf('lockNoContactSeconds').length > 0} title={problemsOf('lockNoContactSeconds').join(' ')} /></label>
+          <label>Screenshots per absence<input type="number" min="1" max="500" step="1" bind:value={form.incidentCaptures} disabled={busy || form.lockAwaySeconds > 0} aria-invalid={problemsOf('incidentCaptures').length > 0} title={problemsOf('incidentCaptures').join(' ')} /></label>
           <label>Screenshots per student<input type="number" min="1" max="2000" step="1" bind:value={form.sessionCaptures} disabled={busy} aria-invalid={problemsOf('sessionCaptures').length > 0} title={problemsOf('sessionCaptures').join(' ')} /></label>
           <label>Default grace period (seconds)<input type="number" min="1" max="1800" step="1" bind:value={form.graceSeconds} disabled={busy} aria-invalid={problemsOf('graceSeconds').length > 0} title={problemsOf('graceSeconds').join(' ')} /></label>
         </div>
-        {#if form.lockAwayMinutes > 0}<p class="muted">With the away lock on, the screenshots per absence are worked out: {effectiveCaptures} per absence, so they cover the whole absence up to the lock.</p>{/if}
+        {#if form.lockAwaySeconds > 0}<p class="muted">With the away lock on, the screenshots per absence are worked out: {effectiveCaptures} per absence, so they cover the whole absence up to the lock.</p>{/if}
         {#if disabled}<p class="muted">Another action is running in the dashboard, so the settings cannot be saved until it finishes.</p>{/if}
         <div class="actions"><button class="primary" type="submit" disabled={busy || disabled || problems.length > 0}>{busy ? 'Saving…' : 'Save settings'}</button></div>
       </form>
@@ -176,4 +187,5 @@
   .actions { display: flex; justify-content: flex-end; margin-top: var(--space-3); }
   .actions button { margin: 0; }
   .muted { color: var(--text-muted); }
+  .said { margin-inline-start: var(--space-1); color: var(--text-muted); font-weight: 400; }
 </style>

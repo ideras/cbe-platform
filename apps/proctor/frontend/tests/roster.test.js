@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { rosterCounts, filterRoster, sortRoster, needsAttention, inProgress, isSubmitted, canForce, initials, lockLabel, lowTime, networkBadge, focusBadge, lifecycleBadge, sound, examLength, loginGate, remoteFindings, clockDuration, unlockChecks } from '../src/roster.js';
+import { rosterCounts, filterRoster, sortRoster, needsAttention, inProgress, isSubmitted, canForce, initials, spoken, lockRule, lockLabel, lowTime, networkBadge, focusBadge, lifecycleBadge, sound, examLength, loginGate, remoteFindings, clockDuration, unlockChecks } from '../src/roster.js';
 
 const row = (name, status = 'active', extra = {}) => ({ student_name: name, account_number: name, status,
   presence: { monitoring: status === 'active', connectivity: 'healthy', focus: { state: 'focused' } }, ...extra });
@@ -139,4 +139,29 @@ test('a locked student is ready to unlock when the application reaches the serve
   // No presence at all is not ready.
   assert.deepEqual(unlockChecks({}), { network: false, window: false });
   assert.deepEqual(unlockChecks({ presence: {} }), { network: false, window: false });
+});
+
+test('a span is spoken exactly: seconds under a minute, then minutes with the seconds that are left', () => {
+  assert.equal(spoken(null), 'unknown');
+  assert.equal(spoken(0), '0 s');
+  assert.equal(spoken(1000), '1 s');
+  assert.equal(spoken(59000), '59 s');
+  assert.equal(spoken(60000), '1 min');
+  assert.equal(spoken(90000), '1 min 30 s');
+  assert.equal(spoken(119000), '1 min 59 s');
+  assert.equal(spoken(300000), '5 min');
+  assert.equal(spoken(3600000), '60 min');
+  // To the nearest second, which may be the next minute.
+  assert.equal(spoken(1499), '1 s');
+  assert.equal(spoken(59600), '1 min');
+});
+
+test('the lock rules and the label of a lock keep the seconds of a short lock', () => {
+  assert.equal(lockRule({ lock_away_after_ms: 30000, lock_no_contact_after_ms: 300000 }), 'locks after 30 s away or 5 min without contact');
+  assert.equal(lockRule({ lock_away_after_ms: 90000, lock_no_contact_after_ms: 0 }), 'locks after 1 min 30 s away');
+  assert.equal(lockRule({ lock_away_after_ms: 0, lock_no_contact_after_ms: 45000 }), 'locks after 45 s without contact');
+  assert.equal(lockRule({ lock_away_after_ms: 0, lock_no_contact_after_ms: 0 }), 'never locks');
+  const away = { locked: { reason: 'away', since: '2035-01-01T00:00:00Z' } };
+  assert.equal(lockLabel(away, { lock_away_after_ms: 10000 }, '2035-01-01T00:00:30Z').reason, 'away 10 s');
+  assert.equal(lockLabel(away, { lock_away_after_ms: 90000 }, '2035-01-01T00:00:30Z').reason, 'away 1 min 30 s');
 });
