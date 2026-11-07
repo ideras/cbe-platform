@@ -6,6 +6,7 @@
   import Calculator from '../../../../shared/theme/calculator/Calculator.svelte';
   import RichText from './RichText.svelte';
   import ConfirmDialog from './ConfirmDialog.svelte';
+  import { spokenSpan, addedText } from './spans.js';
   import CaptureStatus from './CaptureStatus.svelte';
   import LockScreen from './LockScreen.svelte';
   import ConnectionWarning from './ConnectionWarning.svelte';
@@ -118,7 +119,7 @@
   let lastUnlockNote = '';
   $effect(() => {
     const note = view.unlock_note || '';
-    if (note && note !== lastUnlockNote) notifier.post('unlock', `${note}${view.added_seconds ? ` — ${addedTime(view.added_seconds)}` : ''}.`, { kind: 'info' });
+    if (note && note !== lastUnlockNote) notifier.post('unlock', `${note}${view.added_seconds ? ` — ${addedText(view.added_seconds)}` : ''}.`, { kind: 'info' });
     lastUnlockNote = note;
   });
   function fail(problem) { notifier.post('action', describeProblem(problem), { kind: 'error', sticky: true }); }
@@ -150,25 +151,11 @@
   });
   // The exam is locked: the questions and the answer fields are replaced by the lock screen.
   let examLocked = $derived(Boolean(view.locked));
-  // How long a duration is, in the words the rules use.
-  function duration(millis) {
-    if (!millis || millis <= 0) return '';
-    const seconds = Math.round(millis / 1000);
-    if (seconds < 60) return `${seconds} second${seconds === 1 ? '' : 's'}`;
-    const minutes = Math.round(seconds / 60);
-    return `${minutes} minute${minutes === 1 ? '' : 's'}`;
-  }
-  let alarmTime = $derived(rules?.alarm_millis ? `more than ${duration(rules.alarm_millis)}` : 'a few seconds');
-  let lockAway = $derived(rules?.lock_away_millis ? duration(rules.lock_away_millis) : 'several minutes');
-  let lockNoContact = $derived(rules?.lock_no_contact_millis ? duration(rules.lock_no_contact_millis) : 'several minutes');
+  let alarmTime = $derived(rules?.alarm_millis ? `more than ${spokenSpan(rules.alarm_millis)}` : 'a few seconds');
+  let lockAway = $derived(rules?.lock_away_millis ? spokenSpan(rules.lock_away_millis) : 'several minutes');
+  let lockNoContact = $derived(rules?.lock_no_contact_millis ? spokenSpan(rules.lock_no_contact_millis) : 'several minutes');
   // How many times the student may lock the exam themselves to reconnect; an older server says nothing, and that is none.
   let networkLocks = $derived(rules?.network_lock_limit > 0 ? rules.network_lock_limit : 0);
-  // How much time the instructor gave back, in the words the note uses.
-  function addedTime(seconds) {
-    const minutes = Math.floor(seconds / 60);
-    if (minutes <= 0) return seconds === 1 ? '1 second was added' : `${seconds} seconds were added`;
-    return minutes === 1 ? '1 minute was added' : `${minutes} minutes were added`;
-  }
   // The rules are read from the address in the form, once the student stops typing it.
   $effect(() => {
     const address = server.trim();

@@ -9,8 +9,8 @@ async function login(page) {
 }
 
 // The lock times the exam was published with, as the monitoring view carries them.
-async function lockTimes(page) {
-  await page.evaluate(() => window.__studentHarness.monitoring({ active: true, policy: { lock_away_after_ms: 300000, lock_no_contact_after_ms: 420000 } }));
+async function lockTimes(page, away = 300000, noContact = 420000) {
+  await page.evaluate(([a, n]) => window.__studentHarness.monitoring({ active: true, policy: { lock_away_after_ms: a, lock_no_contact_after_ms: n } }), [away, noContact]);
 }
 
 test('the lock screen replaces the questions and says why', async ({ page }) => {
@@ -37,6 +37,44 @@ test('the lock screen names the reason of a lost connection', async ({ page }) =
   // The student can reach the network settings during this lock too, and is told that the screens are captured meanwhile.
   await expect(page.getByText('not full screen now', { exact: false })).toBeVisible();
   await expect(page.getByText('Screenshots of all your screens are taken while the exam is locked', { exact: false })).toBeVisible();
+});
+
+test('a short lock is told in seconds, and one of a minute and a half keeps the half', async ({ page }) => {
+  await page.goto('/');
+  await login(page);
+  await lockTimes(page, 30000, 90000);
+  await page.evaluate(() => window.__studentHarness.lock('away'));
+  await expect(page.getByText('You were away from the exam window for 30 seconds.')).toBeVisible();
+  await page.evaluate(() => window.__studentHarness.unlock(0));
+  await expect(page.getByRole('heading', { name: 'Your exam is locked' })).toHaveCount(0);
+  await page.evaluate(() => window.__studentHarness.lock('no_contact'));
+  await expect(page.getByText('The app could not reach the server for 1 minute 30 seconds.')).toBeVisible();
+  await page.evaluate(() => window.__studentHarness.unlock(0));
+  await lockTimes(page, 1000, 45000);
+  await page.evaluate(() => window.__studentHarness.lock('away'));
+  await expect(page.getByText('You were away from the exam window for 1 second.')).toBeVisible();
+});
+
+test('the rules before the login tell the real lock times, down to the second', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(() => window.__studentHarness.rules({ alarm_millis: 90000, lock_away_millis: 30000, lock_no_contact_millis: 90000 }));
+  await page.getByLabel('Server address').fill('http://192.0.2.11:8080');
+  const rules = page.getByRole('region', { name: 'Participation rules' });
+  await expect(rules.getByText('for 30 seconds', { exact: false })).toBeVisible();
+  await expect(rules.getByText('for 1 minute 30 seconds', { exact: false })).toBeVisible();
+  await expect(rules.getByText('more than 1 minute 30 seconds', { exact: false })).toBeVisible();
+});
+
+test('the time given back is told exactly: seconds, whole minutes, or both', async ({ page }) => {
+  // Each case is a session of its own: the note of an unlock is told once, not again for the same message.
+  for (const [seconds, text] of [[45, '45 seconds were added'], [60, '1 minute was added'], [90, '1 minute 30 seconds were added']]) {
+    await page.goto('/');
+    await login(page);
+    await page.evaluate(() => window.__studentHarness.lock('away'));
+    await expect(page.getByRole('heading', { name: 'Your exam is locked' })).toBeVisible();
+    await page.evaluate(value => window.__studentHarness.unlock(value), seconds);
+    await expect(page.getByRole('status').filter({ hasText: `Unlocked by your instructor — ${text}.` })).toBeVisible();
+  }
 });
 
 test('the lock for an absence does not say the window is small', async ({ page }) => {

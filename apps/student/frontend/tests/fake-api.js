@@ -6,9 +6,10 @@ let permissionCheckFailure = false;
 export async function CheckCapturePermission() { record('CheckCapturePermission'); permissionChecks++; if (permissionCheckFailure) throw Error('Synthetic native bridge failure.'); return result(false); }
 export async function ReportAlertFailure() { record('ReportAlertFailure'); state.alertFailure = true; }
 let rulesUnavailable = false;
+let rulesOverride = {};
 export async function Rules(address) { record('Rules');
   if (rulesUnavailable || !address) throw Error('The server did not answer.');
-  return { alarm_millis: 5000, capture_millis: 5000, lock_away_millis: 300000, lock_no_contact_millis: 300000, network_lock_limit: 2 };
+  return { alarm_millis: 5000, capture_millis: 5000, lock_away_millis: 300000, lock_no_contact_millis: 300000, network_lock_limit: 2, ...rulesOverride };
 }
 const clock = '2035-01-02T03:04:05Z';
 let closeCalls = 0;
@@ -235,7 +236,7 @@ window.__studentHarness = {
   navigation(value) { exam.navigation = value; },
   lock(value) { state.locked = value ? { since: '2035-01-02T03:00:05Z', reason: value } : null; },
   unlock(addedSeconds) { state.locked = null; state.unlock_note = 'Unlocked by your instructor'; state.added_seconds = addedSeconds; },
-  rulesUnavailable(value) { rulesUnavailable = value; },
+  rulesUnavailable(value) { rulesUnavailable = value; }, rules(value) { rulesOverride = value; },
   exam(value) { exam.content = value.content; exam.navigation = value.navigation; answers = Object.fromEntries(value.content.exercises.flatMap(e => [...(e.slots ?? []), ...(e.items ?? []).flatMap(i => i.slots ?? [])]).map(s => [s.id, s.starter ?? ''])); },
   get exercise() { return state.exercise; },
   holdAdvance(value) { holdAdvance = value; },
