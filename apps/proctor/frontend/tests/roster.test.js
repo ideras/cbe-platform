@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { rosterCounts, filterRoster, sortRoster, needsAttention, inProgress, isSubmitted, canForce, initials, lockLabel, lowTime, networkBadge, focusBadge, lifecycleBadge, sound, examLength, loginGate, remoteFindings } from '../src/roster.js';
+import { rosterCounts, filterRoster, sortRoster, needsAttention, inProgress, isSubmitted, canForce, initials, lockLabel, lowTime, networkBadge, focusBadge, lifecycleBadge, sound, examLength, loginGate, remoteFindings, clockDuration, unlockChecks } from '../src/roster.js';
 
 const row = (name, status = 'active', extra = {}) => ({ student_name: name, account_number: name, status,
   presence: { monitoring: status === 'active', connectivity: 'healthy', focus: { state: 'focused' } }, ...extra });
@@ -108,4 +108,35 @@ test('what the application found on the student\'s computer is listed in its own
     assert.deepEqual(remoteFindings(nothing), []);
     assert.equal(needsAttention({ ...nothing, status: 'active' }), false);
   }
+});
+
+test('a time span is shown as a clock: minutes and seconds, with hours only when there are some', () => {
+  assert.equal(clockDuration(0), '0:00');
+  assert.equal(clockDuration(59000), '0:59');
+  assert.equal(clockDuration(60000), '1:00');
+  assert.equal(clockDuration(125000), '2:05');
+  assert.equal(clockDuration(3599000), '59:59');
+  assert.equal(clockDuration(3600000), '1:00:00');
+  assert.equal(clockDuration(3661000), '1:01:01');
+  // To the nearest second, and never negative or invented when the span is not known.
+  assert.equal(clockDuration(1499), '0:01');
+  assert.equal(clockDuration(499), '0:00');
+  for (const none of [-5000, null, undefined, NaN]) assert.equal(clockDuration(none), '0:00');
+});
+
+test('a locked student is ready to unlock when the application reaches the server and the exam window has the focus', () => {
+  const ready = { network_warning: false, presence: { monitoring: true, connectivity: 'healthy', focus: { state: 'focused' } } };
+  assert.deepEqual(unlockChecks(ready), { network: true, window: true });
+  // Each check stands on its own.
+  assert.deepEqual(unlockChecks({ ...ready, presence: { ...ready.presence, focus: { state: 'unfocused' } } }), { network: true, window: false });
+  assert.deepEqual(unlockChecks({ ...ready, presence: { ...ready.presence, focus: { state: 'unknown' } } }), { network: true, window: false });
+  for (const connectivity of ['overdue', 'no_heartbeat', 'unknown', undefined]) {
+    assert.deepEqual(unlockChecks({ ...ready, presence: { ...ready.presence, connectivity } }), { network: false, window: true }, String(connectivity));
+  }
+  // A heartbeat that is late is not a connection, whatever the last report said; and a session that is not watched says nothing.
+  assert.equal(unlockChecks({ ...ready, network_warning: true }).network, false);
+  assert.equal(unlockChecks({ ...ready, presence: { ...ready.presence, monitoring: false } }).network, false);
+  // No presence at all is not ready.
+  assert.deepEqual(unlockChecks({}), { network: false, window: false });
+  assert.deepEqual(unlockChecks({ presence: {} }), { network: false, window: false });
 });
