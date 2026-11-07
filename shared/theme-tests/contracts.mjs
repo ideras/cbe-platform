@@ -163,7 +163,10 @@ const selectorChecks = [
   [student('SoundStatus.svelte'), '.volume-bar', 'background', 'var(--bg-secondary)'],
   [student('SoundStatus.svelte'), '.volume-bar span', 'background', 'var(--bar-fill)'],
   [student('Toasts.svelte'), '.toast.error', 'border-left-color', 'var(--alert)'],
-  [student('ConfirmDialog.svelte'), 'dialog', 'border-top', '5px solid var(--warn)'],
+  // The student's confirmations are the proctor's framed dialogs: a navy header, the alert gradient for the step that ends the exam.
+  [student('ConfirmDialog.svelte'), 'header', 'background', 'var(--header-strong)'],
+  [student('ConfirmDialog.svelte'), '.alarm header', 'background', 'var(--header-alarm)'],
+  [student('ConfirmDialog.svelte'), '.content :global(.fact.warn)', 'background', 'var(--warn-fill)'],
 ];
 
 export function registerThemeTests() {

@@ -410,16 +410,36 @@
 </main>
 <Toasts {toasts} onDismiss={id => notifier.dismiss(id)} onTick={ms => notifier.tick(ms)} />
 {#if confirmingAdvance && view.phase === 'exam' && forwardOnly && !lastPage}
-  <ConfirmDialog title="Leave exercise {page + 1} for good?" confirmLabel="Continue to exercise {page + 2}" cancelLabel="Stay on exercise {page + 1}"
+  <ConfirmDialog icon="arrowRight" title="Leave exercise {page + 1} for good?" subtitle={exam?.title} confirmLabel="Continue to exercise {page + 2}" cancelLabel="Stay on exercise {page + 1}"
     disabled={!canSubmit || captureBlocked} onConfirm={advance} onCancel={() => confirmingAdvance = false}>
-    <p>You will not be able to see or change it again. Your answers to it are saved as they are now.</p>
+    <div class="strip">
+      <div class="step"><span class="k">Leaving · exercise {page + 1} of {exercises.length}</span><span class="v">{exercise?.title ?? `Exercise ${page + 1}`}</span></div>
+      <Icon name="arrowRight" size={18} />
+      <div class="step next"><span class="k">Opening · exercise {page + 2} of {exercises.length}</span><span class="v">{exercises[page + 1]?.title ?? `Exercise ${page + 2}`}</span></div>
+    </div>
+    <div class="facts two">
+      <div class="fact warn"><span class="mk"><Icon name="eyeOff" size={13} /></span><div><p class="h">Closed for good</p><p>You will not be able to see or change it again.</p></div></div>
+      <div class="fact ok"><span class="mk"><Icon name="check" size={13} /></span><div><p class="h">Saved as it is</p><p>Your answers to it are saved as they are now.</p></div></div>
+    </div>
   </ConfirmDialog>
 {/if}
 {#if confirmingSubmit && view.phase === 'exam'}
-  <ConfirmDialog title="Submit your exam now?" confirmLabel="Submit my exam" cancelLabel="Keep working" disabled={!canSubmit} onConfirm={submit} onCancel={() => confirmingSubmit = false}>
-    <p>This is final: you will not be able to change any answer afterwards.</p>
-    <p>You have answered {answeredFields} of {totalFields} fields.</p>
-    {#if incomplete.length}<p>Still unanswered: {incomplete.slice(0, 5).map(item => `Exercise ${item.index + 1} (${item.done} of ${item.total})`).join(', ')}{incomplete.length > 5 ? `, and ${incomplete.length - 5} more` : ''}.</p>{/if}
+  <ConfirmDialog tone="alarm" eyebrow="Final step" icon="fileCheck" danger title="Submit your exam now?" subtitle={exam?.title} confirmLabel="Submit my exam" cancelLabel="Keep working" disabled={!canSubmit} onConfirm={submit} onCancel={() => confirmingSubmit = false}>
+    <div class="fact {answeredFields < totalFields ? 'warn' : 'ok'}">
+      <span class="mk"><Icon name={answeredFields < totalFields ? 'warning' : 'check'} size={13} /></span>
+      <div>
+        <p class="h">You have answered {answeredFields} of {totalFields} fields.</p>
+        <div class="meter" aria-hidden="true"><span style:width="{totalFields ? Math.round(100 * answeredFields / totalFields) : 0}%"></span></div>
+        {#if incomplete.length}
+          <p class="k">Still unanswered</p>
+          <ul class="pills">
+            {#each incomplete.slice(0, 5) as item}<li>Exercise {item.index + 1} <b>({item.done} of {item.total})</b></li>{/each}
+            {#if incomplete.length > 5}<li class="more">and {incomplete.length - 5} more</li>{/if}
+          </ul>
+        {/if}
+      </div>
+    </div>
+    <p class="note alert"><Icon name="warning" size={16} /><span><strong>This is final:</strong> you will not be able to change any answer afterwards.</span></p>
   </ConfirmDialog>
 {/if}
 {#if calcAvailable || calcOpen}
@@ -470,7 +490,8 @@
 
   /* Exam: editor column plus status column */
   .exam-main { display: grid; gap: var(--space-3); min-width: 0; margin-top: var(--space-3); }
-  .exam-main > :global(*) { margin-top: 0; margin-bottom: 0; }
+  /* Not a dialog: it is centered by its automatic margins, and the network lock's dialog is one of the children of this grid. */
+  .exam-main > :global(:not(dialog)) { margin-top: 0; margin-bottom: 0; }
   .exam-main > button { display: inline-flex; align-items: center; justify-content: center; gap: .45rem; justify-self: start; }
   nav { display: flex; flex-wrap: wrap; gap: var(--space-2); }
   nav button { display: inline-flex; align-items: baseline; gap: var(--space-2); margin: 0; border-radius: 999px; padding-inline: var(--space-4); font-weight: 600; }

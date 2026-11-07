@@ -247,3 +247,64 @@ test('exam and grace clocks use server observations, including while locked and 
   await expect(lock).toContainText('Timing stale / disconnected');
   await expect(lock).toContainText('00:00:19');
 });
+
+test('the submit confirmation is the final step: it says how much is answered and what is left, and the red choice is the one that submits', async ({ page }) => {
+  await page.goto('/'); await login(page);
+  await page.getByRole('button', { name: 'Submit current answers — final' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Submit your exam now?' });
+  await expect(dialog).toHaveClass(/alarm/);
+  await expect(dialog.getByText('Final step')).toBeVisible();
+  await expect(dialog.locator('header p')).toHaveText('Fixture exam');
+  // The sentence and the bar say the same thing, and what is left is listed by exercise.
+  await expect(dialog.getByText('You have answered 1 of 4 fields.')).toBeVisible();
+  await expect(dialog.locator('.meter span')).toHaveAttribute('style', /width: 25%/);
+  await expect(dialog.getByText('Still unanswered')).toBeVisible();
+  await expect(dialog.locator('.pills li')).toHaveText(['Exercise 2 (0 of 2)', 'Exercise 3 (0 of 1)']);
+  await expect(dialog.getByText('This is final: you will not be able to change any answer afterwards.')).toBeVisible();
+  // The safe choice is the primary one and has the focus; the one that submits is the red one. There is no third button.
+  await expect(dialog.getByRole('button')).toHaveCount(2);
+  await expect(dialog.getByRole('button', { name: 'Keep working' })).toHaveClass(/primary/);
+  await expect(dialog.getByRole('button', { name: 'Submit my exam' })).toHaveClass(/danger/);
+  await expect(dialog.getByRole('button', { name: 'Submit my exam' })).not.toHaveClass(/primary/);
+  await expect(dialog.getByRole('button', { name: 'Keep working' })).toBeFocused();
+  // The safe choice comes first, in the order of the page and on the screen.
+  const [safe, final] = [await dialog.getByRole('button', { name: 'Keep working' }).boundingBox(), await dialog.getByRole('button', { name: 'Submit my exam' }).boundingBox()];
+  expect(safe.x).toBeLessThan(final.x);
+});
+
+test('with every field answered the submit confirmation lists nothing left and says all of it', async ({ page }) => {
+  await page.goto('/'); await login(page);
+  await page.getByRole('textbox', { name: 'Answer for q1' }).fill('one');
+  await page.getByRole('button', { name: /^Exercise 2:/ }).click();
+  await page.getByRole('textbox', { name: 'Answer for q2' }).fill('two');
+  await page.getByRole('textbox', { name: 'Answer for q3' }).fill('three');
+  await page.getByRole('button', { name: /^Exercise 3:/ }).click();
+  await page.getByRole('textbox', { name: 'Answer for q4' }).fill('four');
+  await page.getByRole('button', { name: 'Submit current answers — final' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Submit your exam now?' });
+  await expect(dialog.getByText('You have answered 4 of 4 fields.')).toBeVisible();
+  await expect(dialog.locator('.meter span')).toHaveAttribute('style', /width: 100%/);
+  await expect(dialog.getByText('Still unanswered')).toHaveCount(0);
+  await expect(dialog.locator('.fact')).toHaveClass(/ok/);
+});
+
+test('leaving an exercise names the one being left and the one that opens, and what each choice does', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(() => window.__studentHarness.navigation('forward_only'));
+  await login(page);
+  await page.getByRole('button', { name: 'Continue to exercise 2 →' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Leave exercise 1 for good?' });
+  await expect(dialog).not.toHaveClass(/alarm/);
+  await expect(dialog.locator('header p')).toHaveText('Fixture exam');
+  const strip = dialog.locator('.strip');
+  await expect(strip).toContainText('Leaving · exercise 1 of 3');
+  await expect(strip).toContainText('Ejercicio 1 — Código');
+  await expect(strip).toContainText('Opening · exercise 2 of 3');
+  await expect(strip).toContainText('Ejercicio 2 — Tabla');
+  await expect(dialog.locator('.fact.warn')).toContainText('You will not be able to see or change it again.');
+  await expect(dialog.locator('.fact.ok')).toContainText('Your answers to it are saved as they are now.');
+  // Here it is the confirming choice that is the primary one, and the dialog has no close button besides its two choices.
+  await expect(dialog.getByRole('button')).toHaveCount(2);
+  await expect(dialog.getByRole('button', { name: 'Continue to exercise 2', exact: true })).toHaveClass(/primary/);
+  await expect(dialog.getByRole('button', { name: 'Stay on exercise 1' })).not.toHaveClass(/primary/);
+});
