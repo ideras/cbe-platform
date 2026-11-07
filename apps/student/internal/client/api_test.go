@@ -10,14 +10,14 @@ import (
 )
 
 func TestServerValidation(t *testing.T) {
-	for _, input := range []string{"", "localhost:8080", "https://host", "http://user:password@host", "http://host/path", "http://host?token=secret", "http://host#secret", "http://host?", "http://host:", "http://host:0", "http://host:65536", "http://host:bad", "http://ho\nst", "http://[]"} {
+	for _, input := range []string{"", "localhost:8080", "ftp://host", "https://user:password@host", "https://host/path", "http://user:password@host", "http://host/path", "http://host?token=secret", "http://host#secret", "http://host?", "http://host:", "http://host:0", "http://host:65536", "http://host:bad", "http://ho\nst", "http://[]"} {
 		t.Run(input, func(t *testing.T) {
 			if _, err := validateServer(input); err == nil {
 				t.Fatalf("accepted invalid server %q", input)
 			}
 		})
 	}
-	for _, input := range []string{"http://host", "http://127.0.0.1:8080/", "http://[::1]:8080", " http://host:80/ "} {
+	for _, input := range []string{"http://host", "https://host", "http://127.0.0.1:8080/", "http://[::1]:8080", " http://host:80/ "} {
 		if _, err := validateServer(input); err != nil {
 			t.Errorf("rejected valid server %q: %v", input, err)
 		}

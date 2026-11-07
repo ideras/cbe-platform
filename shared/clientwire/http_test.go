@@ -9,12 +9,12 @@ import (
 )
 
 func TestServerOriginAndTransportBoundaries(t *testing.T) {
-	for _, input := range []string{"https://host", "http://user:secret@host", "http://host/path", "http://host?x", "http://host#x", "http://host:", "http://host:0", "http://host:65536", "http://ho\nst/"} {
+	for _, input := range []string{"ftp://host", "https://user:secret@host", "https://host/path", "http://user:secret@host", "http://host/path", "http://host?x", "http://host#x", "http://host:", "http://host:0", "http://host:65536", "http://ho\nst/"} {
 		if _, err := ValidateServer(input); err == nil {
 			t.Errorf("accepted %q", input)
 		}
 	}
-	for _, input := range []string{"http://127.0.0.1:8080", "http://[::1]:8080/", " http://instructor.local "} {
+	for _, input := range []string{"http://127.0.0.1:8080", "http://[::1]:8080/", " http://instructor.local ", "https://cbeportal.example.org", "https://example.org:8443/"} {
 		if _, err := ValidateServer(input); err != nil {
 			t.Fatal(err)
 		}

@@ -22,8 +22,8 @@ type Final struct {
 func ValidateServer(value string) (string, error) {
 	value = strings.TrimSpace(value)
 	u, err := url.Parse(value)
-	if err != nil || u.Scheme != "http" || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Opaque != "" || u.ForceQuery || u.RawPath != "" || (u.Path != "" && u.Path != "/") || strings.ContainsFunc(value, unicode.IsControl) {
-		return "", errors.New("Use an HTTP server address with a host, without credentials, path, query or fragment.")
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Opaque != "" || u.ForceQuery || u.RawPath != "" || (u.Path != "" && u.Path != "/") || strings.ContainsFunc(value, unicode.IsControl) {
+		return "", errors.New("Use an http or https server address with a host, without credentials, path, query or fragment.")
 	}
 	if port := u.Port(); port != "" {
 		n, err := strconv.Atoi(port)

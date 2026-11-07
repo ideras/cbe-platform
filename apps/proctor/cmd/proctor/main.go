@@ -16,7 +16,7 @@ import (
 
 func main() {
 	opts := dashboard.DefaultOptions()
-	server := flag.String("server", opts.Server, "isolated-LAN HTTP server address")
+	server := flag.String("server", opts.Server, "server address (http:// on the exam LAN, https:// over the internet)")
 	exam := flag.String("exam-id", "", "exam UUID to monitor after connecting; default is the published exam. Selection does not change student admission")
 	tokenFile := flag.String("admin-token-file", "", "private credential file; never pass the token itself as an argument")
 	configFile := flag.String("config", "", "settings file where the dashboard remembers the server address and the last token file; default is cbe-portal-proctor/config.json in the user's configuration folder")

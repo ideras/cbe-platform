@@ -24,7 +24,7 @@ The examples use server address `192.168.10.10` and TCP port `8080`. Replace the
 4. Bind the server to its LAN address or `0.0.0.0:8080`. Binding to `127.0.0.1` permits connections only from the server itself.
 5. Configure both desktop applications with `http://192.168.10.10:8080`.
 
-The clients currently require HTTP at the URL root. HTTPS URLs, credentials in URLs, URL subpaths, queries and fragments are rejected. Requests go directly to the server without an HTTP proxy and do not follow redirects. This configuration is intended for an isolated LAN; public internet hosting would require changes to the transport and deployment design.
+The clients accept `http://` or `https://` addresses at the URL root. Credentials in URLs, URL subpaths, queries and fragments are rejected. Requests go directly to the server without an HTTP proxy and do not follow redirects. The server itself speaks plain HTTP only: use `http://` on an isolated LAN, and put a TLS-terminating reverse proxy in front of it for anything that crosses the internet (see [Serving students over the internet](#serving-students-over-the-internet)). Never send the exam PIN, answers, screenshots or the administrator token over the internet in clear text.
 
 `0.0.0.0` is a listen address. Give clients the server's actual address. On a student computer, `127.0.0.1` refers to that student computer.
 
@@ -408,6 +408,32 @@ Relative paths are resolved from the current working directory. Start from the s
 | `--max-answers-bytes` | `524288` | Maximum total UTF-8 answer bytes per snapshot |
 
 The limits must satisfy `per-answer <= total-answer <= JSON request size`. Use `cbe-portal-server --help` to inspect the flags for a built version. Exam policies and timing settings are managed through the dashboard and exam documents.
+
+### Serving students over the internet
+
+Use this only for a class whose students cannot reach the exam LAN. Keep every other exam on the LAN server: each server has its own database, roster and PIN, so an exam is published on exactly one of them.
+
+1. Run the server as in the systemd section, but bind it to the loopback address, for example `--bind 127.0.0.1:8081`, so the only way in is the proxy.
+2. Put a reverse proxy that terminates TLS in front of it. With Caddy, which obtains and renews the certificate by itself once the name resolves to the host and ports 80 and 443 are open:
+
+   ```text
+   cbeportal.example.org {
+       encode zstd gzip
+       header {
+           Strict-Transport-Security "max-age=31536000"
+           X-Content-Type-Options "nosniff"
+           -Server
+       }
+       reverse_proxy 127.0.0.1:8081 {
+           flush_interval -1
+       }
+   }
+   ```
+
+   Give the clients `https://cbeportal.example.org`. The clients do not follow redirects, so do not add one in front of the API. Use a host name of its own: the clients accept no URL path, so the server cannot share a name with another site under a path.
+3. The server reads the student's address from the last `X-Forwarded-For` entry, and only when the request comes from the computer itself, which is how Caddy talks to it. Another proxy must add that header the same way, and nothing else may be able to reach the bind address. Without it every student would appear to come from `127.0.0.1` on the roster and in the login-refused notices.
+4. Copy the database and screenshots as one consistent snapshot (see Backups), generate a new admin token on the server, and give the proctor a copy of it. Do not reuse the token of another installation.
+5. Rehearse from outside the building: check `https://<name>/healthz`, then log in from a student computer on a different network.
 
 ## Deploy the proctor dashboard
 

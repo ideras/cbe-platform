@@ -4,6 +4,8 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
+	"strings"
 	"time"
 
 	"exam-platform/internal/domain"
@@ -60,11 +62,23 @@ func eventHandler(sessions SessionAPI, logger *slog.Logger) http.HandlerFunc {
 	}
 }
 
-// peerAddress is the address the request came from, without its port.
+// peerAddress is the address the request came from, without its port. A request that arrives from this computer itself
+// came through the reverse proxy in front of the server (Caddy, when the server is on the internet); the address it names in
+// the last X-Forwarded-For entry, the one the proxy added, is the student's. A request from any other peer is never given
+// the benefit of that header, since a client could write it.
 func peerAddress(r *http.Request) string {
 	peer, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr
+	}
+	if ip, err := netip.ParseAddr(peer); err == nil && ip.IsLoopback() {
+		forwarded := r.Header.Values("X-Forwarded-For")
+		if len(forwarded) > 0 {
+			entries := strings.Split(forwarded[len(forwarded)-1], ",")
+			if client, err := netip.ParseAddr(strings.TrimSpace(entries[len(entries)-1])); err == nil {
+				return client.WithZone("").String()
+			}
+		}
 	}
 	return peer
 }
