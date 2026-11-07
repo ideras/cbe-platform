@@ -51,6 +51,9 @@ type SessionTransaction interface {
 	Finalize(context.Context, string, int64, domain.SessionStatus, time.Time) error
 	RecordEvent(context.Context, domain.Event) (int64, error)
 	LatestFocusEvent(context.Context, string) (domain.Event, error)
+	// LatestRemoteEvent is the latest report of what the student application found that shows the computer is watched or controlled
+	// from elsewhere, made since the session's latest login; domain.ErrNotFound when there is none.
+	LatestRemoteEvent(context.Context, string) (domain.Event, error)
 	EverOverdue(context.Context, string) (bool, error)
 	SetNetworkGap(context.Context, string, time.Time) error
 	TouchHeartbeat(context.Context, string, string, string, domain.Sound, time.Time) error
@@ -127,6 +130,8 @@ type LoginResult struct {
 	Locked *LockInfo
 	// NetworkLocksLeft is how many more times the student may lock the exam themselves to reconnect to the network.
 	NetworkLocksLeft int
+	// RemoteTools are the names of the programs the application looks for while the exam runs.
+	RemoteTools []string
 }
 
 // LockInfo says that a session is locked, since when and why.
@@ -287,7 +292,7 @@ func (s *Sessions) Login(ctx context.Context, accountNumber, pin string) (LoginR
 		if principal.Locked, err = lockInfoForStudent(ctx, tx, principal.Session); err != nil {
 			return err
 		}
-		result = LoginResult{Policy: principal.Policy, Token: session.Token, SessionID: session.ID, DeadlineAt: deadline, ServerTime: now, MinVolumePercent: exam.MinVolumePercent, Locked: principal.Locked, NetworkLocksLeft: NetworkLocksLeft(principal.Session)}
+		result = LoginResult{Policy: principal.Policy, Token: session.Token, SessionID: session.ID, DeadlineAt: deadline, ServerTime: now, MinVolumePercent: exam.MinVolumePercent, Locked: principal.Locked, NetworkLocksLeft: NetworkLocksLeft(principal.Session), RemoteTools: domain.DefaultRemoteTools()}
 		return nil
 	})
 	if err != nil {

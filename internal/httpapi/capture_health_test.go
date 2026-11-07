@@ -17,6 +17,7 @@ func TestTerminalCaptureHealthAllowanceIsTypeAndSizeBounded(t *testing.T) {
 		{"ready", `{"event_type":"capture_ready"}`, true},
 		{"failure", `{"event_type":"capture_failed"}`, true},
 		{"recovery", `{"event_type":"capture_restored"}`, true},
+		{"remote access found", `{"event_type":"remote_changed","detail":{"active":[]}}`, true},
 		{"ordinary focus", `{"event_type":"focus_lost"}`, false},
 		{"missing type", `{}`, false},
 		{"trailing document", `{"event_type":"capture_failed"} {}`, false},

@@ -44,6 +44,8 @@ type loginResponse struct {
 	Locked *service.LockInfo `json:"locked"`
 	// NetworkLocksLeft is how many more times the student may lock the exam themselves to reconnect to the network.
 	NetworkLocksLeft int `json:"network_locks_left"`
+	// RemoteTools are the names of the programs the application looks for while the exam runs.
+	RemoteTools []string `json:"remote_tools,omitempty"`
 }
 
 type statusResponse struct {
@@ -79,7 +81,7 @@ func loginHandler(sessions SessionAPI, logger *slog.Logger) http.HandlerFunc {
 			serviceError(w, logger, "login", err)
 			return
 		}
-		writeJSON(w, http.StatusOK, loginResponse{Policy: result.Policy, SessionToken: result.Token, SessionID: result.SessionID, DeadlineAt: result.DeadlineAt, ServerTime: result.ServerTime, MinVolumePercent: result.MinVolumePercent, Locked: result.Locked, NetworkLocksLeft: result.NetworkLocksLeft})
+		writeJSON(w, http.StatusOK, loginResponse{Policy: result.Policy, SessionToken: result.Token, SessionID: result.SessionID, DeadlineAt: result.DeadlineAt, ServerTime: result.ServerTime, MinVolumePercent: result.MinVolumePercent, Locked: result.Locked, NetworkLocksLeft: result.NetworkLocksLeft, RemoteTools: result.RemoteTools})
 	}
 }
 
@@ -152,7 +154,9 @@ func terminalAccess(r *http.Request) bool {
 		if json.Unmarshal(body, &input) != nil {
 			return false
 		}
-		return input.Type == "capture_ready" || input.Type == "capture_failed" || input.Type == "capture_restored"
+		// The capture reports, and what the application found that shows the computer is used remotely, are recorded after the end
+		// too (the service allows them): refusing one would make the application take its authorization to have ended.
+		return input.Type == "capture_ready" || input.Type == "capture_failed" || input.Type == "capture_restored" || input.Type == "remote_changed"
 	}
 	return ((r.Method == http.MethodGet || r.Method == http.MethodHead) && r.URL.Path == "/session-status") ||
 		(r.Method == http.MethodPost && (r.URL.Path == "/submit" || r.URL.Path == "/screenshot"))
