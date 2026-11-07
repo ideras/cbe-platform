@@ -4,6 +4,7 @@
   import Panel from './Panel.svelte';
   import { message } from './errors.js';
   import { spoken } from './roster.js';
+  import { DEFAULTS, LABELS, effectiveCaptures, findProblems, hints, fit, heldField, changeText } from './settings-rules.js';
   // The proctor's Settings: the monitoring values every student of the next published exam follows. They are stored on the
   // server, so every proctor computer sees the same ones. A published exam keeps the rules it was published with.
   let { disabled = false } = $props();
@@ -15,10 +16,11 @@
 
   // The form works in seconds for every time but the screenshots' counts. The locks run from one second to an hour, so seconds say
   // them all; what a long one is in minutes is said beside the field.
-  let form = $state({
-    heartbeatSeconds: 15, overdueSeconds: 30, focusSeconds: 5, alertSeconds: 2, captureSeconds: 5,
-    lockAwaySeconds: 300, lockNoContactSeconds: 300, incidentCaptures: 30, sessionCaptures: 200, graceSeconds: 30,
-  });
+  let form = $state({ ...DEFAULTS });
+  // The fields the proctor changed, the last one first: the one to hold when the others are fitted to it. And what the last fit, or
+  // the restoring of the defaults, changed, with the values from before it so that it can be undone.
+  let recent = $state([]);
+  let note = $state(null);
 
   function load(into) {
     form = {
@@ -33,6 +35,7 @@
       sessionCaptures: into.session_captures,
       graceSeconds: Math.round(into.default_grace_ms / 1000),
     };
+    recent = []; note = null;
   }
   async function read() {
     busy = true; problem = '';
@@ -47,11 +50,7 @@
 
   // With the away lock on, the number of screenshots per absence is worked out: the screenshots cover the whole absence
   // up to the lock.
-  let effectiveCaptures = $derived.by(() => {
-    if (!form.lockAwaySeconds) return form.incidentCaptures;
-    const span = form.lockAwaySeconds - form.focusSeconds;
-    return span < 0 ? 1 : Math.floor(span / form.captureSeconds) + 1;
-  });
+  let effective = $derived(effectiveCaptures(form));
   // How much room the students' screenshots take: the server's average size, or half a megabyte when it has none yet.
   let averageBytes = $derived(values?.average_screenshot_bytes ?? 0);
   let worstCase = $derived.by(() => {
@@ -61,49 +60,42 @@
   let megabytes = $derived.by(() => Math.round(worstCase / (1024 * 1024)));
   let sizeNote = $derived(averageBytes > 0 ? '' : ' (estimate)');
 
-  // The problems of the current values, each naming the fields it is about, so the proctor knows what to change.
-  let problems = $derived.by(() => {
-    const found = [];
-    const add = (fields, message) => found.push({ fields, message });
-    const { heartbeatSeconds: beat, overdueSeconds: lost, focusSeconds: start, alertSeconds: repeat, captureSeconds: capture,
-      lockAwaySeconds: away, lockNoContactSeconds: noContact, incidentCaptures: perAbsence, sessionCaptures: perStudent, graceSeconds: grace } = form;
-    // An empty field is a value nobody chose: it is never sent as a number.
-    const empty = value => value === null || value === undefined || Number.isNaN(value);
-    const show = value => empty(value) ? 'empty' : value;
-    const fields = [['heartbeatSeconds', beat, 'Heartbeat every'], ['overdueSeconds', lost, 'Connection lost after'],
-      ['focusSeconds', start, 'Alarm and screenshots start after'], ['alertSeconds', repeat, 'Alarm repeats every'],
-      ['captureSeconds', capture, 'Screenshot every'], ['lockAwaySeconds', away, 'Lock after away for'],
-      ['lockNoContactSeconds', noContact, 'Lock after no contact for'], ['incidentCaptures', perAbsence, 'Screenshots per absence'],
-      ['sessionCaptures', perStudent, 'Screenshots per student'], ['graceSeconds', grace, 'Default grace period']];
-    for (const [field, value, label] of fields) {
-      if (empty(value)) add([field], `${label} is empty: type the value you want.`);
-    }
-    if (!empty(beat) && (beat < 5 || beat > 60)) add(['heartbeatSeconds'], `Heartbeat every must be between 5 and 60 seconds (it is ${beat}).`);
-    if (!empty(beat) && !empty(lost) && lost < beat * 2) add(['overdueSeconds', 'heartbeatSeconds'], `Connection lost after must be at least two heartbeats: it is ${lost} s and the heartbeat is ${beat} s.`);
-    if (!empty(lost) && lost > 600) add(['overdueSeconds'], `Connection lost after must be at most 10 minutes (it is ${lost} s).`);
-    if (!empty(start) && (start < 1 || start > 600)) add(['focusSeconds'], `Alarm and screenshots start after must be between 1 second and 10 minutes (it is ${start} s).`);
-    if (!empty(repeat) && (repeat < 1 || repeat > 10)) add(['alertSeconds'], `Alarm repeats every must be between 1 and 10 seconds (it is ${repeat} s).`);
-    if (!empty(capture) && (capture < 3 || capture > 60)) add(['captureSeconds'], `Screenshot every must be between 3 and 60 seconds (it is ${capture} s).`);
-    // A lock is off at zero, otherwise a whole number of seconds from one to an hour. The other values it has to come after are checked
-    // only for a lock that is in range, so one wrong value is one problem.
-    for (const [field, value, label] of [['lockAwaySeconds', away, 'Lock after away'], ['lockNoContactSeconds', noContact, 'Lock after no contact']]) {
-      if (empty(value)) continue;
-      if (!Number.isInteger(value)) add([field], `${label} must be a whole number of seconds (it is ${value}).`);
-      else if (value !== 0 && (value < 1 || value > 3600)) add([field], `${label} must be off or between 1 second and 60 minutes (it is ${value} s).`);
-    }
-    const lock = value => !empty(value) && Number.isInteger(value) && value >= 1 && value <= 3600;
-    if (lock(away) && !empty(start) && !empty(capture) && away < start + capture) add(['lockAwaySeconds', 'focusSeconds', 'captureSeconds'],
-      `Lock after away (${away} s) must come after the alarm starts (${start} s) plus one screenshot interval (${capture} s): raise the lock or lower the alarm start.`);
-    if (lock(noContact) && !empty(lost) && noContact <= lost) add(['lockNoContactSeconds', 'overdueSeconds'],
-      `Lock after no contact (${noContact} s) must be longer than the connection lost threshold (${lost} s).`);
-    if (!empty(perAbsence) && !away && (perAbsence < 1 || perAbsence > 500)) add(['incidentCaptures'], `Screenshots per absence must be between 1 and 500 (it is ${perAbsence}).`);
-    if (!empty(perStudent) && (perStudent < effectiveCaptures || perStudent > 2000)) add(['sessionCaptures'],
-      `Screenshots per student (${perStudent}) must be at least the per-absence count (${effectiveCaptures}) and at most 2000.`);
-    if (!empty(grace) && (grace < 1 || grace > 1800 || !Number.isInteger(grace))) add(['graceSeconds'], `Default grace period must be a whole number of seconds between 1 second and 30 minutes (it is ${grace} s).`);
-    return found;
-  });
+  // The problems of the current values, each naming the fields it is about, so the proctor knows what to change, and the buttons that
+  // would fix it. The rules are in settings-rules.js.
+  let problems = $derived(findProblems(form));
+  // The limits the other values put on a field right now, said beside it.
+  let limit = $derived(hints(form));
+  // What fitting the others to the field changed last, among those that decide a conflict, would do; nothing when it cannot.
+  let held = $derived(heldField(problems, recent));
+  let plan = $derived(held ? fit(form, held) : null);
+  // Whether the form already holds the defaults. The screenshots per absence do not count while the away lock is on: the server works
+  // them out from the lock then, and the field cannot be edited.
+  let isDefault = $derived(Object.keys(DEFAULTS).every(field => (field === 'incidentCaptures' && form.lockAwaySeconds > 0) || form[field] === DEFAULTS[field]));
   // The problems that are about one field, so the field can say so itself.
   function problemsOf(field) { return problems.filter(entry => entry.fields.includes(field)).map(entry => entry.message); }
+
+  const remember = field => { recent = [field, ...recent.filter(other => other !== field)]; };
+  // Every edit of a field, typed or stepped, makes it the one to hold, and ends the note about what the last fit changed.
+  function edited(event) {
+    const field = event.target?.name;
+    if (field in DEFAULTS) { remember(field); note = null; }
+  }
+  function apply(fix) {
+    for (const [field, value] of Object.entries(fix.set)) form[field] = value;
+    remember(Object.keys(fix.set)[0]); note = null;
+  }
+  function fitTheOthers() {
+    if (!plan) return;
+    note = { text: `Fitted to “${LABELS[held]}”`, changes: plan.changes.map(changeText), before: $state.snapshot(form), recent: [...recent] };
+    form = plan.form;
+  }
+  function restoreDefaults() {
+    note = { text: 'The defaults are back. They are saved when you save the settings.', changes: [], before: $state.snapshot(form), recent: [...recent] };
+    form = { ...DEFAULTS }; recent = [];
+  }
+  function undo() {
+    form = note.before; recent = note.recent; note = null;
+  }
 
   async function save() {
     if (busy || problems.length) return;
@@ -143,24 +135,42 @@
       <form onsubmit={event => { event.preventDefault(); save(); }}>
         {#if problems.length}
           <ul class="problems" role="alert" aria-label="What the settings cannot be saved as">
-            {#each problems as entry}<li>{entry.message}</li>{/each}
+            {#each problems as entry}
+              <li>{entry.message}{#each entry.fixes as fix}<button type="button" class="fix" onclick={() => apply(fix)} disabled={busy}>{fix.label}</button>{/each}</li>
+            {/each}
           </ul>
+          {#if plan}
+            <div class="fit">
+              <button type="button" onclick={fitTheOthers} disabled={busy}>Fit the other values to “{LABELS[held]}”</button>
+              <small class="muted">It keeps that value and changes only what conflicts with it, as little as it takes: {plan.changes.map(changeText).join('; ')}.</small>
+            </div>
+          {/if}
         {/if}
-        <div class="grid">
-          <label>Heartbeat every (seconds)<input type="number" min="5" max="60" step="1" bind:value={form.heartbeatSeconds} disabled={busy} aria-invalid={problemsOf('heartbeatSeconds').length > 0} title={problemsOf('heartbeatSeconds').join(' ')} /></label>
-          <label>Connection lost after (seconds)<input type="number" min="1" max="600" step="1" bind:value={form.overdueSeconds} disabled={busy} aria-invalid={problemsOf('overdueSeconds').length > 0} title={problemsOf('overdueSeconds').join(' ')} /></label>
-          <label>Alarm and screenshots start after (seconds)<input type="number" min="1" max="600" step="1" bind:value={form.focusSeconds} disabled={busy} aria-invalid={problemsOf('focusSeconds').length > 0} title={problemsOf('focusSeconds').join(' ')} /></label>
-          <label>Alarm repeats every (seconds)<input type="number" min="1" max="10" step="1" bind:value={form.alertSeconds} disabled={busy} aria-invalid={problemsOf('alertSeconds').length > 0} title={problemsOf('alertSeconds').join(' ')} /></label>
-          <label>Screenshot every (seconds)<input type="number" min="3" max="60" step="1" bind:value={form.captureSeconds} disabled={busy} aria-invalid={problemsOf('captureSeconds').length > 0} title={problemsOf('captureSeconds').join(' ')} /></label>
-          <label><span>Lock after away for (seconds, 0 = off){#if said(form.lockAwaySeconds)} <small class="said" aria-hidden="true">{said(form.lockAwaySeconds)}</small>{/if}</span><input type="number" min="0" max="3600" step="1" bind:value={form.lockAwaySeconds} disabled={busy} aria-invalid={problemsOf('lockAwaySeconds').length > 0} title={problemsOf('lockAwaySeconds').join(' ')} /></label>
-          <label><span>Lock after no contact for (seconds, 0 = off){#if said(form.lockNoContactSeconds)} <small class="said" aria-hidden="true">{said(form.lockNoContactSeconds)}</small>{/if}</span><input type="number" min="0" max="3600" step="1" bind:value={form.lockNoContactSeconds} disabled={busy} aria-invalid={problemsOf('lockNoContactSeconds').length > 0} title={problemsOf('lockNoContactSeconds').join(' ')} /></label>
-          <label>Screenshots per absence<input type="number" min="1" max="500" step="1" bind:value={form.incidentCaptures} disabled={busy || form.lockAwaySeconds > 0} aria-invalid={problemsOf('incidentCaptures').length > 0} title={problemsOf('incidentCaptures').join(' ')} /></label>
-          <label>Screenshots per student<input type="number" min="1" max="2000" step="1" bind:value={form.sessionCaptures} disabled={busy} aria-invalid={problemsOf('sessionCaptures').length > 0} title={problemsOf('sessionCaptures').join(' ')} /></label>
-          <label>Default grace period (seconds)<input type="number" min="1" max="1800" step="1" bind:value={form.graceSeconds} disabled={busy} aria-invalid={problemsOf('graceSeconds').length > 0} title={problemsOf('graceSeconds').join(' ')} /></label>
+        {#if note}
+          <div class="note" role="status">
+            <p>{note.text}{#if note.changes.length}: {note.changes.join('; ')}.{/if}</p>
+            <button type="button" onclick={undo} disabled={busy}>Undo</button>
+          </div>
+        {/if}
+        {#snippet hint(field)}{#if limit[field]}<small class="limit" id={`limit-${field}`} aria-hidden="true">{limit[field]}</small>{/if}{/snippet}
+        <div class="grid" oninput={edited}>
+          <label><span>Heartbeat every (seconds)</span><input name="heartbeatSeconds" type="number" min="5" max="60" step="1" bind:value={form.heartbeatSeconds} disabled={busy} aria-invalid={problemsOf('heartbeatSeconds').length > 0} title={problemsOf('heartbeatSeconds').join(' ')} /></label>
+          <label><span>Connection lost after (seconds)</span>{@render hint('overdueSeconds')}<input name="overdueSeconds" type="number" min="1" max="600" step="1" bind:value={form.overdueSeconds} disabled={busy} aria-invalid={problemsOf('overdueSeconds').length > 0} aria-describedby={limit.overdueSeconds ? 'limit-overdueSeconds' : undefined} title={problemsOf('overdueSeconds').join(' ')} /></label>
+          <label><span>Alarm and screenshots start after (seconds)</span>{@render hint('focusSeconds')}<input name="focusSeconds" type="number" min="1" max="600" step="1" bind:value={form.focusSeconds} disabled={busy} aria-invalid={problemsOf('focusSeconds').length > 0} aria-describedby={limit.focusSeconds ? 'limit-focusSeconds' : undefined} title={problemsOf('focusSeconds').join(' ')} /></label>
+          <label><span>Alarm repeats every (seconds)</span><input name="alertSeconds" type="number" min="1" max="10" step="1" bind:value={form.alertSeconds} disabled={busy} aria-invalid={problemsOf('alertSeconds').length > 0} title={problemsOf('alertSeconds').join(' ')} /></label>
+          <label><span>Screenshot every (seconds)</span><input name="captureSeconds" type="number" min="3" max="60" step="1" bind:value={form.captureSeconds} disabled={busy} aria-invalid={problemsOf('captureSeconds').length > 0} title={problemsOf('captureSeconds').join(' ')} /></label>
+          <label><span>Lock after away for (seconds, 0 = off){#if said(form.lockAwaySeconds)} <small class="said" aria-hidden="true">{said(form.lockAwaySeconds)}</small>{/if}</span>{@render hint('lockAwaySeconds')}<input name="lockAwaySeconds" type="number" min="0" max="3600" step="1" bind:value={form.lockAwaySeconds} disabled={busy} aria-invalid={problemsOf('lockAwaySeconds').length > 0} aria-describedby={limit.lockAwaySeconds ? 'limit-lockAwaySeconds' : undefined} title={problemsOf('lockAwaySeconds').join(' ')} /></label>
+          <label><span>Lock after no contact for (seconds, 0 = off){#if said(form.lockNoContactSeconds)} <small class="said" aria-hidden="true">{said(form.lockNoContactSeconds)}</small>{/if}</span>{@render hint('lockNoContactSeconds')}<input name="lockNoContactSeconds" type="number" min="0" max="3600" step="1" bind:value={form.lockNoContactSeconds} disabled={busy} aria-invalid={problemsOf('lockNoContactSeconds').length > 0} aria-describedby={limit.lockNoContactSeconds ? 'limit-lockNoContactSeconds' : undefined} title={problemsOf('lockNoContactSeconds').join(' ')} /></label>
+          <label><span>Screenshots per absence</span><input name="incidentCaptures" type="number" min="1" max="500" step="1" bind:value={form.incidentCaptures} disabled={busy || form.lockAwaySeconds > 0} aria-invalid={problemsOf('incidentCaptures').length > 0} title={problemsOf('incidentCaptures').join(' ')} /></label>
+          <label><span>Screenshots per student</span><input name="sessionCaptures" type="number" min="1" max="2000" step="1" bind:value={form.sessionCaptures} disabled={busy} aria-invalid={problemsOf('sessionCaptures').length > 0} title={problemsOf('sessionCaptures').join(' ')} /></label>
+          <label><span>Default grace period (seconds)</span><input name="graceSeconds" type="number" min="1" max="1800" step="1" bind:value={form.graceSeconds} disabled={busy} aria-invalid={problemsOf('graceSeconds').length > 0} title={problemsOf('graceSeconds').join(' ')} /></label>
         </div>
-        {#if form.lockAwaySeconds > 0}<p class="muted">With the away lock on, the screenshots per absence are worked out: {effectiveCaptures} per absence, so they cover the whole absence up to the lock.</p>{/if}
+        {#if form.lockAwaySeconds > 0}<p class="muted">With the away lock on, the screenshots per absence are worked out: {effective} per absence, so they cover the whole absence up to the lock.</p>{/if}
         {#if disabled}<p class="muted">Another action is running in the dashboard, so the settings cannot be saved until it finishes.</p>{/if}
-        <div class="actions"><button class="primary" type="submit" disabled={busy || disabled || problems.length > 0}>{busy ? 'Saving…' : 'Save settings'}</button></div>
+        <div class="actions">
+          <button type="button" onclick={restoreDefaults} disabled={busy || isDefault} title={isDefault ? 'These are already the defaults.' : 'Put the values the server starts with back in the form. Nothing is saved until you save.'}>Restore the defaults</button>
+          <button class="primary" type="submit" disabled={busy || disabled || problems.length > 0}>{busy ? 'Saving…' : 'Save settings'}</button>
+        </div>
       </form>
     {:else if problem}
       <div class="actions"><button type="button" onclick={read} disabled={busy}>Try again</button></div>
@@ -170,7 +180,7 @@
   </Panel>
   {#if values}
     <Panel label="Preview" title="Preview" tone="info">
-      <p>Up to {effectiveCaptures} screenshots per absence, at most {form.sessionCaptures} per student. Worst case about {megabytes} MB per student{sizeNote}.</p>
+      <p>Up to {effective} screenshots per absence, at most {form.sessionCaptures} per student. Worst case about {megabytes} MB per student{sizeNote}.</p>
     </Panel>
   {/if}
 </div>
@@ -184,8 +194,17 @@
   .problems { margin: var(--space-3) 0; padding-inline-start: 1.6rem; }
   .problems li { margin-bottom: var(--space-1); }
   input[aria-invalid="true"] { border-color: var(--alert); box-shadow: 0 0 0 3px var(--alert-halo); }
-  .actions { display: flex; justify-content: flex-end; margin-top: var(--space-3); }
+  .actions { display: flex; justify-content: space-between; gap: var(--space-3); margin-top: var(--space-3); }
   .actions button { margin: 0; }
   .muted { color: var(--text-muted); }
   .said { margin-inline-start: var(--space-1); color: var(--text-muted); font-weight: 400; }
+  /* What the other values allow, between the name of a field and the field, so the fields of a row stay level. */
+  .limit { color: var(--text-muted); font-weight: 400; font-size: var(--text-sm); line-height: 1.3; }
+  /* A fix sits at the end of the problem it solves; it names what it will set. */
+  .fix { min-height: 0; margin: 0 0 0 var(--space-2); padding: .1rem .6rem; font-size: var(--text-sm); }
+  .fit { display: grid; justify-items: start; gap: var(--space-1); margin: var(--space-2) 0; }
+  .fit button { margin: 0; }
+  .note { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); margin: var(--space-3) 0; padding: var(--space-2) var(--space-3); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); background: var(--bg-secondary); }
+  .note p { margin: 0; }
+  .note button { margin: 0; }
 </style>
