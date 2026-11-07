@@ -204,10 +204,12 @@ test('the login screen keeps the rules short and drops the server note', async (
   await page.goto('/');
   const rules = page.getByRole('region', { name: 'Participation rules' });
   await expect(rules.getByRole('heading', { name: 'Exam rules' })).toBeVisible();
-  await expect(rules.locator('.rule-list li')).toHaveCount(5);
   // The rules show the real times the server sent.
   await expect(rules.getByText('more than 5 seconds', { exact: false })).toBeVisible();
   await expect(rules.getByText('your exam locks', { exact: false })).toBeVisible();
+  // Counted once the server's rules have arrived, as the lock to change network is one of them: the four of every exam, the one
+  // about remote access, the lock, and the option to lock to change network.
+  await expect(rules.locator('.rule-list li')).toHaveCount(7);
   await expect(page.getByText('isolated-LAN', { exact: false })).toHaveCount(0);
   await expect(page.getByText('never resets the deadline', { exact: false })).toHaveCount(0);
 });
