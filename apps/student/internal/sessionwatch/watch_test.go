@@ -85,9 +85,9 @@ func TestAMomentWithoutTheRecordIsNotASwitch(t *testing.T) {
 	var got reports
 	go watch(ctx, path, 2*time.Millisecond, got.add)
 	time.Sleep(20 * time.Millisecond)
-	if err := os.Remove(path); err != nil {
-		t.Fatal(err)
-	}
+	// Windows refuses to delete a file while another handle has it open, and the watch opens it every few milliseconds, so the
+	// removal is tried until it lands between two reads. (Only the Linux build reads a file; the others ask the system.)
+	eventually(t, func() bool { return os.Remove(path) == nil })
 	time.Sleep(30 * time.Millisecond)
 	writeConsole(t, path, "tty2")
 	time.Sleep(30 * time.Millisecond)
