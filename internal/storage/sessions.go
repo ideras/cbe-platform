@@ -57,7 +57,7 @@ func (t *sessionTransaction) Finalize(ctx context.Context, id string, versionID 
 	return nil
 }
 
-const sessionColumns = `session_id, account_number, exam_id, token, started_at, deadline_at, grace_until, last_seen, submitted_at, status, final_version_id, hostname, remote_addr, network_gap_since, volume_percent, volume_muted, current_exercise, policy_json, locked_at, lock_reason, unlocked_at, ends_at`
+const sessionColumns = `session_id, account_number, exam_id, token, started_at, deadline_at, grace_until, last_seen, submitted_at, status, final_version_id, hostname, remote_addr, network_gap_since, volume_percent, volume_muted, current_exercise, policy_json, locked_at, lock_reason, unlocked_at, ends_at, network_locks`
 
 type scanner interface{ Scan(...any) error }
 
@@ -67,7 +67,7 @@ func scanSession(row scanner) (domain.Session, error) {
 	var lastSeen, submitted, networkGap sql.NullString
 	var final, volume, muted sql.NullInt64
 	var policy, lockedAt, lockReason, unlockedAt, endsAt sql.NullString
-	err := row.Scan(&session.ID, &session.AccountNumber, &session.ExamID, &session.Token, &started, &deadline, &grace, &lastSeen, &submitted, &session.Status, &final, &session.Hostname, &session.RemoteAddr, &networkGap, &volume, &muted, &session.CurrentExercise, &policy, &lockedAt, &lockReason, &unlockedAt, &endsAt)
+	err := row.Scan(&session.ID, &session.AccountNumber, &session.ExamID, &session.Token, &started, &deadline, &grace, &lastSeen, &submitted, &session.Status, &final, &session.Hostname, &session.RemoteAddr, &networkGap, &volume, &muted, &session.CurrentExercise, &policy, &lockedAt, &lockReason, &unlockedAt, &endsAt, &session.NetworkLocks)
 	if errors.Is(err, sql.ErrNoRows) {
 		return session, domain.ErrNotFound
 	}

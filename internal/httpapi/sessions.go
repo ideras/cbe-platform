@@ -42,6 +42,8 @@ type loginResponse struct {
 	MinVolumePercent int `json:"min_volume_percent"`
 	// Locked says that the exam is locked, since when and why; null while it is not.
 	Locked *service.LockInfo `json:"locked"`
+	// NetworkLocksLeft is how many more times the student may lock the exam themselves to reconnect to the network.
+	NetworkLocksLeft int `json:"network_locks_left"`
 }
 
 type statusResponse struct {
@@ -62,6 +64,8 @@ type statusResponse struct {
 	CurrentExercise int `json:"current_exercise"`
 	// Locked says that the exam is locked, since when and why; null while it is not.
 	Locked *service.LockInfo `json:"locked"`
+	// NetworkLocksLeft is how many more times the student may lock the exam themselves to reconnect to the network.
+	NetworkLocksLeft int `json:"network_locks_left"`
 }
 
 func loginHandler(sessions SessionAPI, logger *slog.Logger) http.HandlerFunc {
@@ -75,7 +79,7 @@ func loginHandler(sessions SessionAPI, logger *slog.Logger) http.HandlerFunc {
 			serviceError(w, logger, "login", err)
 			return
 		}
-		writeJSON(w, http.StatusOK, loginResponse{Policy: result.Policy, SessionToken: result.Token, SessionID: result.SessionID, DeadlineAt: result.DeadlineAt, ServerTime: result.ServerTime, MinVolumePercent: result.MinVolumePercent, Locked: result.Locked})
+		writeJSON(w, http.StatusOK, loginResponse{Policy: result.Policy, SessionToken: result.Token, SessionID: result.SessionID, DeadlineAt: result.DeadlineAt, ServerTime: result.ServerTime, MinVolumePercent: result.MinVolumePercent, Locked: result.Locked, NetworkLocksLeft: result.NetworkLocksLeft})
 	}
 }
 
@@ -91,7 +95,7 @@ func statusHandler(w http.ResponseWriter, r *http.Request) {
 		Status: principal.Lifecycle.Status, ServerTime: principal.ServerTime, DeadlineAt: deadline,
 		GraceUntil: grace, EndsAt: principal.Session.EndsAt, SecondsRemaining: principal.Lifecycle.SecondsRemaining,
 		FinalizationPending: principal.Lifecycle.FinalizationPending, CurrentExercise: principal.Session.CurrentExercise,
-		Locked: principal.Locked,
+		Locked: principal.Locked, NetworkLocksLeft: principal.NetworkLocksLeft,
 	})
 }
 

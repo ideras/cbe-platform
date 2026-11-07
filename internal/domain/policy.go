@@ -34,6 +34,10 @@ type Policy struct {
 	SessionCaptures int
 }
 
+// NetworkLockLimit is how many times a student may lock the exam themselves to reconnect to the exam network. Each of those
+// locks is lifted only by a proctor, and the exam time keeps running while it lasts.
+const NetworkLockLimit = 2
+
 // DefaultPolicy is the settings a server without a stored row uses, with the per-absence screenshot count worked out.
 func DefaultPolicy() Policy {
 	return Policy{

@@ -16,7 +16,21 @@ const (
 	LockReasonAway = "away"
 	// LockReasonNoContact means nothing reached the server from the student application for too long.
 	LockReasonNoContact = "no_contact"
+	// LockReasonNetwork means the student locked the exam themselves, with the server out of reach, to reconnect to the
+	// exam network without the alarm.
+	LockReasonNetwork = "network"
 )
+
+// lockWatchedByScreenshots says whether the student application gives the student the run of the computer during a lock of
+// this reason, to reconnect to the network, and so takes screenshots meanwhile.
+func lockWatchedByScreenshots(reason string) bool {
+	return reason == LockReasonNetwork || reason == LockReasonNoContact
+}
+
+// NetworkLocksLeft is how many more times the student may lock the exam themselves to reconnect to the network.
+func NetworkLocksLeft(session domain.Session) int {
+	return max(0, domain.NetworkLockLimit-session.NetworkLocks)
+}
 
 var (
 	// ErrNotLocked means the session is not locked, or is over, so it cannot be unlocked.
@@ -25,10 +39,11 @@ var (
 	ErrLockChanged = errors.New("the session was locked again; reload it and try again")
 )
 
-// lockSession locks a running session and records the lock in its history. It answers the record of the session's lock,
-// the new one or the one it already had, and whether this call locked it.
-func lockSession(ctx context.Context, tx SessionTransaction, session domain.Session, reason string, now time.Time, source string) (int64, bool, error) {
-	locked, err := tx.LockSession(ctx, session.ID, now, reason)
+// lockSession locks a running session and records the lock in its history. The record is made now; since is when the lock
+// began, which is earlier only for a lock the student application made while the server was out of reach. It answers the
+// record of the session's lock, the new one or the one it already had, and whether this call locked it.
+func lockSession(ctx context.Context, tx SessionTransaction, session domain.Session, reason string, now, since time.Time, source string) (int64, bool, error) {
+	locked, err := tx.LockSession(ctx, session.ID, since, reason, reason == LockReasonNetwork)
 	if err != nil {
 		return 0, false, err
 	}
@@ -36,16 +51,60 @@ func lockSession(ctx context.Context, tx SessionTransaction, session domain.Sess
 		existing, err := tx.LatestLockEvent(ctx, session.ID)
 		return existing.ID, false, err
 	}
+	// A lock the student asked for says which of the allowed ones it is, so the proctor sees a student past the limit.
+	request, limit := 0, 0
+	if reason == LockReasonNetwork {
+		request, limit = session.NetworkLocks+1, domain.NetworkLockLimit
+	}
 	detail, err := json.Marshal(struct {
-		Reason string    `json:"reason"`
-		Source string    `json:"source"`
-		Since  time.Time `json:"since"`
-	}{reason, source, now})
+		Reason  string    `json:"reason"`
+		Source  string    `json:"source"`
+		Since   time.Time `json:"since"`
+		Request int       `json:"request,omitempty"`
+		Limit   int       `json:"limit,omitempty"`
+	}{reason, source, since, request, limit})
 	if err != nil {
 		return 0, false, err
 	}
 	id, err := tx.RecordEvent(ctx, domain.Event{SessionID: session.ID, Type: "locked", OccurredAt: now, Detail: detail})
 	return id, err == nil, err
+}
+
+// lockReportGrace is how long after contact came back a lock the application made while out of reach can still be reported as
+// belonging to that gap. The application reports at once, a heartbeat interval after the connection returns, and tries again
+// every one; a gap that closed longer ago than this has nothing to do with a lock reported now.
+const lockReportGrace = 2 * time.Minute
+
+// clientLockSince is when a lock the student application made for the network began, the one the student asked for or the one
+// for lack of contact. The application makes it while the server is out of reach, so the report arrives some time after the
+// lock; it says how long ago the lock began, and an age is used because the student's clock may be off the server's. The server
+// believes it no further than what it knows: the lock cannot have begun before the exam, before the latest unlock, or before the
+// network gap the student was in, and without a gap that is still open or has just closed there is nothing to say the student was
+// out of reach, so it began when the server heard of it.
+func clientLockSince(ctx context.Context, tx SessionTransaction, session domain.Session, now time.Time, age time.Duration) (time.Time, error) {
+	gap, err := tx.LatestGap(ctx, session.ID)
+	if errors.Is(err, domain.ErrNotFound) {
+		return now, nil
+	}
+	if err != nil {
+		return time.Time{}, err
+	}
+	if gap.End != nil && now.Sub(*gap.End) > lockReportGrace {
+		return now, nil
+	}
+	since := now.Add(-age)
+	for _, floor := range []time.Time{gap.Start, session.StartedAt} {
+		if since.Before(floor) {
+			since = floor
+		}
+	}
+	if session.UnlockedAt != nil && since.Before(*session.UnlockedAt) {
+		since = *session.UnlockedAt
+	}
+	if since.After(now) {
+		since = now
+	}
+	return since, nil
 }
 
 // lockReason is the reason a session should be locked now, or "" when it should not be. Both clocks start again when a

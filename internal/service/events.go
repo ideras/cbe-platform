@@ -83,11 +83,21 @@ func (s *Sessions) ClientEvent(ctx context.Context, token string, input EventInp
 			reason := LockReasonAway
 			var reported struct {
 				Reason string `json:"reason"`
+				// AgeMillis is how long ago the application locked the exam, when it reports the lock later than that.
+				AgeMillis int64 `json:"lock_age_ms"`
 			}
-			if len(input.Detail) > 0 && json.Unmarshal(input.Detail, &reported) == nil && reported.Reason == LockReasonNoContact {
-				reason = LockReasonNoContact
+			if len(input.Detail) > 0 && json.Unmarshal(input.Detail, &reported) == nil &&
+				(reported.Reason == LockReasonNoContact || reported.Reason == LockReasonNetwork) {
+				reason = reported.Reason
 			}
-			id, _, err := lockSession(ctx, tx, session, reason, principal.ServerTime, "client")
+			since := principal.ServerTime
+			if lockWatchedByScreenshots(reason) && reported.AgeMillis > 0 {
+				var err error
+				if since, err = clientLockSince(ctx, tx, session, principal.ServerTime, time.Duration(reported.AgeMillis)*time.Millisecond); err != nil {
+					return err
+				}
+			}
+			id, _, err := lockSession(ctx, tx, session, reason, principal.ServerTime, since, "client")
 			if err != nil {
 				return err
 			}

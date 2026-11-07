@@ -141,6 +141,9 @@ func (s *Screenshots) eligible(ctx context.Context, tx ScreenshotTransaction, to
 	if err != nil {
 		return session, err
 	}
+	if loss.Type == "locked" {
+		return session, lockShotEligible(session, loss, now)
+	}
 	if loss.Type != "focus_lost" {
 		return session, ErrScreenshotIneligible
 	}
@@ -167,11 +170,8 @@ func (s *Screenshots) eligible(ctx context.Context, tx ScreenshotTransaction, to
 	if detail.Unconfirmed || session.LastSeen == nil {
 		return session, ErrScreenshotIneligible
 	}
-	_, effective := session.EffectiveTimes()
-	if session.SubmittedAt != nil && session.SubmittedAt.Before(effective) {
-		effective = *session.SubmittedAt
-	}
-	if !now.Before(effective) && now.After(effective.Add(PendingScreenshotWindow)) {
+	effective := screenshotEnd(session)
+	if pastScreenshotWindow(effective, now) {
 		return session, ErrScreenshotIneligible
 	}
 	until := now
@@ -215,6 +215,41 @@ func (s *Screenshots) eligible(ctx context.Context, tx ScreenshotTransaction, to
 		return session, ErrScreenshotIneligible
 	}
 	return session, nil
+}
+
+// lockShotEligible says whether a screenshot may be stored under the record of a lock. Only the locks for the network have
+// any, the one a student asked for to change network and the one for lack of contact, since the student application gives the
+// student the run of the computer during them to reconnect. It takes the screenshots while the exam is locked, even with the
+// server out of reach, and sends them once the server has recorded the lock, so nothing about when they were taken can be
+// checked here; and whether the server or the application made the lock does not matter, since the application may only
+// learn of a lock the server made once it is back in touch. What bounds them is the lock itself, the counts of the policy (the
+// caller checks the per-lock one, and the per-student one comes after) and the end of the exam.
+func lockShotEligible(session domain.Session, lock domain.Event, now time.Time) error {
+	var detail struct {
+		Reason string `json:"reason"`
+	}
+	if json.Unmarshal(lock.Detail, &detail) != nil || !lockWatchedByScreenshots(detail.Reason) {
+		return ErrScreenshotIneligible
+	}
+	if pastScreenshotWindow(screenshotEnd(session), now) {
+		return ErrScreenshotIneligible
+	}
+	return nil
+}
+
+// screenshotEnd is when the exam ended as far as its screenshots go: the end of its time, or its submission when that came first.
+func screenshotEnd(session domain.Session) time.Time {
+	_, effective := session.EffectiveTimes()
+	if session.SubmittedAt != nil && session.SubmittedAt.Before(effective) {
+		effective = *session.SubmittedAt
+	}
+	return effective
+}
+
+// pastScreenshotWindow says whether it is too late for a screenshot to be stored: the ones taken before the end of the exam may
+// still arrive for PendingScreenshotWindow after it.
+func pastScreenshotWindow(end, now time.Time) bool {
+	return now.After(end.Add(PendingScreenshotWindow))
 }
 
 // readScreenshot reads an uploaded or stored PNG or JPEG within the dimension limits.
