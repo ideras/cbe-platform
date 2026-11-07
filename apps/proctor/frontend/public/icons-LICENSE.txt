@@ -2,6 +2,7 @@ Icons in shared/theme/icons, bundled in both CBE Portal applications. Each was r
 icon-sets.iconify.design/
 
 Tabler Icons (github.com/tabler/tabler-icons/blob/main/LICENSE):
+  arrow-right.svg: arrow-right
   back.svg: arrow-left
   backspace.svg: backspace
   ban.svg: ban

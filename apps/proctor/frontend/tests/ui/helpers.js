@@ -43,6 +43,5 @@ export async function tickPublish(dialog) {
 }
 
 // Ticks everything the close-admission dialog asks for: the override when students are still working, then the plain confirmation.
-export async function tickClose(dialog) {
-  for (const box of await dialog.getByRole('checkbox').all()) await box.check();
-}
+// It draws its ticks like the publish dialog, so it is the same.
+export const tickClose = tickPublish;

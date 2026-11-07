@@ -246,75 +246,141 @@ test('publishing an exam of another class replaces the admission, naming the exa
   await expect(examCard(examsPanel(page), 'Databases midterm')).not.toContainText('Published');
 });
 
+// The close-admission dialog: its button, and the two ticks (clicked by their labels, since the boxes themselves are drawn).
+const closeButton = dialog => dialog.getByRole('button', { name: /^(Close admission|Waiting for server…)$/ });
+const overrideTick = dialog => dialog.locator('label.override');
+const plainTick = dialog => dialog.locator('label.confirm:not(.override)');
+async function openClose(page, exams) {
+  await exams.getByRole('button', { name: 'Close admission to Databases midterm…' }).click();
+  return page.getByRole('dialog', { name: 'Close admission' });
+}
+
 test('closing admission is confirmed and leaves running students alone', async ({ page }) => {
   const exams = await connect(page);
-  await exams.getByRole('button', { name: 'Close admission to Databases midterm…' }).click();
-  const dialog = page.getByRole('dialog');
-  await expect(dialog).toContainText('Nobody new will be able to log in'); await expect(dialog).toContainText('1 student still working');
-  const override = dialog.getByRole('checkbox', { name: /Override/ }), plain = dialog.getByRole('checkbox', { name: 'I want to close admission.' });
-  await expect(override.locator('..')).toContainText('Override: close admission anyway, although 1 student is still working in “Databases midterm”.');
-  const close = dialog.getByRole('button', { name: 'Close admission', exact: true });
+  const dialog = await openClose(page, exams);
+  await expect(dialog).toContainText('Stops new logins; running sessions continue');
+  await expect(dialog).toContainText('Nobody new can start this exam');
+  // The risk is said in words, apart from the card that says their sessions go on.
+  await expect(dialog.locator('.notice.warning')).toContainText('1 student still working in “Databases midterm”');
+  await expect(dialog.locator('.notice.warning')).toContainText('cannot log back in');
+  await expect(overrideTick(dialog)).toContainText('Override: close admission anyway, although 1 student is still working in “Databases midterm”.');
+  await expect(plainTick(dialog)).toHaveText('I want to close admission.');
+  const close = closeButton(dialog);
   await expect(close).toBeDisabled();
   // Neither tick is enough alone: the override is a decision of its own, apart from wanting to close.
-  await plain.check(); await expect(close).toBeDisabled();
-  await plain.uncheck(); await override.check(); await expect(close).toBeDisabled();
-  await plain.check(); await expect(close).toBeEnabled();
+  await plainTick(dialog).click(); await expect(close).toBeDisabled();
+  await plainTick(dialog).click(); await expect(plainTick(dialog).locator('input')).not.toBeChecked();
+  await overrideTick(dialog).click(); await expect(close).toBeDisabled();
+  await plainTick(dialog).click(); await expect(close).toBeEnabled();
   await close.click();
   await expect(page.getByRole('status')).toContainText('Admission is closed');
   await expect(admitting(page)).toContainText('Admission closed');
   expect((await calls(page)).unpublish).toEqual([{ expectedExam: EXAM, allowActive: true, confirmed: true }]);
 });
 
+test('the ticks of the close-admission dialog work from the keyboard', async ({ page }) => {
+  const exams = await connect(page, () => window.ProctorHarness.working(0));
+  const dialog = await openClose(page, exams);
+  const box = plainTick(dialog).locator('input');
+  await box.focus(); await page.keyboard.press('Space');
+  await expect(box).toBeChecked(); await expect(closeButton(dialog)).toBeEnabled();
+  await page.keyboard.press('Space'); await expect(box).not.toBeChecked(); await expect(closeButton(dialog)).toBeDisabled();
+});
+
 test('closing admission when nobody is working needs only a plain confirmation', async ({ page }) => {
   const exams = await connect(page, () => window.ProctorHarness.working(0));
-  await exams.getByRole('button', { name: 'Close admission to Databases midterm…' }).click();
-  const dialog = page.getByRole('dialog');
-  await expect(dialog.getByRole('checkbox')).toHaveCount(1); await expect(dialog).not.toContainText('Override');
-  await dialog.getByRole('checkbox').check(); await dialog.getByRole('button', { name: 'Close admission', exact: true }).click();
+  const dialog = await openClose(page, exams);
+  await expect(dialog.locator('label.confirm')).toHaveCount(1); await expect(dialog).not.toContainText('Override');
+  await expect(dialog.locator('.notice.warning')).toHaveCount(0);
+  await expect(dialog).toContainText('Nothing running is affected'); await expect(dialog).toContainText('Nobody is working in it now');
+  await plainTick(dialog).click(); await closeButton(dialog).click();
   await expect(admitting(page)).toContainText('Admission closed');
   expect((await calls(page)).unpublish).toEqual([{ expectedExam: EXAM, allowActive: false, confirmed: true }]);
 });
 
 test('the working count in the close-admission dialog follows the server while it is open, and the override is asked for again', async ({ page }) => {
   const exams = await connect(page, () => window.ProctorHarness.working(0));
-  await exams.getByRole('button', { name: 'Close admission to Databases midterm…' }).click();
-  const dialog = page.getByRole('dialog');
-  const close = dialog.getByRole('button', { name: 'Close admission', exact: true });
-  await dialog.getByRole('checkbox').check(); await expect(close).toBeEnabled();
+  const dialog = await openClose(page, exams);
+  const close = closeButton(dialog);
+  await plainTick(dialog).click(); await expect(close).toBeEnabled();
   // A student logs in after the dialog opened: the override appears and the button waits for it.
   await page.evaluate(() => window.ProctorHarness.working(2));
-  const override = dialog.getByRole('checkbox', { name: /Override/ });
-  await expect(override).toBeVisible(); await expect(dialog).toContainText('2 students still working'); await expect(close).toBeDisabled();
-  await override.check(); await expect(close).toBeEnabled();
+  const override = overrideTick(dialog).locator('input');
+  await expect(overrideTick(dialog)).toBeVisible(); await expect(dialog).toContainText('2 students still working'); await expect(close).toBeDisabled();
+  await overrideTick(dialog).click(); await expect(override).toBeChecked(); await expect(close).toBeEnabled();
   // The number changes after it was ticked: it is a different decision, so the tick is asked for again.
   await page.evaluate(() => window.ProctorHarness.working(3));
   await expect(dialog).toContainText('3 students are still working in “Databases midterm”');
   await expect(override).not.toBeChecked(); await expect(close).toBeDisabled();
   // They all finish: nothing is left to override.
   await page.evaluate(() => window.ProctorHarness.working(0));
-  await expect(override).toHaveCount(0); await expect(close).toBeEnabled();
+  await expect(overrideTick(dialog)).toHaveCount(0); await expect(close).toBeEnabled();
   await close.click();
   expect((await calls(page)).unpublish).toEqual([{ expectedExam: EXAM, allowActive: false, confirmed: true }]);
 });
 
 test('a student who logs in just before closing admission is refused, then the override is offered', async ({ page }) => {
   const exams = await connect(page, () => window.ProctorHarness.working(0));
-  await exams.getByRole('button', { name: 'Close admission to Databases midterm…' }).click();
-  const dialog = page.getByRole('dialog');
-  const close = dialog.getByRole('button', { name: 'Close admission', exact: true });
-  await dialog.getByRole('checkbox').check();
+  const dialog = await openClose(page, exams);
+  const close = closeButton(dialog);
+  await plainTick(dialog).click();
   await page.evaluate(() => window.ProctorHarness.studentsLogInLate(2));
   await close.click();
   await expect(dialog.getByRole('alert')).toContainText('students are still working');
   await expect(admitting(page)).not.toContainText('Admission closed');
-  const override = dialog.getByRole('checkbox', { name: /Override/ });
-  await expect(override).toBeVisible(); await expect(dialog).toContainText('2 students still working'); await expect(close).toBeDisabled();
-  await override.check(); await close.click();
+  await expect(overrideTick(dialog)).toBeVisible(); await expect(dialog).toContainText('2 students still working'); await expect(close).toBeDisabled();
+  await overrideTick(dialog).click(); await close.click();
   await expect(admitting(page)).toContainText('Admission closed');
   expect((await calls(page)).unpublish).toEqual([
     { expectedExam: EXAM, allowActive: false, confirmed: true },
     { expectedExam: EXAM, allowActive: true, confirmed: true },
   ]);
+});
+
+test('the close-admission dialog names the exam and its class, and what changes for new logins', async ({ page }) => {
+  const exams = await connect(page, () => window.ProctorHarness.working(0));
+  const dialog = await openClose(page, exams);
+  const strip = dialog.locator('.status');
+  await expect(strip.locator('.now')).toContainText('Now'); await expect(strip.locator('.now')).toContainText('Admitting');
+  await expect(strip.locator('.next')).toContainText('After'); await expect(strip.locator('.next')).toContainText('Closed');
+  await expect(strip.locator('.exam-name')).toContainText('Databases midterm · Mathematics 10A');
+  await expect(dialog.locator('.eff.block')).toContainText('New logins blocked');
+  // Closing is undone only by publishing again, which the proctor should know before ticking.
+  await expect(dialog.locator('.notice.info')).toContainText('To let students in again, publish the exam again.');
+});
+
+// What to run in the page before it connects, from harness calls, so the exam list is what the test wants from the first read.
+const harnessCalls = (...calls) => `(${calls.map(([name, ...args]) => `window.ProctorHarness.${name}(${args.map(arg => JSON.stringify(arg)).join(', ')})`).join(', ')})`;
+
+test('the close-admission dialog says the state of the exam’s login window instead of always saying it admits', async ({ page }) => {
+  const states = [
+    [{ opens_at: '2035-01-02T00:00:00Z' }, 'Waiting to open'],
+    [{ closes_at: '2034-12-31T00:00:00Z' }, 'Login window closed'],
+    [{ ends_at: '2034-12-31T00:00:00Z' }, 'Exam ended'],
+  ];
+  for (const [schedule, label] of states) {
+    const exams = await connect(page, harnessCalls(['working', 0], ['examWindow', EXAM, schedule]));
+    const dialog = await openClose(page, exams);
+    await expect(dialog.locator('.status .now')).toContainText(label);
+    await expect(dialog.locator('.status .now')).not.toContainText('Admitting');
+    await expect(dialog.locator('.status .next')).toContainText('Closed');
+  }
+});
+
+test('the close-admission dialog counts the students who will not be able to log in', async ({ page }) => {
+  // The class has 28 students. With 27 sessions one has not logged in, with 25 three have; with 28, or more sessions than students
+  // (as when the roster changed since), there is nobody to warn about.
+  for (const [sessions, text] of [
+    [27, '1 student hasn’t logged in yet and won’t be able to after this.'],
+    [25, '3 students haven’t logged in yet and won’t be able to after this.'],
+    [28, null],
+    [40, null],
+  ]) {
+    const exams = await connect(page, harnessCalls(['working', 0], ['examSessions', EXAM, sessions]));
+    const dialog = await openClose(page, exams);
+    if (text) await expect(dialog.locator('.heads-up')).toContainText(text);
+    else await expect(dialog.locator('.heads-up')).toHaveCount(0);
+  }
 });
 
 test('monitoring another exam never publishes it', async ({ page }) => {
