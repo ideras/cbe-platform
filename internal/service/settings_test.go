@@ -53,6 +53,33 @@ func TestSettingsRoundTripAndTheWorkedOutAbsenceCount(t *testing.T) {
 	}
 }
 
+// The locks are set in seconds. They can be as short as the alarm and the connection allow (the away lock comes after the alarm and one
+// screenshot, the no contact lock after the connection counts as lost), and are stored and read back as they were set.
+func TestShortLocksAreSavedAndReadBackAsTheyWereSet(t *testing.T) {
+	f := newFixture(t, 0)
+	view, err := f.sessions.Settings(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, err := f.sessions.SaveSettings(t.Context(), service.SettingsUpdate{PolicyMillis: domain.PolicyMillis{HeartbeatInterval: 5000, OverdueThreshold: 10000,
+		FocusThreshold: 1000, AlertInterval: 1000, CaptureInterval: 3000, LockAwayAfter: 4000, LockNoContactAfter: 11000,
+		IncidentCaptures: 30, SessionCaptures: 300, DefaultGrace: 30000}, ExpectedUpdatedAt: view.UpdatedAt})
+	if err != nil {
+		t.Fatalf("short locks were refused: %v", err)
+	}
+	if saved.LockAwayAfter != 4000 || saved.LockNoContactAfter != 11000 {
+		t.Fatalf("saved = %+v", saved)
+	}
+	// The screenshots still cover the absence from the alarm to the lock: (4 - 1) / 3 + 1 = 2.
+	if saved.IncidentCaptures != 2 {
+		t.Fatalf("worked out count = %d, want 2", saved.IncidentCaptures)
+	}
+	again, err := f.sessions.Settings(t.Context())
+	if err != nil || again.LockAwayAfter != 4000 || again.LockNoContactAfter != 11000 {
+		t.Fatalf("settings = %+v, %v", again, err)
+	}
+}
+
 // A save that would overwrite another proctor's change is refused.
 func TestASettingsSaveThatIsOutOfDateIsRefused(t *testing.T) {
 	f := newFixture(t, 0)
@@ -95,10 +122,8 @@ func TestEverySettingsRangeIsChecked(t *testing.T) {
 		{"alarm repeat too slow", with(func(v *domain.PolicyMillis) { v.AlertInterval = 11000 })},
 		{"screenshot too fast", with(func(v *domain.PolicyMillis) { v.CaptureInterval = 2000 })},
 		{"screenshot too slow", with(func(v *domain.PolicyMillis) { v.CaptureInterval = 61000 })},
-		{"away lock too short", with(func(v *domain.PolicyMillis) { v.LockAwayAfter = 30000 })},
 		{"away lock too long", with(func(v *domain.PolicyMillis) { v.LockAwayAfter, v.SessionCaptures = 3600001, 2000 })},
 		{"away lock before the alarm and one screenshot", with(func(v *domain.PolicyMillis) { v.FocusThreshold, v.LockAwayAfter = 58000, 60000 })},
-		{"no contact lock too short", with(func(v *domain.PolicyMillis) { v.LockNoContactAfter = 45000 })},
 		{"no contact lock not later than the connection", with(func(v *domain.PolicyMillis) { v.OverdueThreshold, v.LockNoContactAfter = 120000, 120000 })},
 		{"too few screenshots per absence", with(func(v *domain.PolicyMillis) { v.LockAwayAfter, v.IncidentCaptures = 0, 0 })},
 		{"too many screenshots per absence", with(func(v *domain.PolicyMillis) { v.LockAwayAfter, v.IncidentCaptures, v.SessionCaptures = 0, 501, 600 })},

@@ -104,15 +104,15 @@ func (p Policy) Problems() []string {
 	if p.CaptureInterval < 3*time.Second || p.CaptureInterval > 60*time.Second {
 		add("screenshot every must be between 3s and 60s (it is %s)", p.CaptureInterval)
 	}
-	if p.LockAwayAfter != 0 && (p.LockAwayAfter < time.Minute || p.LockAwayAfter > 60*time.Minute) {
-		add("lock after away must be off or between 1m and 60m (it is %s)", p.LockAwayAfter)
+	if p.LockAwayAfter != 0 && (p.LockAwayAfter < time.Second || p.LockAwayAfter > 60*time.Minute) {
+		add("lock after away must be off or between 1s and 60m (it is %s)", p.LockAwayAfter)
 	}
 	if p.LockAwayAfter > 0 && p.LockAwayAfter < p.FocusThreshold+p.CaptureInterval {
 		add("lock after away (%s) must come after the alarm starts (%s) plus one screenshot interval (%s): raise the lock or lower the alarm start",
 			p.LockAwayAfter, p.FocusThreshold, p.CaptureInterval)
 	}
-	if p.LockNoContactAfter != 0 && (p.LockNoContactAfter < time.Minute || p.LockNoContactAfter > 60*time.Minute) {
-		add("lock after no contact must be off or between 1m and 60m (it is %s)", p.LockNoContactAfter)
+	if p.LockNoContactAfter != 0 && (p.LockNoContactAfter < time.Second || p.LockNoContactAfter > 60*time.Minute) {
+		add("lock after no contact must be off or between 1s and 60m (it is %s)", p.LockNoContactAfter)
 	}
 	if p.LockNoContactAfter > 0 && p.LockNoContactAfter <= p.OverdueThreshold {
 		add("lock after no contact (%s) must be longer than the connection lost threshold (%s)", p.LockNoContactAfter, p.OverdueThreshold)
