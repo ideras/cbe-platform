@@ -26,7 +26,7 @@ func main() {
 	capture := flag.Bool("capture-spike", false, "compatibility option; manual capture controls are available by default")
 	worker := flag.Bool("capture-spike-worker", false, "internal one-shot PNG capture worker")
 	defaults := client.DefaultOptions()
-	server := flag.String("server", defaults.Server, "instructor's isolated-LAN HTTP server address")
+	server := flag.String("server", defaults.Server, "instructor's server address (http:// on the exam LAN, https:// over the internet)")
 	debounce := flag.Duration("autosave-debounce", defaults.Debounce, "edit debounce before a full-snapshot save")
 	periodic := flag.Duration("autosave-interval", defaults.Periodic, "periodic save backstop during continuous edits")
 	poll := flag.Duration("status-interval", defaults.Poll, "server status polling cadence")

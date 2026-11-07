@@ -161,7 +161,7 @@ Use the dashboard to add a class from a roster CSV, import a Markdown exam, set 
 
 Students sign in with their roster account number and the exam PIN. The admin credential belongs only on the server and proctor machines.
 
-For separate computers, bind the server to its LAN interface and give the applications the server's reachable LAN address. The current clients accept an `http://host:port` base address and are intended for an isolated exam network. See the [deployment guide](docs/deployment.md) for network setup, persistent storage and service installation.
+For separate computers, bind the server to its LAN interface and give the applications the server's reachable LAN address. The clients accept an `http://host:port` base address, intended for an isolated exam network, or an `https://host` address when the server sits behind a TLS reverse proxy for students on the internet. See the [deployment guide](docs/deployment.md) for network setup, persistent storage and service installation.
 
 ## Verify changes
 

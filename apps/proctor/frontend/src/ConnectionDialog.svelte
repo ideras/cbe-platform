@@ -20,7 +20,7 @@
   function checkAddress(value) {
     let url;
     try { url = new URL(value.trim()); } catch { return 'Enter the server address, for example http://192.168.1.10:8080.'; }
-    if (url.protocol !== 'http:' || !url.hostname) return 'Use an http:// address with a host, for example http://192.168.1.10:8080.';
+    if ((url.protocol !== 'http:' && url.protocol !== 'https:') || !url.hostname) return 'Use an http or https address with a host, for example http://192.168.1.10:8080.';
     if (url.username || url.password || (url.pathname !== '/' && url.pathname !== '') || url.search || url.hash) return 'Give only the address and port, without a path, user name or query.';
     return '';
   }

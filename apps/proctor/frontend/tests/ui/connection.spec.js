@@ -62,13 +62,15 @@ test('a bad server address is explained and nothing is sent', async ({ page }) =
   await item(page, 'Server connection').click();
   const dialog = connectionDialog(page);
   const address = dialog.getByLabel('Server address');
-  for (const [value, message] of [['', 'Enter the server address'], ['not a url', 'Enter the server address'], ['ftp://example.org', 'Use an http:// address'], ['https://example.org', 'Use an http:// address'], ['http://host/exam', 'without a path'], ['http://user:pw@host', 'without a path, user name']]) {
+  for (const [value, message] of [['', 'Enter the server address'], ['not a url', 'Enter the server address'], ['ftp://example.org', 'Use an http or https address'], ['https://example.org/exam', 'without a path'], ['http://host/exam', 'without a path'], ['http://user:pw@host', 'without a path, user name']]) {
     await address.fill(value);
     await dialog.getByRole('button', { name: 'Connect', exact: true }).click();
     await expect(dialog.getByText(message, { exact: false })).toBeVisible();
     await expect(address).toHaveAttribute('aria-invalid', 'true');
   }
   await address.fill('http://10.0.0.5:8080');
+  await expect(address).not.toHaveAttribute('aria-invalid', 'true');
+  await address.fill('https://example.org');
   await expect(address).not.toHaveAttribute('aria-invalid', 'true');
   expect((await calls(page)).connect).toEqual([]);
 });
