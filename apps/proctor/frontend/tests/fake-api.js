@@ -364,6 +364,7 @@ export async function Timeline(id, cursor) {
 }
 export async function Image(id, thumbnail) { calls.image.push({ id, thumbnail }); if (imageMissing) throw new Error('Image missing or purged.'); return { id, data: PNG }; }
 let releaseFails = '';
+let unlockFails = '';
 export async function ForceSubmit(id, reason, confirmed) {
   calls.force.push({ id, reason, confirmed });
   if (deferForce) await new Promise(resolve => releaseForce = resolve);
@@ -381,6 +382,7 @@ export async function SaveSettings(values, expectedUpdatedAt) {
 }
 export async function Unlock(sessionID, reason, giveBackTime, confirmed) {
   calls.unlock = { sessionID, reason, giveBackTime, confirmed };
+  if (unlockFails) throw new Error(unlockFails);
   const row = rows.find(item => item.session_id === sessionID);
   if (!row || !row.locked) throw new Error('The session is not locked.');
   const locked = row.locked;
@@ -472,7 +474,7 @@ window.ProctorHarness = {
   rosterFails(value) { rosterFails = value; }, holdRoster() { deferRoster = true; }, releaseRoster() { deferRoster = false; releaseRoster?.(); },
   classFile(value) { nextClassFile = value; }, createFails(value) { createFails = value; },
   renameFails(value) { renameFails = value; }, holdRename() { deferRename = true; }, releaseRename() { deferRename = false; releaseRename?.(); }, deleteFails(value) { deleteFails = value; }, replaceFails(value) { replaceFails = value; }, rosterChange(value) { nextRosterChange = value; }, pruned(value) { pruned = value; },
-  working(value) { workingStudents = value; }, studentsLogInLate(value) { lateStudents = value; }, examFile(value) { nextExamFile = { content: sampleContent, ...value }; }, importFails(value) { importFails = value; }, publishFails(value) { publishFails = value; }, pinFails(value) { pinFails = value; }, examPin(value) { examPin = value; }, examEndsAt(id, value) { exams.find(item => item.exam_id === id).ends_at = value; }, deleteExamFails(value) { deleteExamFails = value; },
+  working(value) { workingStudents = value; }, studentsLogInLate(value) { lateStudents = value; }, examFile(value) { nextExamFile = { content: sampleContent, ...value }; }, importFails(value) { importFails = value; }, publishFails(value) { publishFails = value; }, pinFails(value) { pinFails = value; }, examPin(value) { examPin = value; }, examEndsAt(id, value) { exams.find(item => item.exam_id === id).ends_at = value; }, examWindow(id, value) { Object.assign(exams.find(item => item.exam_id === id), value); }, deleteExamFails(value) { deleteExamFails = value; },
   deleteScreenshots(value) { deleteScreenshots = value; }, deleteFilesPending(value) { deleteFilesPending = value; }, holdDelete() { deferDelete = true; }, releaseDelete() { deferDelete = false; releaseDelete?.(); },
   // Students still working in an exam that is not published, and a change in how many submissions an exam has since the page last looked.
   examWorking(id, value) { workingIn[id] = value; }, examSessions(id, value) { exams.find(item => item.exam_id === id).total_sessions = value; }, catalogDown(value) { catalogDown = value; }, stale(value) { stale = value; }, imagesMissing(value) { imageMissing = value; },
@@ -485,13 +487,18 @@ window.ProctorHarness = {
   // A locked student: the monitoring window shows the lock first and offers the unlock dialog.
   lock(index = 0, reason = 'away') { rows[index] = { ...rows[index], locked: { since: '2035-01-01T00:00:00Z', reason } }; },
   unlock(index = 0) { rows[index] = { ...rows[index], locked: null }; },
+  // Changes what the roster says about one student, as it would after a heartbeat: fields of the row, and of its presence and focus.
+  rowPatch(index, { presence, ...fields }) {
+    rows[index] = { ...rows[index], ...fields };
+    if (presence) { const { focus, ...rest } = presence; rows[index].presence = { ...rows[index].presence, ...rest, focus: { ...rows[index].presence.focus, ...focus } }; }
+  },
   // Someone tried to open the account of the student at `index` while it was open on that student's computer.
   // What the application says it found on a student's computer: a list of { kind, name, detail }; none says it found nothing.
   remoteFound(index = 0, found = []) { rows[index] = { ...rows[index], presence: { ...rows[index].presence, remote: found } }; },
   loginRefused(index = 0, count = 1, addr = '10.0.9.9', at = '2035-01-01T00:00:50Z') { rows[index] = { ...rows[index], login_gate: { refusals: count, last_refused_at: at, last_refused_addr: addr, released_at: null } }; },
   // The student's next login was accepted: the report and any release it waited for are over.
   loggedIn(index = 0) { rows[index] = { ...rows[index], login_gate: null }; },
-  releaseFails(value) { releaseFails = value; },
+  releaseFails(value) { releaseFails = value; }, unlockFails(value) { unlockFails = value; },
   settings(value) { settings = { ...settings, ...value }; },
   settingsFails(value) { settingsFails = value; },
   settingsStale() { settingsStale = true; } };

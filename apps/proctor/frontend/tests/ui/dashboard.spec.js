@@ -175,8 +175,8 @@ test('a locked student comes first, is highlighted and can be unlocked by the pr
   await rows.first().getByRole('button', { name: 'Unlock 0001…' }).click();
   const dialog = page.getByRole('dialog', { name: 'Unlock exam' });
   await expect(dialog).toBeVisible();
-  await expect(dialog.getByText('Locked because the student was away from the exam window,')).toBeVisible();
-  await expect(dialog.getByRole('checkbox', { name: /Give back the/ })).not.toBeChecked();
+  await expect(dialog.locator('.why')).toContainText('The student was away from the exam window');
+  await expect(dialog.getByRole('radio', { name: 'Keep the deadline' })).toBeChecked();
   await expect(dialog.getByRole('button', { name: 'Unlock', exact: true })).toBeDisabled();
   await dialog.getByLabel('Reason').fill('the student came back');
   await expect(dialog.getByRole('button', { name: 'Unlock', exact: true })).toBeEnabled();
@@ -194,9 +194,9 @@ test('a lock the student asked for, to change network, says so and is unlocked o
   await expect(rows.first()).toContainText('Locked · changing network');
   await rows.first().getByRole('button', { name: 'Unlock 0001…' }).click();
   const dialog = page.getByRole('dialog', { name: 'Unlock exam' });
-  await expect(dialog.getByText('Locked because the student locked the exam to change network,')).toBeVisible();
-  // The proctor is told when to unlock: with the student connected and back in the exam window.
-  await expect(dialog.getByText('connected to the exam network again and back in the exam window', { exact: false })).toBeVisible();
+  await expect(dialog.locator('.why')).toContainText('The student locked it to change network');
+  // The proctor is shown what to wait for: the student connected and back in the exam window.
+  await expect(dialog.getByText('Ready to unlock?')).toBeVisible(); await expect(dialog.locator('.chk')).toHaveCount(2);
   await dialog.getByLabel('Reason').fill('connected to the exam network');
   await dialog.getByRole('button', { name: 'Unlock', exact: true }).click();
   await expect(dialog).toBeHidden();
@@ -209,9 +209,9 @@ test('a lock for lack of contact tells the proctor the student could reconnect, 
   await page.evaluate(() => window.ProctorHarness.lock(0, 'no_contact'));
   await sessionRows(page).first().getByRole('button', { name: 'Unlock 0001…' }).click();
   const dialog = page.getByRole('dialog', { name: 'Unlock exam' });
-  await expect(dialog.getByText('Locked because the app could not reach the server,')).toBeVisible();
+  await expect(dialog.locator('.why')).toContainText('The app could not reach the server');
   await expect(dialog.getByText('the student could use the computer to reconnect', { exact: false })).toBeVisible();
-  await expect(dialog.getByText('connected to the exam network again and back in the exam window', { exact: false })).toBeVisible();
+  await expect(dialog.getByText('Ready to unlock?')).toBeVisible();
 });
 
 test('the admitting bar says how many students are locked', async ({ page }) => {

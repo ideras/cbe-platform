@@ -3,7 +3,7 @@
   import { onDestroy } from 'svelte';
   import * as api from '$proctor-api';
   import ExamCard from './ExamCard.svelte';
-  import Confirmation from './Confirmation.svelte';
+  import CloseAdmissionDialog from './CloseAdmissionDialog.svelte';
   import PublishDialog from './PublishDialog.svelte';
   import ExamImport from './ExamImport.svelte';
   import DownloadDialog from './DownloadDialog.svelte';
@@ -213,7 +213,7 @@
 </section>
 </div>
 {#if modal?.kind === 'publish'}<PublishDialog details={modal} working={workingNow} onClose={() => modal = null} onPublished={published} onFailed={() => onRefresh().catch(() => {})} onMonitor={() => monitorExam(view, modal.entry.exam_id, onSelected)} />
-{:else if modal}<Confirmation kind={modal.kind} details={modal} working={workingNow} busy={modalBusy} error={modalError} onCancel={() => modal = null} onConfirm={confirm} />{/if}
+{:else if modal}<CloseAdmissionDialog details={modal} working={workingNow} busy={modalBusy} error={modalError} onCancel={() => modal = null} onConfirm={confirm} />{/if}
 {#if downloadExam}<DownloadDialog exam={downloadExam} onClose={() => downloadExam = null} onDownloaded={downloaded} />{/if}
 {#if purgeExam}<PurgeDialog exam={purgeExam} onClose={() => purgeExam = null} onPurged={purged} onFailed={() => onRefresh().catch(() => {})} />{/if}
 {#if deleteExam}<DeleteExamDialog exam={deleteExam} live={deleting} className={klass.name} downloadNote={deleteDownload} onDownload={entry => downloadExam = entry} onClose={() => deleteExam = null} onDeleted={deleted} onFailed={() => onRefresh().catch(() => {})} />{/if}

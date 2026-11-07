@@ -178,7 +178,8 @@
   {/if}
 </div>
 {#if modal}<Confirmation kind={modal.kind} student={modal.student} busy={actionBusy} error={actionError} onCancel={() => modal = null} onConfirm={action} />{/if}
-{#if unlockModal}<UnlockDialog student={unlockModal} busy={unlockBusy} error={unlockError} onCancel={() => unlockModal = null} onConfirm={unlock} />{/if}
+{#if unlockModal}<UnlockDialog student={unlockModal} live={sessions.find(row => row.session_id === unlockModal.session_id) ?? null} serverTime={view.roster?.server_time} exam={monitored}
+  busy={unlockBusy} error={unlockError} onReview={row => api.OpenReview(row.session_id)} onCancel={() => unlockModal = null} onConfirm={unlock} />{/if}
 {#if releaseModal}<ReleaseLoginDialog student={releaseModal} busy={releaseBusy} error={releaseError} onCancel={() => releaseModal = null} onConfirm={release} />{/if}
 {#if timingModal?.kind === 'grace'}<ExtendGraceDialog student={timingModal.student} {sessions} exam={monitored} busy={timingBusy} error={timingError} onCancel={() => timingModal = null} onConfirm={changeTiming} />{:else if timingModal}<EndTimeDialog exam={monitored} serverTime={view.catalog?.server_time} clear={timingModal.kind === 'clear'} busy={timingBusy} error={timingError} onCancel={() => timingModal = null} onConfirm={changeTiming} />{/if}
 

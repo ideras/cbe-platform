@@ -2,6 +2,7 @@ Icons in shared/theme/icons, bundled in both CBE Portal applications. Each was r
 icon-sets.iconify.design/
 
 Tabler Icons (github.com/tabler/tabler-icons/blob/main/LICENSE):
+  arrow-right.svg: arrow-right
   back.svg: arrow-left
   backspace.svg: backspace
   ban.svg: ban
@@ -27,6 +28,7 @@ Tabler Icons (github.com/tabler/tabler-icons/blob/main/LICENSE):
   grip.svg: grip-vertical
   info.svg: info-circle
   lock.svg: lock
+  lock-open.svg: lock-open
   login.svg: login-2
   pencil.svg: pencil
   plus.svg: plus
@@ -38,8 +40,11 @@ Tabler Icons (github.com/tabler/tabler-icons/blob/main/LICENSE):
   screen.svg: screenshot
   search.svg: search
   server.svg: server-2
+  shield-check.svg: shield-check
   volume.svg: volume
   warning.svg: alert-triangle
+  wifi.svg: wifi
+  wifi-off.svg: wifi-off
 
 Fluent UI System Icons (github.com/microsoft/fluentui-system-icons/blob/main/LICENSE):
   monitor.svg: desktop-pulse-24-regular

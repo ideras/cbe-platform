@@ -41,6 +41,22 @@ export function filterRoster(rows, filter) {
 }
 export function initials(name) { return name.trim().split(/\s+/).slice(0, 2).map(part => Array.from(part)[0] ?? '').join('').toUpperCase(); }
 export const duration = ms => ms == null ? 'unknown' : `${(ms / 1000).toFixed(1)}s`;
+// A span as a clock shows it: 2:05, or 1:01:01 once there are hours. To the nearest second, and 0:00 when it is not known or not positive.
+export function clockDuration(ms) {
+  const total = Number.isFinite(ms) && ms > 0 ? Math.round(ms / 1000) : 0;
+  const hours = Math.floor(total / 3600), minutes = Math.floor(total % 3600 / 60), seconds = total % 60;
+  const pair = value => String(value).padStart(2, '0');
+  return hours ? `${hours}:${pair(minutes)}:${pair(seconds)}` : `${minutes}:${pair(seconds)}`;
+}
+// What the proctor looks for before unlocking a student, from the roster as it is now: the application reaches the server (its
+// heartbeats arrive on time) and the student is in the exam window. Neither is a rule: the proctor decides.
+export function unlockChecks(row) {
+  const presence = row?.presence ?? {};
+  return {
+    network: Boolean(presence.monitoring) && presence.connectivity === 'healthy' && !row.network_warning,
+    window: presence.focus?.state === 'focused',
+  };
+}
 export const spoken = ms => ms == null ? 'unknown' : ms < 60000 ? `${Math.round(ms / 1000)} s` : `${Math.round(ms / 60000)} min`;
 // An exam's length in the units `spoken` uses for its grace, but in whole hours when there are some: 2 h, 1 h 30 min, 45 min, 90 s.
 export function examLength(seconds) {

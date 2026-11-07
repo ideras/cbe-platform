@@ -24,6 +24,8 @@
 
   const connection = $derived(view.connected ? (view.unreachable ? 'lost' : 'connected') : view.connecting ? 'connecting' : view.connect_error ? 'failed' : 'idle');
   const host = $derived(hostOf(view.server));
+  // The students whose exam is locked, as the dashboard last heard it: closing the dashboard leaves them waiting for a proctor.
+  const lockedStudents = $derived((view.catalog?.exams ?? []).reduce((total, exam) => total + (exam.locked_sessions ?? 0), 0));
   function hostOf(address) { try { return new URL(address).host; } catch { return address ?? ''; } }
 
   function apply(value) { if (alive && value.observation >= view.observation) view = value; }
@@ -80,7 +82,7 @@
     {/if}
   </main>
 </div>
-{#if closeAsked}<CloseDialog onCancel={() => closeAsked = false} onConfirm={() => api.Quit()} />{/if}
+{#if closeAsked}<CloseDialog locked={lockedStudents} onCancel={() => closeAsked = false} onConfirm={() => api.Quit()} />{/if}
 {#if connectionOpen}<ConnectionDialog {view} onClose={() => connectionOpen = false} onConnected={connected} onChanged={reload} onDisconnected={disconnected} />{/if}
 
 <style>
