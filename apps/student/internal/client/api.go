@@ -83,6 +83,9 @@ func (e *Exam) forwardOnly() bool { return e.Navigation == "forward_only" }
 type Lock struct {
 	Since  time.Time `json:"since"`
 	Reason string    `json:"reason"`
+	// EventID is the record the server made of the lock, which the screenshots of the lock are sent under; 0 from a server that
+	// does not say.
+	EventID int64 `json:"event_id"`
 }
 
 type Status struct {
@@ -101,6 +104,9 @@ type Status struct {
 	CurrentExercise int `json:"current_exercise"`
 	// Locked says that the exam is locked, since when and why; absent while it is not.
 	Locked *Lock `json:"locked,omitempty"`
+	// NetworkLocksLeft is how many more times the student may lock the exam themselves to reconnect to the network; an older
+	// server leaves it out, which turns the option off.
+	NetworkLocksLeft int `json:"network_locks_left"`
 }
 type Final = clientwire.Final
 type loginReply struct {
@@ -113,6 +119,11 @@ type loginReply struct {
 	MinVolumePercent *int `json:"min_volume_percent,omitempty"`
 	// Locked says that the exam is locked, since when and why; absent while it is not.
 	Locked *Lock `json:"locked,omitempty"`
+	// NetworkLocksLeft is how many more times the student may lock the exam themselves to reconnect to the network.
+	NetworkLocksLeft int `json:"network_locks_left"`
+	// RemoteTools are the names of the remote-control and screen-sharing programs the application looks for while the exam runs; an
+	// older server leaves them out, and nothing is looked for then.
+	RemoteTools []string `json:"remote_tools,omitempty"`
 }
 type examReply struct {
 	Exam
@@ -129,6 +140,8 @@ type advanceReply struct {
 type apiFailure struct {
 	code    int
 	message string
+	// unreachable says that no answer came at all: the connection failed, as it does when the student changes network.
+	unreachable bool
 }
 
 func (e *apiFailure) Error() string { return e.message }
@@ -138,6 +151,12 @@ func failureCode(err error) int {
 		return failure.code
 	}
 	return 0
+}
+
+// unreachable says that the request got no answer because the server could not be reached.
+func unreachable(err error) bool {
+	var failure *apiFailure
+	return errors.As(err, &failure) && failure.unreachable
 }
 func retryable(err error) bool {
 	code := failureCode(err)
@@ -167,7 +186,7 @@ func requestJSON(ctx context.Context, httpClient *http.Client, base, token, meth
 	}
 	response, err := httpClient.Do(r)
 	if err != nil {
-		return &apiFailure{message: "Server could not be reached. Work remains in memory; retrying does not guarantee it was saved."}
+		return &apiFailure{message: "Server could not be reached. Work remains in memory; retrying does not guarantee it was saved.", unreachable: true}
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {

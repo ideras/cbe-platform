@@ -175,6 +175,32 @@ func New(options Options) (*Service, error) {
 			ack(i)
 		}
 	}
+	recorded, lockShot, lockEnded := monitoring.OnLockRecorded, monitoring.OnLockCapture, monitoring.OnLockEnded
+	monitoring.OnLockCapture = func(lock uint64, index, limit int) {
+		s.capture.takeLockShot(lock, index, limit)
+		if lockShot != nil {
+			lockShot(lock, index, limit)
+		}
+	}
+	monitoring.OnLockRecorded = func(lock uint64, event int64) {
+		s.capture.bindLock(lock, event)
+		if recorded != nil {
+			recorded(lock, event)
+		}
+	}
+	monitoring.OnLockEnded = func(lock uint64) {
+		s.capture.lockEnded(lock)
+		if lockEnded != nil {
+			lockEnded(lock)
+		}
+	}
+	away := monitoring.OnSessionAway
+	monitoring.OnSessionAway = func(reason string) {
+		s.capture.setSessionAway(reason)
+		if away != nil {
+			away(reason)
+		}
+	}
 	s.monitor = newMonitor(s.ctx, s.http, monitoring, options.RetryMin, options.RetryMax, s.pollNow)
 	s.tools = newToolQueue(s.ctx, s.http, options.RetryMin, options.RetryMax)
 	s.wg.Add(4)
@@ -267,6 +293,18 @@ func (s *Service) Snapshot() View {
 
 // examLocked says whether the exam is locked: by the server, or by the application itself before the server knows.
 func (s *Service) examLocked() bool { return s.locked != nil || s.monitor.isLocked() }
+
+// RequestNetworkLock locks the exam at the student's request while the server is out of reach, so they can go and reconnect
+// to the exam network without the alarm. The exam time keeps running, and only a proctor can unlock the exam.
+func (s *Service) RequestNetworkLock() (View, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.phase != "exam" || s.examLocked() {
+		return s.viewLocked(false), errors.New("The exam cannot be locked this way now.")
+	}
+	err := s.monitor.requestNetworkLock()
+	return s.viewLocked(false), err
+}
 func (s *Service) callContext(ctx context.Context) (context.Context, func()) {
 	request, cancel := context.WithCancel(s.ctx)
 	stop := context.AfterFunc(ctx, cancel)
@@ -328,7 +366,9 @@ func (s *Service) Login(ctx context.Context, server, account, pin string) (View,
 	if reply.MinVolumePercent != nil {
 		s.sound.activate(*reply.MinVolumePercent)
 	}
+	s.monitor.setRemoteTools(reply.RemoteTools)
 	s.monitor.start(base, reply.Token, reply.Policy)
+	s.monitor.setNetworkLocksLeft(reply.NetworkLocksLeft)
 	s.tools.start(base, reply.Token)
 	s.mu.Lock()
 	s.locked = reply.Locked
@@ -373,6 +413,7 @@ func (s *Service) load(ctx context.Context) (View, error) {
 	}
 	s.observeStatus(status, observedAt)
 	s.monitor.setPolicy(status.Policy)
+	s.monitor.setNetworkLocksLeft(status.NetworkLocksLeft)
 	if finalStatus(status.State) {
 		s.monitor.stop("Session finalized; ordinary telemetry stopped.")
 	}
@@ -747,6 +788,7 @@ func (s *Service) pollOnce() {
 	}
 	s.observeStatus(status, observedAt)
 	s.monitor.setPolicy(status.Policy)
+	s.monitor.setNetworkLocksLeft(status.NetworkLocksLeft)
 	s.stale = false
 	s.statusError = ""
 	// The server only ever moves a student forward, so a status read before an advance was confirmed cannot move them back.

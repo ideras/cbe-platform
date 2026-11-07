@@ -2,6 +2,7 @@ package client
 
 import (
 	"bytes"
+	"errors"
 	"image"
 	"image/draw"
 	"image/jpeg"
@@ -18,11 +19,19 @@ const (
 	uploadJPEGQuality = 85
 )
 
-// encodeCapture turns a captured PNG into the JPEG that is uploaded, scaled to the server's limits.
-func encodeCapture(data []byte) ([]byte, error) {
+// errBlankCapture is a capture that came back entirely black from a screen the student's session was not showing.
+var errBlankCapture = errors.New("the capture is entirely black")
+
+// encodeCapture turns a captured PNG into the JPEG that is uploaded, scaled to the server's limits. With rejectBlank, an image
+// with nothing but black in it is refused: X11 hands that back for a screen it is not showing, as while another console has it,
+// and it is no evidence of what the student was doing.
+func encodeCapture(data []byte, rejectBlank bool) ([]byte, error) {
 	img, err := png.Decode(bytes.NewReader(data))
 	if err != nil {
 		return nil, err
+	}
+	if rejectBlank && isBlack(img) {
+		return nil, errBlankCapture
 	}
 	img = fitUpload(img)
 	var out bytes.Buffer
@@ -30,6 +39,38 @@ func encodeCapture(data []byte) ([]byte, error) {
 		return nil, err
 	}
 	return out.Bytes(), nil
+}
+
+// isBlack says whether every pixel of an image is black, whatever its alpha.
+func isBlack(img image.Image) bool {
+	switch img := img.(type) {
+	case *image.RGBA:
+		return pixelsBlack(img.Pix, img.Stride, img.Rect.Dx(), img.Rect.Dy())
+	case *image.NRGBA:
+		return pixelsBlack(img.Pix, img.Stride, img.Rect.Dx(), img.Rect.Dy())
+	}
+	bounds := img.Bounds()
+	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		for x := bounds.Min.X; x < bounds.Max.X; x++ {
+			if r, g, b, _ := img.At(x, y).RGBA(); r|g|b != 0 {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// pixelsBlack is isBlack for four bytes a pixel, red, green, blue and alpha.
+func pixelsBlack(pix []byte, stride, w, h int) bool {
+	for y := 0; y < h; y++ {
+		row := pix[y*stride : y*stride+w*4]
+		for x := 0; x < len(row); x += 4 {
+			if row[x]|row[x+1]|row[x+2] != 0 {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // fitUpload scales an image down, keeping its shape, until it fits the server's limits; a smaller one is returned as is.

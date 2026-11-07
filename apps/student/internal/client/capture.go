@@ -11,8 +11,10 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
+	"slices"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -33,10 +35,17 @@ type CaptureOptions struct {
 	Permission           func(bool) CapturePermission
 	Timeout, Lifetime    time.Duration
 	Attempts, MaxPending int
+	// UnboundGrace is how long the screenshots of a lock that ended are kept while the server has not named its record. They can
+	// only be sent under it, so past that they are let go, rather than shown as pending for the rest of the exam.
+	UnboundGrace time.Duration
 }
 
+// defaultUnboundGrace is how long the screenshots of a lock that ended wait for the server to name its record, unless the options say
+// otherwise.
+const defaultUnboundGrace = 20 * time.Second
+
 func DefaultCaptureOptions() CaptureOptions {
-	return CaptureOptions{Required: true, Timeout: 30 * time.Second, Lifetime: 45 * time.Second, Attempts: 3, MaxPending: 2}
+	return CaptureOptions{Required: true, Timeout: 30 * time.Second, Lifetime: 45 * time.Second, Attempts: 3, MaxPending: 2, UnboundGrace: defaultUnboundGrace}
 }
 
 type CaptureView struct {
@@ -78,6 +87,15 @@ type captureJob struct {
 	expiry    *time.Timer
 	uploading bool
 }
+
+// heldShot is a screenshot taken while a lock the student asked for lasts. The application holds it until the server has
+// recorded the lock, which can be long after: the student asks for that lock with the server out of reach.
+type heldShot struct {
+	lock  uint64
+	index int
+	at    time.Time
+	data  []byte
+}
 type captureManager struct {
 	mu                 sync.Mutex
 	ctx                context.Context
@@ -89,17 +107,21 @@ type captureManager struct {
 	base, token        string
 	wake               chan struct{}
 	jobs               map[captureKey]*captureJob
+	held               []*heldShot
+	lockRecords        map[uint64]int64     // the record the server made of each lock, once it has answered
+	lockEnds           map[uint64]time.Time // when each watched lock ended
 	capturing, closed  bool
 	attempted          captureKey
 	started            bool
 	state              CaptureView
 	reports            []*captureReport
 	reportWake         chan struct{}
+	sessionAway        atomic.Value // what took the student's session off screen (a string), "" while it is on screen
 }
 
 func newCaptureManager(ctx context.Context, h *http.Client, options CaptureOptions, min, max time.Duration) *captureManager {
 	ctx, cancel := context.WithCancel(ctx)
-	m := &captureManager{ctx: ctx, cancel: cancel, http: h, options: options, retryMin: min, retryMax: max, wake: make(chan struct{}, 1), jobs: map[captureKey]*captureJob{}, reportWake: make(chan struct{}, 1), state: CaptureView{Required: options.Required, Ready: !options.Required, Enabled: options.Capture != nil, State: "idle"}}
+	m := &captureManager{ctx: ctx, cancel: cancel, http: h, options: options, retryMin: min, retryMax: max, wake: make(chan struct{}, 1), jobs: map[captureKey]*captureJob{}, lockRecords: map[uint64]int64{}, lockEnds: map[uint64]time.Time{}, reportWake: make(chan struct{}, 1), state: CaptureView{Required: options.Required, Ready: !options.Required, Enabled: options.Capture != nil, State: "idle"}}
 	if options.Permission != nil {
 		m.state.Permission = options.Permission(false)
 	}
@@ -120,7 +142,7 @@ func (m *captureManager) view() CaptureView {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	v := m.state
-	v.Pending = len(m.jobs)
+	v.Pending = len(m.jobs) + len(m.held)
 	v.PendingReports = len(m.reports)
 	v.Blocked = v.Required && (!v.Ready || v.Testing || v.PendingReports > 0)
 	if v.Blocked {
@@ -218,20 +240,13 @@ func (m *captureManager) capture(job *captureJob) {
 	defer m.wg.Done()
 	ctx, cancel := context.WithTimeout(job.ctx, m.options.Timeout)
 	defer cancel()
+	away := m.awayNow() != ""
 	data, err := m.options.Capture(ctx)
 	if ctx.Err() != nil {
 		err = ctx.Err()
 	}
 	if err == nil {
-		config, e := png.DecodeConfig(bytes.NewReader(data))
-		if e != nil || len(data) > screenshotBytes || config.Width <= 0 || config.Height <= 0 || config.Width > 16384 || config.Height > 16384 || int64(config.Width)*int64(config.Height) > 40000000 {
-			err = errors.New("Capture returned an invalid or oversized PNG. Notify the instructor.")
-		}
-	}
-	if err == nil {
-		if data, err = encodeCapture(data); err != nil {
-			err = errors.New("The capture could not be prepared for upload. Notify the instructor.")
-		}
+		data, err = prepareCapture(data, away || m.awayNow() != "")
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -255,6 +270,181 @@ func (m *captureManager) capture(job *captureJob) {
 	m.state.Incident = job.incident.Sequence
 	m.state.EventID = job.incident.LossEventID
 	signal(m.wake)
+}
+
+// prepareCapture checks a captured PNG and makes the JPEG that is uploaded. offScreen says the student's session was not the one on
+// screen while it was taken: an entirely black image is then a screen that could not be read (X11 gives that while another console
+// has the display), and fails like any other capture that could not be taken. A session that is off screen but shows something, as
+// when a remote person has taken it over, is captured as ever; with the session on screen black is a real picture.
+func prepareCapture(data []byte, offScreen bool) ([]byte, error) {
+	config, err := png.DecodeConfig(bytes.NewReader(data))
+	if err != nil || len(data) > screenshotBytes || config.Width <= 0 || config.Height <= 0 || config.Width > 16384 || config.Height > 16384 || int64(config.Width)*int64(config.Height) > 40000000 {
+		return nil, errors.New("Capture returned an invalid or oversized PNG. Notify the instructor.")
+	}
+	encoded, err := encodeCapture(data, offScreen)
+	if errors.Is(err, errBlankCapture) {
+		return nil, errBlankCapture
+	}
+	if err != nil {
+		return nil, errors.New("The capture could not be prepared for upload. Notify the instructor.")
+	}
+	return encoded, nil
+}
+
+// takeLockShot takes the index-th screenshot of a lock the student asked for and holds it; limit is the most one lock keeps.
+// One that cannot be taken now, because the screen is being captured already or capture is off, is skipped, not made up.
+func (m *captureManager) takeLockShot(lock uint64, index, limit int) {
+	m.mu.Lock()
+	if !m.state.Enabled || m.closed || m.ctx.Err() != nil || m.capturing || (m.options.Required && (!m.state.Ready || m.state.Testing)) {
+		m.mu.Unlock()
+		return
+	}
+	held := 0
+	for _, shot := range m.held {
+		if shot.lock == lock {
+			held++
+		}
+	}
+	if held >= limit {
+		m.mu.Unlock()
+		return
+	}
+	m.capturing = true
+	m.wg.Add(1)
+	m.mu.Unlock()
+	go m.captureLockShot(lock, index)
+}
+func (m *captureManager) captureLockShot(lock uint64, index int) {
+	defer m.wg.Done()
+	ctx, cancel := context.WithTimeout(m.ctx, m.options.Timeout)
+	defer cancel()
+	away := m.awayNow() != ""
+	data, err := m.options.Capture(ctx)
+	if ctx.Err() != nil {
+		err = ctx.Err()
+	}
+	if err == nil {
+		data, err = prepareCapture(data, away || m.awayNow() != "")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.capturing = false
+	if m.closed {
+		return
+	}
+	if err != nil {
+		// A screen that cannot be captured needs the same retest as for an absence, once the exam is unlocked.
+		m.state.State = "failed"
+		m.failLocked("Screen capture failed. A successful retest is required before editing can resume; current answers remain preserved.")
+		return
+	}
+	m.held = append(m.held, &heldShot{lock: lock, index: index, at: time.Now().UTC(), data: data})
+	signal(m.wake)
+}
+
+// lockEnded says that a watched lock has ended. The screenshots it has no record for are let go after a while, in case the record
+// is still on its way.
+func (m *captureManager) lockEnded(lock uint64) {
+	m.mu.Lock()
+	m.lockEnds[lock] = time.Now()
+	m.mu.Unlock()
+	time.AfterFunc(m.unboundGrace()+10*time.Millisecond, func() { signal(m.wake) })
+}
+
+// unboundGrace is the option, or the default for an application that does not set one.
+func (m *captureManager) unboundGrace() time.Duration {
+	if m.options.UnboundGrace > 0 {
+		return m.options.UnboundGrace
+	}
+	return defaultUnboundGrace
+}
+
+// releaseUnbound lets go of the screenshots held for locks the server never named a record of: with the exam over there is no lock
+// left to learn it from.
+func (m *captureManager) releaseUnbound(expired func(lock uint64) bool) {
+	m.held = slices.DeleteFunc(m.held, func(shot *heldShot) bool {
+		if m.lockRecords[shot.lock] > 0 || !expired(shot.lock) {
+			return false
+		}
+		shot.data = nil
+		return true
+	})
+}
+
+// releaseUnboundAtEnd is releaseUnbound for the end of the exam.
+func (m *captureManager) releaseUnboundAtEnd() {
+	m.mu.Lock()
+	m.releaseUnbound(func(uint64) bool { return true })
+	m.mu.Unlock()
+}
+
+// bindLock tells the manager which record the server made of a lock: from then on, the screenshots held for it are sent.
+func (m *captureManager) bindLock(lock uint64, event int64) {
+	if event <= 0 {
+		return
+	}
+	m.mu.Lock()
+	m.lockRecords[lock] = event
+	m.mu.Unlock()
+	signal(m.wake)
+}
+
+// uploadHeld sends the screenshots held for the locks the server has recorded. One the server cannot be asked about now stays
+// held and is tried again soon; one the server refuses is released, since nothing the application does would change that.
+func (m *captureManager) uploadHeld() {
+	for {
+		m.mu.Lock()
+		m.releaseUnbound(func(lock uint64) bool {
+			ended, ok := m.lockEnds[lock]
+			return ok && time.Since(ended) >= m.unboundGrace()
+		})
+		var shot *heldShot
+		var event int64
+		for _, candidate := range m.held {
+			if id := m.lockRecords[candidate.lock]; id > 0 && (shot == nil || candidate.lock < shot.lock || candidate.lock == shot.lock && candidate.index < shot.index) {
+				shot, event = candidate, id
+			}
+		}
+		base, token := m.base, m.token
+		if shot == nil || m.closed || base == "" || token == "" {
+			m.mu.Unlock()
+			return
+		}
+		m.mu.Unlock()
+		var id int64
+		var err error
+		delay := m.retryMin
+		for attempt := 0; attempt < m.options.Attempts; attempt++ {
+			ctx, cancel := context.WithTimeout(m.ctx, m.options.Timeout)
+			var wait time.Duration
+			id, wait, err = m.upload(ctx, base, token, event, shot.index, shot.at, shot.data)
+			cancel()
+			if err == nil || (!retryable(err) && failureCode(err) != 425) || attempt+1 == m.options.Attempts || m.ctx.Err() != nil {
+				break
+			}
+			select {
+			case <-m.ctx.Done():
+			case <-time.After(max(delay, wait)):
+			}
+			delay = min(delay*2, m.retryMax)
+		}
+		m.mu.Lock()
+		if m.closed {
+			m.mu.Unlock()
+			return
+		}
+		if err != nil && (retryable(err) || failureCode(err) == 425) {
+			m.mu.Unlock()
+			time.AfterFunc(m.retryMax, func() { signal(m.wake) })
+			return
+		}
+		m.held = slices.DeleteFunc(m.held, func(other *heldShot) bool { return other == shot })
+		shot.data = nil
+		if err == nil {
+			m.state.ScreenshotID = id
+		}
+		m.mu.Unlock()
+	}
 }
 func (m *captureManager) bind(incident Incident) {
 	m.mu.Lock()
@@ -336,6 +526,7 @@ func (m *captureManager) uploadLoop() {
 			}
 			m.mu.Unlock()
 		}
+		m.uploadHeld()
 	}
 }
 func (m *captureManager) upload(ctx context.Context, base, token string, event int64, index int, at time.Time, data []byte) (int64, time.Duration, error) {
@@ -395,6 +586,7 @@ func (m *captureManager) close() {
 		job.data = nil
 	}
 	m.jobs = map[captureKey]*captureJob{}
+	m.held = nil
 	m.mu.Unlock()
 	m.wg.Wait()
 }

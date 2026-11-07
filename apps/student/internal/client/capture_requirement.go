@@ -17,13 +17,39 @@ type captureReport struct {
 	id, kind, reason string
 	at               time.Time
 	incident         uint64
+	// session is what had taken the student's session off screen when the capture failed, if anything had.
+	session string
+}
+
+// detail is what the server is told of the report.
+func (r *captureReport) detail() map[string]any {
+	detail := map[string]any{"client_report_id": r.id, "client_time": r.at.Format(time.RFC3339Nano), "source": "capture_health", "reason": r.reason, "local_incident": r.incident}
+	if r.session != "" {
+		detail["session_reason"] = r.session
+	}
+	return detail
+}
+
+// setSessionAway takes what has taken the student's session off screen, and "" when it is back. It is a value kept apart from the
+// manager's lock, as the monitor says it with its own lock held.
+func (m *captureManager) setSessionAway(reason string) { m.sessionAway.Store(reason) }
+
+// awayNow is what has taken the student's session off screen, and "" while it is on screen.
+func (m *captureManager) awayNow() string {
+	reason, _ := m.sessionAway.Load().(string)
+	return reason
 }
 
 func (m *captureManager) reportLocked(kind, reason string) {
 	if m.token == "" || m.closed {
 		return
 	}
-	m.reports = append(m.reports, &captureReport{id: rand.Text(), kind: kind, reason: reason, at: time.Now().UTC(), incident: m.state.Incident})
+	report := &captureReport{id: rand.Text(), kind: kind, reason: reason, at: time.Now().UTC(), incident: m.state.Incident}
+	if kind == "capture_failed" {
+		// A screen cannot be captured while another user's session has it: the record says so, as it is why the capture failed.
+		report.session, _ = m.sessionAway.Load().(string)
+	}
+	m.reports = append(m.reports, report)
 	signal(m.reportWake)
 }
 
@@ -49,7 +75,7 @@ func (m *captureManager) reportLoop() {
 			err := requestJSON(m.ctx, m.http, base, token, http.MethodPost, "/event", struct {
 				Type   string         `json:"event_type"`
 				Detail map[string]any `json:"detail"`
-			}{report.kind, map[string]any{"client_report_id": report.id, "client_time": report.at.Format(time.RFC3339Nano), "source": "capture_health", "reason": report.reason, "local_incident": report.incident}}, &reply)
+			}{report.kind, report.detail()}, &reply)
 			if err == nil && (reply.ID <= 0 || reply.ServerTime.IsZero()) {
 				err = errors.New("invalid capture-log acknowledgment")
 			}

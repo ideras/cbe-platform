@@ -55,7 +55,8 @@ type fixture struct {
 	onWrite         func(http.ResponseWriter, *http.Request, writeRecord, int) bool
 	onStatus        func(*http.Request)
 	final           Final
-	minVolume       *int // the exam volume the login reply advertises; nil like an older server
+	minVolume       *int     // the exam volume the login reply advertises; nil like an older server
+	remoteTools     []string // the program names the login reply asks the application to look for; none like an older server
 	navigation      string
 	examTools       *calc.Tools // the exam's tools configuration the /exam reply carries; nil like an exam without the key
 }
@@ -83,7 +84,7 @@ func (f *fixture) handle(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/login" {
 		f.logins++
 		code, retryAfter := f.loginCode, f.loginRetryAfter
-		login := loginReply{Policy: f.status.Policy, Token: f.token, SessionID: "session", ServerTime: f.status.ServerTime, DeadlineAt: f.status.DeadlineAt, MinVolumePercent: f.minVolume}
+		login := loginReply{Policy: f.status.Policy, Token: f.token, SessionID: "session", ServerTime: f.status.ServerTime, DeadlineAt: f.status.DeadlineAt, MinVolumePercent: f.minVolume, NetworkLocksLeft: f.status.NetworkLocksLeft, RemoteTools: f.remoteTools}
 		f.mu.Unlock()
 		if code != 0 {
 			if retryAfter != "" {
