@@ -54,9 +54,13 @@ func TestDisclosureRequiredBeforeAdmission(t *testing.T) {
 		t.Fatal("started session before acknowledgement")
 	}
 }
+
+// The heartbeat is every 300 ms, long enough that a slow or busy machine delays it by a small part of the interval. The test waits
+// for the heartbeats to arrive and looks at the time between them, so it measures the cadence and not how fast the machine ran.
 func TestImmediateHeartbeatConfiguredCadenceAndSingleWorkers(t *testing.T) {
+	const beat = 300 * time.Millisecond
 	f := newFixture(t)
-	f.status.Policy = &Policy{HeartbeatMillis: 80, OverdueMillis: 160, FocusMillis: 500}
+	f.status.Policy = &Policy{HeartbeatMillis: beat.Milliseconds(), OverdueMillis: 2 * beat.Milliseconds(), FocusMillis: 500}
 	s := monitorClient(t, f, nil)
 	ReportNativeFocus(s, true)
 	before := time.Now()
@@ -65,66 +69,86 @@ func TestImmediateHeartbeatConfiguredCadenceAndSingleWorkers(t *testing.T) {
 	f.mu.Lock()
 	first := f.telemetry[0]
 	f.mu.Unlock()
-	if first.path != "/heartbeat" || first.at.Sub(before) > 100*time.Millisecond {
+	// One that waited for the interval would come at least that long after the monitor began, which is after `before`.
+	if first.path != "/heartbeat" || first.at.Sub(before) >= beat {
 		t.Fatal("first heartbeat was not immediate")
 	}
 	if _, err := s.Login(t.Context(), f.server.URL, "00123", f.pin); err == nil {
 		t.Fatal("duplicate login opened extra loops")
 	}
-	time.Sleep(185 * time.Millisecond)
-	f.mu.Lock()
 	var beats []time.Time
-	for _, r := range f.telemetry {
-		if r.path == "/heartbeat" {
-			beats = append(beats, r.at)
+	waitUntil(t, func() bool {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		beats = beats[:0]
+		for _, r := range f.telemetry {
+			if r.path == "/heartbeat" {
+				beats = append(beats, r.at)
+			}
 		}
-	}
-	f.mu.Unlock()
-	if len(beats) < 3 || len(beats) > 4 {
-		t.Fatalf("unexpected cadence/duplicated loops: %d", len(beats))
-	}
+		return len(beats) >= 3
+	})
+	// A second loop, or status polls that sent heartbeats of their own, would put two heartbeats close together; a cadence slower
+	// than the configured one would put them far apart.
 	for i := 1; i < len(beats); i++ {
-		if beats[i].Sub(beats[i-1]) < 60*time.Millisecond {
-			t.Fatal("status polls multiplied heartbeat sends")
+		if gap := beats[i].Sub(beats[i-1]); gap < beat*3/4 {
+			t.Fatalf("status polls multiplied heartbeat sends: %v between two", gap)
+		} else if gap > beat*3 {
+			t.Fatalf("heartbeats are not at the configured cadence: %v between two", gap)
 		}
 	}
-	if got := s.Snapshot().Monitoring; got.PolicySource != "server" || got.Policy.FocusMillis != 500 {
+	waitMonitor(t, s, func(v MonitoringView) bool { return v.PolicySource == "server" })
+	if got := s.Snapshot().Monitoring; got.Policy.FocusMillis != 500 {
 		t.Fatal("ignored configured policy")
 	}
-	kinds := telemetryTypes(f)
-	if len(kinds) < 2 || kinds[0] != "app_started" || kinds[1] != "focus_regained" {
+	var kinds []string
+	waitUntil(t, func() bool { kinds = telemetryTypes(f); return len(kinds) >= 2 })
+	if kinds[0] != "app_started" || kinds[1] != "focus_regained" {
 		t.Fatalf("startup ordering: %v", kinds)
 	}
 }
+
+// The blur lasts a few milliseconds and the threshold is 400 ms, so a machine that stalls for a while in between does not turn it
+// into a sustained one.
 func TestShortBlurAndDuplicateNativeEventsCancelAlertAndHook(t *testing.T) {
+	const threshold = 400 * time.Millisecond
 	f := newFixture(t)
 	var alerts, hooks atomic.Int64
 	s := monitorClient(t, f, func(o *Options) {
+		o.Monitoring.FocusThreshold = threshold
 		o.Monitoring.OnAlert = func(Incident) { alerts.Add(1) }
 		o.Monitoring.OnIncident = func(Incident) { hooks.Add(1) }
 	})
 	ReportNativeFocus(s, true)
 	loginClient(t, s, f)
 	waitMonitor(t, s, func(v MonitoringView) bool { return v.Queued == 0 && v.HeartbeatAt != nil })
+	blurred := time.Now()
 	ReportNativeFocus(s, false)
 	ReportNativeFocus(s, false)
 	time.Sleep(8 * time.Millisecond)
 	ReportNativeFocus(s, true)
 	ReportNativeFocus(s, true)
-	time.Sleep(80 * time.Millisecond)
+	// Until the blur, had it not been cancelled, would have passed the threshold and been acted on.
+	time.Sleep(time.Until(blurred.Add(threshold + 100*time.Millisecond)))
 	if alerts.Load() != 0 || hooks.Load() != 0 {
 		t.Fatal("short blur alerted or hooked")
 	}
-	kinds := telemetryTypes(f)
 	losses, regains := 0, 0
-	for _, kind := range kinds {
-		if kind == "focus_lost" {
-			losses++
+	var kinds []string
+	count := func() bool {
+		kinds = telemetryTypes(f)
+		losses, regains = 0, 0
+		for _, kind := range kinds {
+			if kind == "focus_lost" {
+				losses++
+			}
+			if kind == "focus_regained" {
+				regains++
+			}
 		}
-		if kind == "focus_regained" {
-			regains++
-		}
+		return losses >= 1 && regains >= 2
 	}
+	waitUntil(t, count)
 	if losses != 1 || regains != 2 {
 		t.Fatalf("duplicate native callbacks produced duplicates: %v", kinds)
 	}
