@@ -132,7 +132,7 @@ func TestAReleaseLetsExactlyOneLoginIn(t *testing.T) {
 	if second.SessionID != first.SessionID || second.Token == first.Token {
 		t.Fatalf("the released login = %+v", second)
 	}
-	if _, err := f.sessions.Heartbeat(t.Context(), first.Token, "student-pc", "192.0.2.1", domain.Sound{}); !errors.Is(err, service.ErrInvalidToken) {
+	if _, err := f.sessions.Heartbeat(t.Context(), first.Token, "student-pc", "192.0.2.1", "", domain.Sound{}); !errors.Is(err, service.ErrInvalidToken) {
 		t.Fatalf("the application that was released still reports in: %v", err)
 	}
 	// The release was used up: the next login finds the session open again.

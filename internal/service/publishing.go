@@ -86,6 +86,8 @@ type ExamCatalog struct {
 	CurrentClassID   string      `json:"current_class_id"`
 	CurrentClassName string      `json:"current_class_name"`
 	Exams            []ExamEntry `json:"exams"`
+	// ServerVersion is the server's release; the HTTP layer fills it in, since it is not about the exams.
+	ServerVersion string `json:"server_version,omitempty"`
 }
 
 func (p *Publisher) Catalog(ctx context.Context) (ExamCatalog, error) {

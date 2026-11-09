@@ -22,7 +22,9 @@ type publishRequest struct {
 	EndsAt          *time.Time `json:"ends_at,omitempty"`
 }
 
-func examCatalogHandler(publisher PublishAPI, logger *slog.Logger) http.HandlerFunc {
+// examCatalogHandler lists the exams for the proctor dashboard, with the server's release, which it reads on every poll: the
+// dashboard compares it with the release each student's application reports.
+func examCatalogHandler(publisher PublishAPI, version string, logger *slog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := proctorQuery(w, r); !ok {
 			return
@@ -32,6 +34,7 @@ func examCatalogHandler(publisher PublishAPI, logger *slog.Logger) http.HandlerF
 			serviceError(w, logger, "list exams", err)
 			return
 		}
+		catalog.ServerVersion = version
 		writeJSON(w, http.StatusOK, catalog)
 	}
 }

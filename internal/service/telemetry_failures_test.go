@@ -42,8 +42,8 @@ func (tx failingTelemetryTx) SetNetworkGap(ctx context.Context, id string, since
 	}
 	return nil
 }
-func (tx failingTelemetryTx) TouchHeartbeat(ctx context.Context, id, hostname, peer string, sound domain.Sound, now time.Time) error {
-	if err := tx.SessionTransaction.TouchHeartbeat(ctx, id, hostname, peer, sound, now); err != nil {
+func (tx failingTelemetryTx) TouchHeartbeat(ctx context.Context, id, hostname, peer, version string, sound domain.Sound, now time.Time) error {
+	if err := tx.SessionTransaction.TouchHeartbeat(ctx, id, hostname, peer, version, sound, now); err != nil {
 		return err
 	}
 	if tx.operation == "touch" {
@@ -62,7 +62,7 @@ func TestTelemetryFailuresRollBackMetadataAndEvents(t *testing.T) {
 	for _, operation := range []string{"event", "touch"} {
 		f := newFixture(t, 0)
 		login := f.login(t, "0012")
-		if _, err := failingTelemetry(f, operation).Heartbeat(t.Context(), login.Token, "pc", "192.0.2.1", domain.Sound{}); err == nil {
+		if _, err := failingTelemetry(f, operation).Heartbeat(t.Context(), login.Token, "pc", "192.0.2.1", "", domain.Sound{}); err == nil {
 			t.Fatal("injected initial heartbeat failure lost")
 		}
 		if f.storedSession(t, login.Token).LastSeen != nil || f.count(t, `SELECT count(*) FROM event_log`) != 1 {
@@ -89,7 +89,7 @@ func TestTelemetryFailuresRollBackMetadataAndEvents(t *testing.T) {
 		if _, err := f.sessions.Reconcile(t.Context()); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := failingTelemetry(f, operation).Heartbeat(t.Context(), login.Token, "pc", "192.0.2.1", domain.Sound{}); err == nil {
+		if _, err := failingTelemetry(f, operation).Heartbeat(t.Context(), login.Token, "pc", "192.0.2.1", "", domain.Sound{}); err == nil {
 			t.Fatal("injected reconnection failure lost")
 		}
 		stored := f.storedSession(t, login.Token)
@@ -110,16 +110,16 @@ func TestTelemetryValidationAndAuthority(t *testing.T) {
 	f := newFixture(t, 0)
 	first := f.login(t, "0012")
 	other := f.login(t, "0034")
-	if _, err := f.sessions.Heartbeat(t.Context(), "invalid", "pc", "192.0.2.1", domain.Sound{}); !errors.Is(err, service.ErrInvalidToken) {
+	if _, err := f.sessions.Heartbeat(t.Context(), "invalid", "pc", "192.0.2.1", "", domain.Sound{}); !errors.Is(err, service.ErrInvalidToken) {
 		t.Fatal("unknown bearer accepted")
 	}
 	for _, name := range []string{"", strings.Repeat("x", 256), "pc\x00name"} {
-		if _, err := f.sessions.Heartbeat(t.Context(), first.Token, name, "192.0.2.1", domain.Sound{}); !errors.Is(err, service.ErrInvalidInput) {
+		if _, err := f.sessions.Heartbeat(t.Context(), first.Token, name, "192.0.2.1", "", domain.Sound{}); !errors.Is(err, service.ErrInvalidInput) {
 			t.Fatalf("hostname validation = %v", err)
 		}
 	}
 	for _, volume := range []int{-1, 101} {
-		if _, err := f.sessions.Heartbeat(t.Context(), first.Token, "pc", "192.0.2.1", domain.Sound{VolumePercent: &volume}); !errors.Is(err, service.ErrInvalidInput) {
+		if _, err := f.sessions.Heartbeat(t.Context(), first.Token, "pc", "192.0.2.1", "", domain.Sound{VolumePercent: &volume}); !errors.Is(err, service.ErrInvalidInput) {
 			t.Fatalf("volume %d accepted: %v", volume, err)
 		}
 	}

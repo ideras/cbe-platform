@@ -165,6 +165,8 @@ func New(options Options) (*Service, error) {
 	if s.http == nil {
 		s.http = newHTTPClient(options.RequestTimeout)
 	}
+	// Every request names the application and its release, which the server records with each heartbeat for the proctor.
+	s.http = withUserAgent(s.http, "cbe-portal-student/"+s.Version())
 	s.capture = newCaptureManager(s.ctx, s.http, options.Screenshots, options.RetryMin, options.RetryMax)
 	// The student's own sound settings are recorded here, before anything can change them.
 	s.sound = newSoundManager(options.Sound)

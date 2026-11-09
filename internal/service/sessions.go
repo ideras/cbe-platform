@@ -56,7 +56,8 @@ type SessionTransaction interface {
 	LatestRemoteEvent(context.Context, string) (domain.Event, error)
 	EverOverdue(context.Context, string) (bool, error)
 	SetNetworkGap(context.Context, string, time.Time) error
-	TouchHeartbeat(context.Context, string, string, string, domain.Sound, time.Time) error
+	// TouchHeartbeat records a heartbeat: the session, hostname, remote address, application release, sound and time.
+	TouchHeartbeat(context.Context, string, string, string, string, domain.Sound, time.Time) error
 	StudentsWithoutSession(context.Context, string) ([]domain.Student, error)
 	ProctorSessions(context.Context, string) ([]domain.ProctorRecord, error)
 	ProctorSession(context.Context, string) (domain.ProctorRecord, error)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"regexp"
 	"strings"
 	"time"
 	"unicode"
@@ -49,9 +50,11 @@ func (s *Sessions) ensureGap(ctx context.Context, tx SessionTransaction, session
 	return session, true, nil
 }
 
-func (s *Sessions) Heartbeat(ctx context.Context, token, hostname, remoteAddr string, sound domain.Sound) (HeartbeatResult, error) {
+// Heartbeat records that the student application is alive: the computer's name, its address, the application's release
+// (empty when it did not say) and the sound level.
+func (s *Sessions) Heartbeat(ctx context.Context, token, hostname, remoteAddr, appVersion string, sound domain.Sound) (HeartbeatResult, error) {
 	hostname = strings.TrimSpace(hostname)
-	if !validText(hostname, 255) || !validText(remoteAddr, 128) || strings.ContainsFunc(hostname, unicode.IsControl) || strings.ContainsFunc(remoteAddr, unicode.IsControl) || sound.VolumePercent != nil && (*sound.VolumePercent < 0 || *sound.VolumePercent > 100) {
+	if !validText(hostname, 255) || !validText(remoteAddr, 128) || !ValidAppVersion(appVersion) || strings.ContainsFunc(hostname, unicode.IsControl) || strings.ContainsFunc(remoteAddr, unicode.IsControl) || sound.VolumePercent != nil && (*sound.VolumePercent < 0 || *sound.VolumePercent > 100) {
 		return HeartbeatResult{}, ErrInvalidInput
 	}
 	var result HeartbeatResult
@@ -101,7 +104,7 @@ func (s *Sessions) Heartbeat(ctx context.Context, token, hostname, remoteAddr st
 				return err
 			}
 		}
-		if err := tx.TouchHeartbeat(ctx, session.ID, hostname, remoteAddr, sound, now); err != nil {
+		if err := tx.TouchHeartbeat(ctx, session.ID, hostname, remoteAddr, appVersion, sound, now); err != nil {
 			return err
 		}
 		result.ServerTime = now
@@ -139,7 +142,7 @@ func (s *Sessions) presence(ctx context.Context, tx SessionTransaction, session 
 	policy := session.Policy
 	lifecycle := domain.EvaluateSession(session, now)
 	monitoring := lifecycle.Status == domain.Active || lifecycle.Status == domain.Grace
-	result := domain.Presence{SessionID: session.ID, ServerTime: now, Monitoring: monitoring, Connectivity: "no_heartbeat", Hostname: session.Hostname, RemoteAddr: session.RemoteAddr, LastSeen: session.LastSeen, EverOverdue: ever, Focus: domain.Focus{State: domain.FocusUnknown}, VolumePercent: session.Sound.VolumePercent, VolumeMuted: session.Sound.Muted, Remote: []domain.RemoteFinding{}}
+	result := domain.Presence{SessionID: session.ID, ServerTime: now, Monitoring: monitoring, Connectivity: "no_heartbeat", Hostname: session.Hostname, RemoteAddr: session.RemoteAddr, AppVersion: session.AppVersion, LastSeen: session.LastSeen, EverOverdue: ever, Focus: domain.Focus{State: domain.FocusUnknown}, VolumePercent: session.Sound.VolumePercent, VolumeMuted: session.Sound.Muted, Remote: []domain.RemoteFinding{}}
 	if session.LastSeen != nil {
 		// Monitoring ends with the session: a finished one is measured up to its submission (or the end of grace, when
 		// it expired), so its heartbeat age and missed intervals stop growing.
@@ -207,4 +210,12 @@ func (s *Sessions) StudentsWithoutSession(ctx context.Context, examID string) ([
 		return err
 	})
 	return students, err
+}
+
+// appVersionPattern is a release as the build stamps it: v0.15.0, v0.15.0-3-g9f707df, a commit hash, dev.
+var appVersionPattern = regexp.MustCompile(`^[\w.+-]{1,64}$`)
+
+// ValidAppVersion says the release a student application gave is empty (it gave none) or a plain version word.
+func ValidAppVersion(version string) bool {
+	return version == "" || appVersionPattern.MatchString(version)
 }

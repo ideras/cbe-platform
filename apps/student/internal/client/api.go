@@ -165,6 +165,31 @@ func retryable(err error) bool {
 
 func validateServer(value string) (string, error)      { return clientwire.ValidateServer(value) }
 func newHTTPClient(timeout time.Duration) *http.Client { return clientwire.NewHTTPClient(timeout) }
+
+// withUserAgent is the client with every request carrying the User-Agent agent, unless the request sets its own. The release
+// goes in a header because an older server refuses JSON fields it does not know, and ignores headers it does not read.
+func withUserAgent(client *http.Client, agent string) *http.Client {
+	named := *client
+	next := named.Transport
+	if next == nil {
+		next = http.DefaultTransport
+	}
+	named.Transport = userAgentTransport{next: next, agent: agent}
+	return &named
+}
+
+type userAgentTransport struct {
+	next  http.RoundTripper
+	agent string
+}
+
+func (t userAgentTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	if request.Header.Get("User-Agent") == "" {
+		request = request.Clone(request.Context()) // a RoundTripper must not change the request it was given
+		request.Header.Set("User-Agent", t.agent)
+	}
+	return t.next.RoundTrip(request)
+}
 func requestJSON(ctx context.Context, httpClient *http.Client, base, token, method, path string, input, output any) error {
 	var body io.Reader
 	if input != nil {

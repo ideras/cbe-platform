@@ -2,26 +2,32 @@
   import Icon from '../../../../shared/theme/Icon.svelte';
   import { remainingTime } from '../../../../shared/exam/timing.js';
   import { localTime } from './dates.js';
-  import { inProgress, canForce, needsAttention, duration, sound, networkBadge, focusBadge, lifecycleBadge, lockLabel, lowTime, loginGate, remoteFindings } from './roster.js';
-  let { row, serverTime, policy, disabled = false, timingBusy = false, unlockBusy = false, actionBusy = false, releaseBusy = false,
+  import { inProgress, canForce, needsAttention, duration, sound, networkBadge, focusBadge, lifecycleBadge, lockLabel, lowTime, loginGate, remoteFindings, appRelease } from './roster.js';
+  // serverVersion is the server's release, which each student's application is compared with.
+  let { row, serverTime, policy, serverVersion = '', disabled = false, timingBusy = false, unlockBusy = false, actionBusy = false, releaseBusy = false,
     onReview, onExtend, onUnlock, onForce, onRelease } = $props();
   const network = $derived(networkBadge(row));
   const focus = $derived(focusBadge(row));
   const life = $derived(lifecycleBadge(row, policy, serverTime));
   const gate = $derived(loginGate(row));
   const remote = $derived(remoteFindings(row));
+  const release = $derived(appRelease(row, serverVersion));
 </script>
 <tr data-session-id={row.session_id} class:network-row={row.network_warning} class:focus-row={row.focus_warning} class:locked-row={!!row.locked} class:attention-row={needsAttention(row)}>
   <td>
     <div class="name">{row.student_name}</div><div class="account">{row.account_number}</div>
     {#if !row.roster_active}<small>Inactive roster record</small>{/if}
-    <div class="host">{row.presence.hostname || 'Hostname not reported'} · {row.presence.remote_addr || 'IP not reported'}</div>
+    <div class="host">{row.presence.hostname || 'Hostname not reported'} · {row.presence.remote_addr || 'IP not reported'}{#if release.version}{` · app ${release.version}`}{/if}</div>
     {#if gate}
       <!-- Someone tried this account while it was open on the computer above; a proctor decides whether to let them in. -->
       <div class="gate" class:released={gate.released}>
         {#if gate.released}<Icon name="login" size={13} /><span>Next login allowed {localTime(gate.releasedAt, '')} · waiting for the student</span>
         {:else}<Icon name="warning" size={13} /><span>Login refused ×{gate.refusals} · last {localTime(gate.lastAt, 'at an unknown time')}{gate.addr ? ` from ${gate.addr}` : ''}</span>{/if}
       </div>
+    {/if}
+    {#if release.differs}
+      <!-- The student's application is another release than the server's: it may lack fixes the exam relies on. -->
+      <div class="release"><Icon name="warning" size={13} /><span>{release.note}</span></div>
     {/if}
     {#if remote.length}
       <!-- The application found a Remote Desktop session or remote-control software: its own words, shown as text. -->
@@ -79,8 +85,8 @@
   .account { color: var(--action-hover); font-family: var(--font-mono); font-size: .85rem; }
   .gate { display: flex; align-items: flex-start; gap: .35rem; margin-top: .4rem; padding: .25rem .5rem; border-radius: 7px; background: var(--warn-fill); color: var(--warn-text); font-size: .78rem; font-weight: 600; }
   .gate :global(svg) { flex: none; margin-top: .12rem; }
-  .remote { display: flex; align-items: flex-start; gap: .35rem; margin-top: .4rem; padding: .25rem .5rem; border-radius: 7px; background: var(--warn-fill); color: var(--warn-text); font-size: .78rem; font-weight: 600; overflow-wrap: anywhere; }
-  .remote :global(svg) { flex: none; margin-top: .12rem; }
+  .release, .remote { display: flex; align-items: flex-start; gap: .35rem; margin-top: .4rem; padding: .25rem .5rem; border-radius: 7px; background: var(--warn-fill); color: var(--warn-text); font-size: .78rem; font-weight: 600; overflow-wrap: anywhere; }
+  .release :global(svg), .remote :global(svg) { flex: none; margin-top: .12rem; }
   .gate.released { background: var(--selection-fill); color: var(--action-hover); }
   .host { margin-top: .15rem; color: var(--text-muted); font-family: var(--font-mono); font-size: .78rem; }
   .kv { display: flex; flex-direction: column; gap: .2rem; }

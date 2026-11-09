@@ -51,7 +51,7 @@ func (s stubSessions) Advance(context.Context, string, int, domain.Answers) (ser
 	return service.AdvanceResult{}, service.ErrInvalidToken
 }
 
-func (s stubSessions) Heartbeat(context.Context, string, string, string, domain.Sound) (service.HeartbeatResult, error) {
+func (s stubSessions) Heartbeat(context.Context, string, string, string, string, domain.Sound) (service.HeartbeatResult, error) {
 	return service.HeartbeatResult{}, service.ErrInvalidToken
 }
 func (s stubSessions) ClientEvent(context.Context, string, service.EventInput) (service.EventResult, error) {

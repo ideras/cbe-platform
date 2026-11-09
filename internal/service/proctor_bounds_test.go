@@ -71,7 +71,7 @@ func TestLaterGapDoesNotReviveInvalidatedFocusWarning(t *testing.T) {
 			f.clock.Set(epoch.Add(10 * time.Second))
 			switch reset {
 			case "connection_changed":
-				if _, err := f.sessions.Heartbeat(t.Context(), login.Token, "changed-host", "192.0.2.1", domain.Sound{}); err != nil {
+				if _, err := f.sessions.Heartbeat(t.Context(), login.Token, "changed-host", "192.0.2.1", "", domain.Sound{}); err != nil {
 					t.Fatal(err)
 				}
 				f.clock.Set(epoch.Add(41 * time.Second))

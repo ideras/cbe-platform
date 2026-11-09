@@ -32,9 +32,11 @@ type Session struct {
 	// NetworkLocks is how many times the student has locked the exam themselves to reconnect to the network.
 	NetworkLocks int
 	// UnlockedAt is when a proctor last unlocked the session; the absence and no-contact clocks start again from it.
-	UnlockedAt      *time.Time
-	Hostname        string
-	RemoteAddr      string
+	UnlockedAt *time.Time
+	Hostname   string
+	RemoteAddr string
+	// AppVersion is the release of the student application the last heartbeat came from; empty when it did not say.
+	AppVersion      string
 	NetworkGapSince *time.Time
 	Sound           Sound
 }

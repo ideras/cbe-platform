@@ -31,18 +31,21 @@ type Focus struct {
 	ThresholdExceeded bool       `json:"threshold_exceeded"`
 }
 type Presence struct {
-	Monitoring   bool       `json:"monitoring"`
-	Connectivity string     `json:"connectivity"`
-	Hostname     string     `json:"hostname"`
-	RemoteAddr   string     `json:"remote_addr"`
-	LastSeen     *time.Time `json:"last_seen"`
-	Age          *int64     `json:"heartbeat_age_ms"`
-	Missed       int64      `json:"missed_intervals"`
-	Overdue      bool       `json:"overdue"`
-	EverOverdue  bool       `json:"ever_overdue"`
-	Focus        Focus      `json:"focus"`
-	Volume       *int       `json:"volume_percent"`
-	Muted        *bool      `json:"volume_muted"`
+	Monitoring   bool   `json:"monitoring"`
+	Connectivity string `json:"connectivity"`
+	Hostname     string `json:"hostname"`
+	RemoteAddr   string `json:"remote_addr"`
+	// AppVersion is the release of the student application the last heartbeat came from; empty when it did not say (an
+	// application, or a server, older than the field).
+	AppVersion  string     `json:"app_version"`
+	LastSeen    *time.Time `json:"last_seen"`
+	Age         *int64     `json:"heartbeat_age_ms"`
+	Missed      int64      `json:"missed_intervals"`
+	Overdue     bool       `json:"overdue"`
+	EverOverdue bool       `json:"ever_overdue"`
+	Focus       Focus      `json:"focus"`
+	Volume      *int       `json:"volume_percent"`
+	Muted       *bool      `json:"volume_muted"`
 	// Remote is what the student application last said it found that shows the computer is watched or controlled from elsewhere:
 	// a Remote Desktop session, or remote-control software running. Empty when it found nothing.
 	Remote []RemoteFinding `json:"remote"`
@@ -282,6 +285,8 @@ type Catalog struct {
 	CurrentClassID   string      `json:"current_class_id"`
 	CurrentClassName string      `json:"current_class_name"`
 	Exams            []ExamEntry `json:"exams"`
+	// ServerVersion is the server's release; empty from a server older than the field.
+	ServerVersion string `json:"server_version,omitempty"`
 }
 
 func validID(value string) bool {

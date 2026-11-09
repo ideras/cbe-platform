@@ -15,7 +15,7 @@ import (
 
 func heartbeat(t *testing.T, f *fixture, token string) {
 	t.Helper()
-	result, err := f.sessions.Heartbeat(t.Context(), token, "student-pc", "192.0.2.1", domain.Sound{})
+	result, err := f.sessions.Heartbeat(t.Context(), token, "student-pc", "192.0.2.1", "", domain.Sound{})
 	if err != nil || !result.ServerTime.Equal(f.clock.Now()) {
 		t.Fatalf("heartbeat = %+v, %v", result, err)
 	}
@@ -188,7 +188,7 @@ func TestUnknownFocusBeforeHeartbeatAndApplicationRestart(t *testing.T) {
 		t.Fatal("application restart retained stale focus")
 	}
 	clientEvent(t, f, login.Token, "focus_lost")
-	if _, err := f.sessions.Heartbeat(t.Context(), login.Token, "another-pc", "192.0.2.2", domain.Sound{}); err != nil {
+	if _, err := f.sessions.Heartbeat(t.Context(), login.Token, "another-pc", "192.0.2.2", "", domain.Sound{}); err != nil {
 		t.Fatal(err)
 	}
 	if presence(t, f, login.SessionID).Focus.State != domain.FocusUnknown || f.count(t, `SELECT count(*) FROM event_log WHERE event_type='connection_changed'`) != 1 {
@@ -239,7 +239,7 @@ func TestPresenceRestartAndTerminalHistory(t *testing.T) {
 	if snapshot := presence(t, f, login.SessionID); snapshot.Monitoring || snapshot.Overdue || snapshot.Connectivity != "terminal" || !snapshot.EverOverdue {
 		t.Fatal("terminal connectivity not distinguished")
 	}
-	if _, err := f.sessions.Heartbeat(t.Context(), login.Token, "pc", "192.0.2.1", domain.Sound{}); !errors.Is(err, service.ErrSessionLocked) {
+	if _, err := f.sessions.Heartbeat(t.Context(), login.Token, "pc", "192.0.2.1", "", domain.Sound{}); !errors.Is(err, service.ErrSessionLocked) {
 		t.Fatal("terminal heartbeat updated state")
 	}
 	if _, err := f.sessions.ClientEvent(t.Context(), login.Token, service.EventInput{Type: "app_closed"}); !errors.Is(err, service.ErrSessionLocked) {
@@ -257,7 +257,7 @@ func TestHeartbeatScanConcurrencyProducesOneGapCycle(t *testing.T) {
 	for range 32 {
 		wg.Go(func() { _, err := f.sessions.Reconcile(t.Context()); errs <- err })
 		wg.Go(func() {
-			_, err := f.sessions.Heartbeat(t.Context(), login.Token, "student-pc", "192.0.2.1", domain.Sound{})
+			_, err := f.sessions.Heartbeat(t.Context(), login.Token, "student-pc", "192.0.2.1", "", domain.Sound{})
 			errs <- err
 		})
 	}

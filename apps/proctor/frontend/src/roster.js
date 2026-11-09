@@ -25,6 +25,16 @@ export function remoteFindings(row) {
     .map(item => item.kind === 'remote_session' ? (item.detail ? `Remote Desktop from ${item.detail}` : 'Remote Desktop session') : item.name);
 }
 export const canForce = row => inProgress(row) || Boolean(row.finalization_pending);
+/** The student application's release, as the roster shows it, and whether it differs from the server's: another release, or
+ *  none at all from an application that has sent a heartbeat (one older than the release field, which never says). Nothing is
+ *  compared while the server does not say its own release (a server older than the field). */
+export function appRelease(row, serverVersion) {
+  const version = typeof row.presence?.app_version === 'string' ? row.presence.app_version : '';
+  if (!serverVersion) return { version, differs: false, note: '' };
+  if (version) return { version, differs: version !== serverVersion, note: version === serverVersion ? '' : `Application ${version} · the server is ${serverVersion}` };
+  const heard = Boolean(row.presence?.last_seen);
+  return { version, differs: heard, note: heard ? `Application older than ${serverVersion}: it does not report its release` : '' };
+}
 
 export function rosterCounts(rows) {
   return { total: rows.length, progress: rows.filter(inProgress).length,

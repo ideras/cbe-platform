@@ -27,7 +27,7 @@ func heartbeatHandler(sessions SessionAPI, logger *slog.Logger) http.HandlerFunc
 			serviceError(w, logger, "heartbeat", service.ErrInvalidToken)
 			return
 		}
-		result, err := sessions.Heartbeat(r.Context(), principal.Session.Token, input.Hostname, peerAddress(r), domain.Sound{VolumePercent: input.VolumePercent, Muted: input.VolumeMuted})
+		result, err := sessions.Heartbeat(r.Context(), principal.Session.Token, input.Hostname, peerAddress(r), studentAppVersion(r), domain.Sound{VolumePercent: input.VolumePercent, Muted: input.VolumeMuted})
 		if err != nil {
 			serviceError(w, logger, "heartbeat", err)
 			return
@@ -81,4 +81,15 @@ func peerAddress(r *http.Request) string {
 		}
 	}
 	return peer
+}
+
+// studentAppVersion is the release the student application names in its User-Agent ("cbe-portal-student/v0.16.0"). It
+// travels in a header, not in the heartbeat's JSON, because the server refuses unknown JSON fields: a newer application
+// talking to an older server would lose its heartbeats. Anything else, or a malformed release, is no release at all.
+func studentAppVersion(r *http.Request) string {
+	version, found := strings.CutPrefix(r.UserAgent(), "cbe-portal-student/")
+	if !found || !service.ValidAppVersion(version) {
+		return ""
+	}
+	return version
 }
