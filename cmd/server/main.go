@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -12,6 +13,9 @@ import (
 	"exam-platform/internal/config"
 	"exam-platform/internal/server"
 )
+
+// version is the release, set by the build: go build -ldflags "-X main.version=v0.15.0".
+var version = "dev"
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
@@ -23,6 +27,11 @@ func main() {
 		logger.Error("invalid configuration", "error", err)
 		os.Exit(2)
 	}
+	if cfg.ShowVersion {
+		fmt.Println("cbe-portal-server", version)
+		return
+	}
+	cfg.Version = version
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	if err := server.Run(ctx, cfg, logger); err != nil {

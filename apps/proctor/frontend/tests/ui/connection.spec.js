@@ -340,3 +340,14 @@ test('the address says its scheme, warns about http, and the button says whether
   await expect(address).toHaveAccessibleDescription(/^Use an http or https address/);
   expect((await calls(page)).connect.length).toBe(1);
 });
+
+test('the sidebar names the dashboard and its release under the connection status', async ({ page }) => {
+  await page.goto('/');
+  const version = page.locator('.sidebar .version');
+  await expect(version).toHaveText('CBE Portal Proctor v0.15.0-test');
+  // It stays there connected or not, and below the status.
+  await connect(page);
+  await expect(version).toHaveText('CBE Portal Proctor v0.15.0-test');
+  const status = await page.getByRole('group', { name: 'Connection status' }).boundingBox();
+  expect((await version.boundingBox()).y).toBeGreaterThan(status.y);
+});

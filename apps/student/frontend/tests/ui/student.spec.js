@@ -308,3 +308,10 @@ test('leaving an exercise names the one being left and the one that opens, and w
   await expect(dialog.getByRole('button', { name: 'Continue to exercise 2', exact: true })).toHaveClass(/primary/);
   await expect(dialog.getByRole('button', { name: 'Stay on exercise 1' })).not.toHaveClass(/primary/);
 });
+
+test('the login screen says which release of the application this is', async ({ page }) => {
+  await page.goto('/');
+  const brand = page.locator('.brand');
+  await expect(brand).toContainText('CBE Portal');
+  await expect(brand.locator('.version')).toHaveText('Version v0.15.0-test');
+});

@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -14,13 +15,22 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/events"
 )
 
+// version is the release, set by the build: go build -ldflags "-X main.version=v0.15.0".
+var version = "dev"
+
 func main() {
 	opts := dashboard.DefaultOptions()
+	opts.Version = version
 	server := flag.String("server", opts.Server, "server address (http:// on the exam LAN, https:// over the internet)")
 	exam := flag.String("exam-id", "", "exam UUID to monitor after connecting; default is the published exam. Selection does not change student admission")
 	tokenFile := flag.String("admin-token-file", "", "private credential file; never pass the token itself as an argument")
+	showVersion := flag.Bool("version", false, "print the version and exit")
 	configFile := flag.String("config", "", "settings file where the dashboard remembers the server address and the last token file; default is cbe-portal-proctor/config.json in the user's configuration folder")
 	flag.Parse()
+	if *showVersion {
+		fmt.Println("cbe-portal-proctor", version)
+		return
+	}
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
 	opts.Server, opts.ExamID = *server, *exam
 	flag.Visit(func(f *flag.Flag) { opts.ServerSet = opts.ServerSet || f.Name == "server" }) // only an address typed on purpose is connected to at startup

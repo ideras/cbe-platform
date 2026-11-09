@@ -406,8 +406,11 @@ Relative paths are resolved from the current working directory. Start from the s
 | `--max-json-bytes` | `1048576` | Maximum exam/answer JSON request size |
 | `--max-answer-bytes` | `65536` | Maximum UTF-8 bytes per answer |
 | `--max-answers-bytes` | `524288` | Maximum total UTF-8 answer bytes per snapshot |
+| `--version` | | Print the release (for example `cbe-portal-server v0.15.0`) and exit |
 
-The limits must satisfy `per-answer <= total-answer <= JSON request size`. Use `cbe-portal-server --help` to inspect the flags for a built version. Exam policies and timing settings are managed through the dashboard and exam documents.
+The limits must satisfy `per-answer <= total-answer <= JSON request size`. Use `cbe-portal-server --help` to inspect the flags for a built version.
+
+Every program reports its release: `cbe-portal-server --version`, `cbe-portal-student --version` and `cbe-portal-proctor --version` print it, the server logs it as `release` when it starts, the proctor dashboard shows it at the bottom of its sidebar and the student application under its name on the login screen. A release build carries its tag (`v0.15.0`); any other build carries the commit it was built from (`v0.15.0-3-g9f707df`, or just the commit's short hash in CI), with `-dirty` when it had uncommitted changes. A build made outside `make`, the Taskfiles or `scripts/ci/build.py` says `dev`. Exam policies and timing settings are managed through the dashboard and exam documents.
 
 ### Serving students over the internet
 

@@ -129,3 +129,11 @@ func TestTheCurrentExamIsNoLongerAServerOption(t *testing.T) {
 		t.Fatalf("err = %v, output = %q", err, output.String())
 	}
 }
+
+// -version only prints the release, so it needs none of the files a running server checks.
+func TestVersionNeedsNoValidSettings(t *testing.T) {
+	cfg, err := Parse([]string{"-version", "-admin-token-file=/does/not/exist", "-max-json-bytes=-1"}, io.Discard)
+	if err != nil || !cfg.ShowVersion {
+		t.Fatalf("cfg = %+v, err = %v", cfg, err)
+	}
+}

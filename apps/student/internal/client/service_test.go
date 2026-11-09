@@ -590,3 +590,13 @@ func TestRequestCancellation(t *testing.T) {
 		t.Fatal("request error must be sanitized")
 	}
 }
+
+// The release shown on the login screen is the one the build stamped in, or "dev" for a build that stamped none.
+func TestVersionIsTheStampedRelease(t *testing.T) {
+	if got := (&Service{}).Version(); got != "dev" {
+		t.Fatalf("unstamped = %q", got)
+	}
+	if got := (&Service{options: Options{Version: "v0.15.0"}}).Version(); got != "v0.15.0" {
+		t.Fatalf("stamped = %q", got)
+	}
+}

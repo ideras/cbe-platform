@@ -565,3 +565,6 @@ export async function CalcConvertFraction(input) {
   if (canned) return { ok: true, ...canned };
   return { ok: false, code: 'SYNTAX' };
 }
+// The release the build stamps into the binary (the real one comes from -ldflags).
+// Not recorded: like Snapshot, it is a read the page makes on its own, and the tests that list native calls mean the proctor's actions.
+export async function Version() { return 'v0.15.0-test'; }

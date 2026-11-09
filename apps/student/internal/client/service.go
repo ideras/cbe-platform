@@ -24,6 +24,16 @@ type Options struct {
 	Sound                                                        SoundOptions
 	Debounce, Periodic, Poll, RequestTimeout, RetryMin, RetryMax time.Duration
 	HTTPClient                                                   *http.Client
+	// Version is the application's release, stamped into the binary by the build ("v0.15.0"); "dev" when it was not.
+	Version string
+}
+
+// Version is the application's release, shown on the login screen.
+func (s *Service) Version() string {
+	if s.options.Version == "" {
+		return "dev"
+	}
+	return s.options.Version
 }
 
 func DefaultOptions() Options {

@@ -2,8 +2,8 @@
   import Icon from '../../../../shared/theme/Icon.svelte';
   // The navigation rail. Server connection and Close always work; Classes needs a connection and is really disabled (not just
   // dimmed) while there is none. Exams are reached through the class they belong to. `connection` is idle | connecting |
-  // connected | lost | failed.
-  let { section, connection, host = '', onSelect, onConnection, onQuit } = $props();
+  // connected | lost | failed. `version` is the dashboard's release, under the connection status.
+  let { section, connection, host = '', version = '', onSelect, onConnection, onQuit } = $props();
   const connected = $derived(connection === 'connected' || connection === 'lost');
   const status = $derived({
     idle: ['Not connected', 'Open Server connection to begin.'],
@@ -26,9 +26,12 @@
     {/each}
     <button type="button" class="item" onclick={onQuit}><Icon name="power" size={26} /><span class="label">Close</span></button>
   </nav>
-  <div class="status" role="group" aria-live="polite" aria-label="Connection status">
-    <span class="dot {connection}" aria-hidden="true"></span>
-    <div><strong>{status[0]}</strong>{#if status[1]}<small>{status[1]}</small>{/if}</div>
+  <div class="foot">
+    <div class="status" role="group" aria-live="polite" aria-label="Connection status">
+      <span class="dot {connection}" aria-hidden="true"></span>
+      <div><strong>{status[0]}</strong>{#if status[1]}<small>{status[1]}</small>{/if}</div>
+    </div>
+    {#if version}<p class="version">CBE Portal Proctor <span>{version}</span></p>{/if}
   </div>
 </aside>
 <style>
@@ -47,7 +50,10 @@
   .item:focus-visible { outline: 2px solid var(--accent-cyan-soft); outline-offset: -2px; box-shadow: none; }
   .label { flex: 1; min-width: 0; overflow-wrap: anywhere; }
   .item :global(.lock) { flex: none; opacity: .9; }
+  .foot { display: grid; gap: .45rem; }
   .status { display: flex; align-items: flex-start; gap: .6rem; padding: .7rem .9rem; border: 1px solid var(--side-border); border-radius: 10px; background: var(--side-hover); font-size: .85rem; }
+  .version { margin: 0; padding: 0 .9rem; color: var(--side-text-dim); font-size: .75rem; }
+  .version span { font-family: var(--font-mono); }
   .status strong { display: block; color: var(--on-dark); font-weight: 600; }
   /* The server address is monospace; the sentence shown before any connection is not an address. */
   .status small { display: block; margin-top: .1rem; color: var(--side-text-dim); font-family: var(--font-mono); font-size: .8rem; overflow-wrap: anywhere; }
@@ -65,7 +71,8 @@
     .item { width: auto; min-height: 2.8rem; padding: .45rem .8rem; font-size: 1rem; }
     .item.active::before { display: none; }
     .item.active, .item.active:hover:not(:disabled) { box-shadow: inset 0 -3px 0 var(--accent-cyan-soft); }
-    .status { flex: 1 1 100%; align-items: center; padding: .35rem .7rem; }
+    .foot { flex: 1 1 100%; }
+    .status { align-items: center; padding: .35rem .7rem; }
     .status .dot { margin-top: 0; }
     .status div { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 .6rem; }
     .status small { margin: 0; }
