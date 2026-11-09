@@ -210,6 +210,8 @@ export function registerThemeTests() {
       ['on-dark', 'alert'], ['on-dark', 'alert-deep'], ['on-dark', 'alert-strong'], ['alert-fill', 'alert-deep'],
       // The delete exam dialog: the pale check on the muted badge of its result, its Download link and its download note on the gate.
       ['bg-primary', 'text-muted'], ['action-hover', 'bg-primary'], ['ok-text', 'bg-primary'],
+      // The Settings page: its bar of unsaved changes (light text on the dark bar), and the timelines' labels on the canvas.
+      ['bg-primary', 'text-main'], ['side-text', 'text-main'], ['warn-text', 'bg-primary'],
     ];
     for (const [fg, bg] of pairs) {
       const ratio = contrast(color(`--${fg}`), color(`--${bg}`));

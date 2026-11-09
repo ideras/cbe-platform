@@ -16,6 +16,27 @@ export const LABELS = Object.freeze({
   graceSeconds: 'Default grace period',
 });
 
+// Each field's own range, the server's (domain.Policy.Problems), and the step of its − and + buttons. The other values narrow some of
+// them further (limits, below); the buttons keep a field only within its own range, so a conflict they make is shown and fixed like a
+// typed one. A lock's range is for when it is on: off is zero.
+export const RANGES = Object.freeze({
+  heartbeatSeconds: [5, 60], overdueSeconds: [1, 600], focusSeconds: [1, 600], alertSeconds: [1, 10], captureSeconds: [3, 60],
+  lockAwaySeconds: [1, 3600], lockNoContactSeconds: [1, 3600], incidentCaptures: [1, 500], sessionCaptures: [1, 2000], graceSeconds: [1, 1800],
+});
+export const STEPS = Object.freeze({ sessionCaptures: 10, graceSeconds: 5 });
+
+// The page's sections, in order, and the fields each one holds.
+export const SECTIONS = Object.freeze([
+  { id: 'away', title: 'Leaving the exam window', short: 'Leaving the window', icon: 'monitor', about: 'What happens when a student switches to another window',
+    fields: ['focusSeconds', 'lockAwaySeconds', 'alertSeconds', 'captureSeconds'] },
+  { id: 'connection', title: 'Connection', short: 'Connection', icon: 'wifi', about: 'How the server notices that a student’s computer has gone silent',
+    fields: ['heartbeatSeconds', 'overdueSeconds', 'lockNoContactSeconds'] },
+  { id: 'screenshots', title: 'Screenshot limits', short: 'Screenshot limits', icon: 'screen', about: 'Caps that keep the storage under control',
+    fields: ['incidentCaptures', 'sessionCaptures'] },
+  { id: 'time', title: 'Exam time', short: 'Exam time', icon: 'clock', about: 'The default for new exams',
+    fields: ['graceSeconds'] },
+]);
+
 const COUNTS = ['incidentCaptures', 'sessionCaptures'];
 const LOCKS = ['lockAwaySeconds', 'lockNoContactSeconds'];
 
@@ -216,3 +237,29 @@ export function fit(form, held) {
 export function changeText(change) {
   return `${change.label} ${say(change.field, change.from)} → ${say(change.field, change.to)}`;
 }
+
+// What each field is, said under it: the limit the other values put on it when there is one (hints), otherwise what it does. A lock that
+// is off says what off means.
+export function descriptions(form) {
+  const limit = hints(form);
+  const awayOff = form.lockAwaySeconds === 0, noContactOff = form.lockNoContactSeconds === 0;
+  const worked = effectiveCaptures(form);
+  return {
+    heartbeatSeconds: 'How often each student’s computer checks in with the server.',
+    overdueSeconds: limit.overdueSeconds ?? 'How long a computer may stay silent before its connection counts as lost.',
+    lockNoContactSeconds: noContactOff ? 'Off: a silent computer is flagged, but its exam never locks.'
+      : limit.lockNoContactSeconds ?? 'Longer than the time after which the connection counts as lost.',
+    focusSeconds: limit.focusSeconds ?? 'How long a student may be away before the alarm sounds and the screenshots start.',
+    alertSeconds: 'The alarm sounds again at this interval until the student comes back.',
+    captureSeconds: 'While the student is away, a screenshot of every screen at this interval.',
+    lockAwaySeconds: awayOff ? 'Off: the alarm keeps going, and the exam never locks for being away.'
+      : limit.lockAwaySeconds ?? 'Long enough for the alarm to start and one screenshot to be taken.',
+    incidentCaptures: awayOff ? 'With the away lock off, this caps the screenshots of one absence.'
+      : finite(worked) ? `Worked out from the away lock: ${worked} cover the whole absence up to the lock.` : 'Worked out from the away lock.',
+    sessionCaptures: finite(worked) && worked >= 1 ? `At least ${worked}, one whole absence, and at most 2000.` : 'At most 2000.',
+    graceSeconds: 'Extra time after the exam ends. Each exam can change it.',
+  };
+}
+
+// The section of each field, for the marks of the section list.
+export const sectionOf = field => SECTIONS.find(section => section.fields.includes(field))?.id ?? null;
