@@ -79,7 +79,7 @@
         <label for="connection-server">Server address</label>
         <div class="address" class:bad={urlProblem}>
           <span class="scheme-mark {scheme}" aria-hidden="true"><Icon name={scheme === 'https' ? 'lock' : scheme === 'http' ? 'lockOpen' : 'server'} size={16} /></span>
-          <input id="connection-server" bind:value={server} list="connection-servers" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://exam-server.local" disabled={working}
+          <input id="connection-server" bind:value={server} list="connection-servers" inputmode="url" autocomplete="off" spellcheck="false" placeholder="http://192.168.1.10:8080" disabled={working}
             aria-invalid={urlProblem ? 'true' : undefined} aria-describedby={urlProblem ? 'connection-server-problem' : note ? 'connection-server-note' : undefined} oninput={() => urlProblem = ''} />
           {#if scheme}<span class="scheme {scheme}" aria-hidden="true">{scheme.toUpperCase()}</span>{/if}
         </div>
