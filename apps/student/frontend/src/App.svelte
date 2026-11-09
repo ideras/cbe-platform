@@ -24,6 +24,8 @@
 
   let view = $state({ phase: 'login', acknowledged_revision: 0, timing_stale: true });
   let server = $state('');
+  // The application's release, stamped into the binary by the build; shown under its name on the login screen.
+  let version = $state('');
   let account = $state('');
   let pin = $state('');
   let exam = $state(null);
@@ -186,6 +188,7 @@
       api.ReportAlertFailure(sequence).catch(() => {});
     });
     const unsubscribe = api.OnFocusAlert(incident => sound.play(incident));
+    api.Version().then(value => { version = value; }).catch(() => {});
     refresh();
     let reading = false;
     const timer = setInterval(async () => { if (reading) return; reading = true; try { await refresh(); } finally { reading = false; } }, 500);
@@ -311,7 +314,7 @@
       <div class="login-side">
         <div class="brand">
           <img src={brandLogo} alt="Computer Based Evaluation desktop logo" width="310" height="295" />
-          <span>CBE Portal</span>
+          <div class="brand-name"><span>CBE Portal</span>{#if version}<small class="version">Version {version}</small>{/if}</div>
         </div>
         <Card label="Login" title="Login" icon="login" tone="deep">
           <form id="student-login" onsubmit={login}>
@@ -482,6 +485,8 @@
   .login-side { position: sticky; top: var(--space-4); display: grid; gap: .9rem; }
   .brand { display: flex; align-items: center; gap: 1rem; padding: .6rem .75rem; background: var(--bg-raised); border: 1px solid var(--border-subtle); border-radius: var(--radius); box-shadow: var(--shadow-card); }
   .brand img { display: block; flex: none; width: 5.1rem; height: auto; padding: .35rem; background: var(--tile-fill); border: 1px solid var(--cyan-chip-border); border-radius: 14px; }
+  .brand-name { display: grid; gap: .2rem; min-width: 0; }
+  .brand .version { color: var(--text-muted); font-family: var(--font-mono); font-size: .8rem; overflow-wrap: anywhere; }
   .brand span { color: var(--text-main); font-size: 1.6rem; font-weight: 700; letter-spacing: -.01em; line-height: 1.1; overflow-wrap: anywhere; }
   #student-login label { margin: 0 0 var(--space-3); color: var(--text-main); font-size: var(--text-sm); font-weight: 600; }
   .login-intro { margin: 0 0 var(--space-3); color: var(--text-muted); }

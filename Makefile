@@ -2,6 +2,10 @@ export GO111MODULE := on
 # Architecture of the Windows cross-build: amd64 or arm64.
 WINDOWS_ARCH ?= amd64
 WAILS := go run github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.29
+# The release stamped into the binaries: the tag, or the commit after it ("v0.15.0-3-g9f707df"). The desktop apps' Taskfiles
+# work it out the same way.
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+LDFLAGS := -X main.version=$(VERSION)
 
 .PHONY: test vet server examc student student-windows proctor desktop desktop-test script-test student-client-test student-ui-test proctor-client-test proctor-ui-test demo-setup demo-server demo-student demo-proctor
 
@@ -25,7 +29,7 @@ student-ui-test:
 
 server:
 	mkdir -p build
-	CGO_ENABLED=0 go build -trimpath -o build/cbe-portal-server ./cmd/server
+	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o build/cbe-portal-server ./cmd/server
 
 # examc checks an exam written in Markdown: build/examc exam.md (or -json to print what the proctor would import, or
 # -fill answers.json to print the exam with those answers filled in).
@@ -44,7 +48,7 @@ student-windows:
 	mkdir -p build
 	cd apps/student && $(WAILS) generate bindings -b -f '-tags bindings' ./cmd/student
 	cd apps/student && npm --prefix frontend ci && npm --prefix frontend run build
-	cd apps/student && CGO_ENABLED=0 GOOS=windows GOARCH=$(WINDOWS_ARCH) go build -trimpath -tags production -o ../../build/cbe-portal-student.exe ./cmd/student
+	cd apps/student && CGO_ENABLED=0 GOOS=windows GOARCH=$(WINDOWS_ARCH) go build -trimpath -tags production -ldflags "$(LDFLAGS)" -o ../../build/cbe-portal-student.exe ./cmd/student
 
 proctor:
 	cd apps/proctor && $(WAILS) build

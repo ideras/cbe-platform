@@ -20,6 +20,8 @@
   let home = $state(0);
   // Asks the classes page to open a class on its exams; n changes with every request, so asking again works.
   let openRequest = $state(null);
+  // The dashboard's release, stamped into the binary by the build; it never changes while the app runs.
+  let version = $state('');
   let alive = true;
 
   const connection = $derived(view.connected ? (view.unreachable ? 'lost' : 'connected') : view.connecting ? 'connecting' : view.connect_error ? 'failed' : 'idle');
@@ -30,6 +32,7 @@
 
   function apply(value) { if (alive && value.observation >= view.observation) view = value; }
   onMount(() => {
+    api.Version().then(value => { if (alive) version = value; }).catch(() => {});
     let polling = false;
     async function tick() {
       if (polling) return; polling = true;
@@ -54,7 +57,7 @@
 </script>
 <div class="shell">
   <div class="rail">
-    <Sidebar {section} {connection} {host} onSelect={id => { if (id === 'classes' && section === 'classes') home++; section = id; }} onConnection={() => connectionOpen = true} onQuit={() => closeAsked = true} />
+    <Sidebar {section} {connection} {host} {version} onSelect={id => { if (id === 'classes' && section === 'classes') home++; section = id; }} onConnection={() => connectionOpen = true} onQuit={() => closeAsked = true} />
   </div>
   <main>
     {#if bridgeError && !view.exam_id}<p role="alert">{bridgeError}</p>{/if}

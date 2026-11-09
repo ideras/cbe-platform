@@ -22,6 +22,10 @@ type Config struct {
 	MaxJSONBytes    int64
 	MaxAnswerBytes  int64
 	MaxAnswersBytes int64
+	// ShowVersion asks for the version to be printed instead of starting the server.
+	ShowVersion bool
+	// Version is the server's release, stamped into the binary by the build; it is not a flag.
+	Version string
 }
 
 func Parse(args []string, output io.Writer) (Config, error) {
@@ -36,11 +40,15 @@ func Parse(args []string, output io.Writer) (Config, error) {
 	flags.Int64Var(&cfg.MaxJSONBytes, "max-json-bytes", 1<<20, "maximum exam/answer JSON request bytes")
 	flags.Int64Var(&cfg.MaxAnswerBytes, "max-answer-bytes", 64<<10, "maximum UTF-8 bytes per answer")
 	flags.Int64Var(&cfg.MaxAnswersBytes, "max-answers-bytes", 512<<10, "maximum total UTF-8 answer bytes per snapshot")
+	flags.BoolVar(&cfg.ShowVersion, "version", false, "print the version and exit")
 	if err := flags.Parse(args); err != nil {
 		return cfg, err
 	}
 	if flags.NArg() != 0 {
 		return cfg, fmt.Errorf("unexpected positional arguments")
+	}
+	if cfg.ShowVersion {
+		return cfg, nil // nothing is started, so the other settings do not matter
 	}
 	return cfg, cfg.Validate()
 }

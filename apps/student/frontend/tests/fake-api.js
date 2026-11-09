@@ -330,3 +330,5 @@ export function TestScreenshot() { record('TestScreenshot');
   pending.cancel = () => { state.capture.ready = false; state.capture.blocked = true; rejectCapture(Object.assign(Error('Capture cancelled.'), { name: 'CancelError' })); };
   return pending;
 }
+// The release the build stamps into the binary (the real one comes from -ldflags).
+export async function Version() { record('Version'); return 'v0.15.0-test'; }

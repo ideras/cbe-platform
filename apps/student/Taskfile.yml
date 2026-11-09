@@ -3,6 +3,11 @@ version: '3'
 env:
   GO111MODULE: 'on'
 
+vars:
+  # The release shown in the window: the tag, or the commit after it ("v0.15.0-3-g9f707df"), as scripts/ci/build.py does.
+  VERSION:
+    sh: git describe --tags --always --dirty 2>/dev/null || echo dev
+
 tasks:
   build:
     desc: Build the student exam application on the native host
@@ -11,7 +16,7 @@ tasks:
       - npm --prefix frontend ci
       - npm --prefix frontend run build
       - mkdir -p ../../build
-      - go build -tags production -o ../../build/cbe-portal-student ./cmd/student
+      - go build -tags production -ldflags "-X main.version={{.VERSION}}" -o ../../build/cbe-portal-student ./cmd/student
   run:
     deps: [build]
     cmds:

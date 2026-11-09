@@ -4,6 +4,7 @@
 import argparse
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -19,6 +20,25 @@ def run(args, *, cwd=ROOT, env=None, capture=False):
     print("+", " ".join(args), flush=True)
     return subprocess.run([executable, *args[1:]], cwd=cwd, env=env, check=True,
                           text=True, stdout=subprocess.PIPE if capture else None).stdout
+
+
+def release_version():
+    """The release the binaries report: CBE_VERSION when the workflow names one (a tag push, or the tag of a manual
+    release), else what git says of the checkout ("v0.15.0-3-g9f707df"; just the commit in CI's shallow checkout)."""
+    explicit = os.environ.get("CBE_VERSION", "").strip()
+    if explicit:
+        version = explicit
+    else:
+        try:
+            version = run(["git", "describe", "--tags", "--always", "--dirty"], capture=True).strip()
+        except (RuntimeError, subprocess.CalledProcessError):
+            version = ""
+    # It goes into a linker flag, so anything but a plain version word is refused rather than quoted.
+    if not re.fullmatch(r"[\w.+-]{1,64}", version):
+        if explicit:
+            raise RuntimeError(f"CBE_VERSION is not a version: {explicit!r}")
+        version = "dev"
+    return version
 
 
 def main():
@@ -51,12 +71,15 @@ def main():
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
     suffix = ".exe" if args.os == "windows" else ""
+    version = release_version()
+    print(f"VERSION={version}", flush=True)
+    ldflags = ["-ldflags", f"-X main.version={version}"]
     env = os.environ.copy()
     env["CGO_ENABLED"] = "0"
     target = dict(env)
     if args.cross:
         target["GOOS"], target["GOARCH"] = args.os, args.arch
-    run(["go", "build", "-trimpath", "-o", str(output / ("cbe-portal-server" + suffix)), "./cmd/server"], env=target)
+    run(["go", "build", "-trimpath", *ldflags, "-o", str(output / ("cbe-portal-server" + suffix)), "./cmd/server"], env=target)
     desktop_cgo = "1" if args.os != "windows" else "0"
     for app in ("student", "proctor"):
         cwd = ROOT / "apps" / app
@@ -69,7 +92,7 @@ def main():
         desktop = dict(host)
         if args.cross:
             desktop["GOOS"], desktop["GOARCH"] = args.os, args.arch
-        run(["go", "build", "-trimpath", "-tags", "production", "-o", str(output / ("cbe-portal-" + app + suffix)), "./cmd/" + app], cwd=cwd, env=desktop)
+        run(["go", "build", "-trimpath", "-tags", "production", *ldflags, "-o", str(output / ("cbe-portal-" + app + suffix)), "./cmd/" + app], cwd=cwd, env=desktop)
 
 
 if __name__ == "__main__":

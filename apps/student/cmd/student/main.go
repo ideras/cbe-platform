@@ -21,7 +21,11 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/events"
 )
 
+// version is the release, set by the build: go build -ldflags "-X main.version=v0.15.0".
+var version = "dev"
+
 func main() {
+	showVersion := flag.Bool("version", false, "print the version and exit")
 	deterrence := flag.Bool("deterrence-spike", false, "test fullscreen and always-on-top; not a security boundary")
 	capture := flag.Bool("capture-spike", false, "compatibility option; manual capture controls are available by default")
 	worker := flag.Bool("capture-spike-worker", false, "internal one-shot PNG capture worker")
@@ -31,6 +35,10 @@ func main() {
 	periodic := flag.Duration("autosave-interval", defaults.Periodic, "periodic save backstop during continuous edits")
 	poll := flag.Duration("status-interval", defaults.Poll, "server status polling cadence")
 	flag.Parse()
+	if *showVersion {
+		fmt.Println("cbe-portal-student", version)
+		return
+	}
 	if *worker {
 		if !*capture {
 			fmt.Fprintln(os.Stderr, "capture worker requires --capture-spike")
@@ -44,6 +52,7 @@ func main() {
 	}
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
 	defaults.Server, defaults.Debounce, defaults.Periodic, defaults.Poll = *server, *debounce, *periodic, *poll
+	defaults.Version = version
 	defaults.Sound.Control = sysvolume.System{}
 	if runtime.GOOS == "linux" {
 		// Only Linux (PulseAudio/PipeWire) tells the application at once that the volume changed; Windows and macOS keep to

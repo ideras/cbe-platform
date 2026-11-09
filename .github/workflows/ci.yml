@@ -100,6 +100,9 @@ jobs:
           test "$(npm --version)" = 11.17.0
       - name: Build all applications
         id: build
+        env:
+          # The release the binaries report: the pushed tag, or the tag a manual release names; other builds use the commit.
+          CBE_VERSION: ${{ inputs.tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
         run: python scripts/ci/build.py --os '${{ matrix.os }}' --arch '${{ matrix.arch }}' --output build
       - name: Package native archives
         if: matrix.os != 'darwin'
@@ -157,6 +160,8 @@ jobs:
       - name: Smoke test native server
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         timeout-minutes: 3
+        env:
+          CBE_VERSION: ${{ inputs.tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
         run: |
           suffix=''
           if [[ '${{ matrix.os }}' == windows ]]; then suffix=.exe; fi
@@ -254,6 +259,8 @@ jobs:
           name: cbe-portal-server-macos-universal
           path: artifact
       - name: Verify archive and smoke test
+        env:
+          CBE_VERSION: ${{ inputs.tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
         run: |
           cd artifact
           shasum -a 256 -c cbe-portal-server-macos-universal.tar.gz.sha256

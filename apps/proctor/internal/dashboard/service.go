@@ -44,6 +44,16 @@ type Options struct {
 	ChooseFolder func(FolderDialog) (string, error)
 	// OpenFolder opens a folder in the system's file manager and does not wait for it.
 	OpenFolder func(path string) error
+	// Version is the application's release, stamped into the binary by the build ("v0.15.0"); "dev" when it was not.
+	Version string
+}
+
+// Version is the dashboard's release, shown in the window.
+func (s *Service) Version() string {
+	if s.opts.Version == "" {
+		return "dev"
+	}
+	return s.opts.Version
 }
 
 // FolderDialog describes a native folder dialog.

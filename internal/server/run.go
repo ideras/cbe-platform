@@ -70,7 +70,7 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	if _, err := sessions.Reconcile(ctx); err != nil {
 		return fmt.Errorf("startup reconciliation: %w", err)
 	}
-	logger.Info("server ready", "bind", listener.Addr().String(), "classes", len(known.Classes), "sqlite", version)
+	logger.Info("server ready", "release", cfg.Version, "bind", listener.Addr().String(), "classes", len(known.Classes), "sqlite", version)
 	httpServer := &http.Server{
 		Handler: httpapi.New(timekeeper, sessions, logger, httpapi.Options{AdminToken: cfg.AdminToken, Exams: exams, Publisher: publisher, Classes: classes, Proctor: sessions, Screenshots: images, Rules: sessions, MaxJSONBytes: cfg.MaxJSONBytes}), ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout: 10 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second,

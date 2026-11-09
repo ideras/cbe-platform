@@ -21,6 +21,12 @@ def main():
     parser.add_argument("binary", type=Path)
     args = parser.parse_args()
     binary = args.binary.resolve(strict=True)
+    # The build stamps the release into the binary; an unstamped one says "dev", which a release must never ship.
+    stamped = subprocess.run([str(binary), "-version"], check=True, capture_output=True, text=True).stdout.strip()
+    print(stamped, flush=True)
+    expected = os.environ.get("CBE_VERSION", "").strip()
+    if not stamped.startswith("cbe-portal-server ") or stamped.endswith(" dev") or (expected and stamped != f"cbe-portal-server {expected}"):
+        raise SystemExit(f"unexpected version: {stamped!r} (expected {expected or 'a stamped release'})")
     with tempfile.TemporaryDirectory(prefix="cbe-ci-") as temporary:
         directory = Path(temporary)
         token = directory / "token"
