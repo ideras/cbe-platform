@@ -171,6 +171,38 @@ test('every scientific function has a button and is reachable by keyboard', asyn
   await expect(dialog.locator('.calc-result')).toContainText('= 30');
 });
 
+test('the input stays from one opening to the next, and Clear empties it alone', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(value => window.__studentHarness.calculatorTools(value), calculatorOn);
+  await login(page);
+  let dialog = await openCalculator(page);
+  const input = () => dialog.getByLabel('Expression');
+  const clear = () => dialog.getByRole('button', { name: 'Clear', exact: true });
+  await expect(clear()).toBeDisabled(); // nothing to clear yet
+  await input().fill('2+3*4');
+  await input().press('Enter');
+  await expect(dialog.locator('.calc-result')).toContainText('= 14');
+  await page.keyboard.press('Escape');
+  dialog = await openCalculator(page);
+  await expect(input()).toHaveValue('2+3*4');
+  // Clear empties the input and gives it the focus; the history stays.
+  await clear().click();
+  await expect(input()).toHaveValue('');
+  await expect(input()).toBeFocused();
+  await expect(clear()).toBeDisabled();
+  await expect(dialog.getByLabel('Recent calculations')).toContainText('2+3*4 = 14');
+  // A result stays with its copy button; a failure, which is about the cleared text, goes.
+  await input().fill('2+3*4');
+  await input().press('Enter');
+  await clear().click();
+  await expect(dialog.locator('.calc-result')).toContainText('= 14');
+  await input().fill('log(8)');
+  await input().press('Enter');
+  await expect(dialog.locator('.calc-result .error')).toBeVisible();
+  await clear().click();
+  await expect(dialog.locator('.calc-result')).toHaveText('');
+});
+
 test('Tab cycles inside the modal and screen-reader roles are in place', async ({ page }) => {
   await page.goto('/');
   await page.evaluate(value => window.__studentHarness.calculatorTools(value), calculatorOn);

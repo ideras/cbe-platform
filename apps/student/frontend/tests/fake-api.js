@@ -99,43 +99,45 @@ const calcIntResults = {
   '127 + 1': { signed: '-128', unsigned: '128', hex: '0x80', octal: '200', binary: '10000000', bits: '128', carry: false, overflow: true },
   '0 - 1': { signed: '-1', unsigned: '255', hex: '0xFF', octal: '377', binary: '11111111', bits: '255', carry: true, overflow: false },
   '-8 >> 1': { signed: '-4', unsigned: '252', hex: '0xFC', octal: '374', binary: '11111100', bits: '252', carry: false, overflow: false },
-  'ff + 1': { signed: '256', unsigned: '256', hex: '0x0101', octal: '000405', binary: '0000000100000001', bits: '256', carry: false, overflow: false },
+  '0xff + 1': { signed: '256', unsigned: '256', hex: '0x0101', octal: '000405', binary: '0000000100000001', bits: '256', carry: false, overflow: false },
   // Reals (Phase 6A, D20) answer only their display.
   '10.625': { real: true, value: '10.625' },
   '1.0 / 4': { real: true, value: '0.25' },
 };
-const calcIntErrors = { '1.5 & 1': 'NOT_INTEGER', '1e3': 'SYNTAX' };
+const calcIntErrors = { '1.5 & 1': 'NOT_INTEGER', '1e3': 'BAD_NUMBER', 'ff + 1': 'UNKNOWN_IDENT', '0b102': 'BAD_NUMBER', '010': 'BAD_NUMBER', '1 <<': 'SYNTAX' };
+// One integer literal as Go reads it: decimal without a leading zero, or 0b, 0o, 0x (owner 2026-11-08).
+const intLiteral = /^(?:0|[1-9][0-9]*|0[xX][0-9a-fA-F]+|0[bB][01]+|0[oO][0-7]+)$/;
 const calcFractionResults = {
   '10.625': { binary: '1010.101', octal: '12.5', hex: 'A.A' },
   '0.1': { binary: '0.00011001100110011001100110011001...', octal: '0.06314631463146314631463146314631...', hex: '0.19999999999999999999999999999999...' },
 };
 const calcInspections = [];
 const calcTabChanges = [];
-export async function CalcEvaluateInt(input, word, inputBase, signedMode) {
+export async function CalcEvaluateInt(input, word, signedMode) {
   record('CalcEvaluateInt');
-  calcEvaluations.push({ input, wordSize: word, inputBase, signedMode });
+  calcEvaluations.push({ input, wordSize: word, signedMode });
   if (calcQueueFull) throw Error('The calculator is paused until your calculations reach the server. Check your connection.');
   if (calcUnavailable || state.phase !== 'exam' || state.locked || !examTools?.calculator?.enabled || !(examTools.calculator.modes ?? ['scientific']).includes('programmer')) throw Error('The calculator is not available.');
   const trimmed = input.trim();
   const canned = calcIntResults[trimmed];
   if (canned) return { ok: true, ...canned };
   if (calcIntErrors[trimmed]) return { ok: false, code: calcIntErrors[trimmed] };
-  // A plain decimal literal that fits is a real result: the UI tests and the bit grid use them.
-  if (/^\d+$/.test(trimmed) && BigInt(trimmed) < (1n << BigInt(word))) {
+  // A literal that fits is a real result: the UI tests and the bit grid use them.
+  if (intLiteral.test(trimmed) && BigInt(trimmed) < (1n << BigInt(word))) {
     const bits = BigInt(trimmed);
-    return { ok: true, unsigned: trimmed,
+    return { ok: true, unsigned: bits.toString(10),
       signed: (bits >= (1n << BigInt(word - 1)) ? bits - (1n << BigInt(word)) : bits).toString(10),
       hex: '0x' + bits.toString(16).toUpperCase().padStart(word / 4, '0'),
       octal: bits.toString(8).padStart(Math.ceil(word / 3), '0'),
-      binary: bits.toString(2).padStart(word, '0'), bits: trimmed, carry: false, overflow: false };
+      binary: bits.toString(2).padStart(word, '0'), bits: bits.toString(10), carry: false, overflow: false };
   }
-  if (/^\d+$/.test(trimmed)) return { ok: false, code: 'OVERFLOW' };
+  if (intLiteral.test(trimmed)) return { ok: false, code: 'OVERFLOW' };
   if (['1 / 0', '1 << 8', '256', 'foo(1)'].includes(trimmed)) return { ok: false, code: trimmed === 'foo(1)' ? 'UNKNOWN_FUNCTION' : trimmed === '1 / 0' ? 'DIVISION_BY_ZERO' : trimmed === '1 << 8' ? 'SHIFT_RANGE' : 'OVERFLOW' };
   return { ok: false, code: 'SYNTAX' };
 }
-export async function CalcConvertFraction(input, word, inputBase, signedMode) {
+export async function CalcConvertFraction(input, word, signedMode) {
   record('CalcConvertFraction');
-  calcEvaluations.push({ input, view: 'fraction', wordSize: word, inputBase, signedMode });
+  calcEvaluations.push({ input, view: 'fraction', wordSize: word, signedMode });
   if (calcQueueFull) throw Error('The calculator is paused until your calculations reach the server. Check your connection.');
   if (calcUnavailable || state.phase !== 'exam' || state.locked || !examTools?.calculator?.enabled || !(examTools.calculator.modes ?? ['scientific']).includes('programmer')) throw Error('The calculator is not available.');
   const canned = calcFractionResults[input.trim()];
@@ -150,9 +152,9 @@ const calcIEEE = {
 };
 const calcIEEEDecoded = { 'binary16': { '0x3C00': ['0x3C00', '1'], '0x3C00 | 0x8000': ['0xBC00', '-1'] }, 'binary32': { '0x412A0000': ['0x412A0000', '10.625'] } };
 const formatBits = { binary16: 16, bfloat16: 16, binary32: 32, binary64: 64 };
-export async function CalcInspect(input, format, direction, word, inputBase, signedMode) {
+export async function CalcInspect(input, format, direction, word, signedMode) {
   record('CalcInspect');
-  calcInspections.push({ input, format, direction, wordSize: word, inputBase, signedMode });
+  calcInspections.push({ input, format, direction, wordSize: word, signedMode });
   if (calcQueueFull) throw Error('The calculator is paused until your calculations reach the server. Check your connection.');
   const tools = examTools?.calculator;
   if (calcUnavailable || state.phase !== 'exam' || state.locked || !tools?.enabled || !(tools.modes ?? ['scientific']).includes('programmer') || (tools.disabled_functions ?? []).includes('ieee754')) throw Error('The calculator is not available.');
@@ -162,6 +164,7 @@ export async function CalcInspect(input, format, direction, word, inputBase, sig
     if (bits) return { ok: true, format, bits, sign: value.startsWith('-') ? '1' : '0', exponent_field: '15', unbiased_exponent: '0', mantissa_field: '0', class: 'normal', value, rounded: false };
     if (/^0x[0-9a-f]+$/i.test(text) && BigInt(text) >= (1n << BigInt(formatBits[format]))) return { ok: false, code: 'BIT_WIDTH' };
     if (text.includes('.')) return { ok: false, code: 'NOT_INTEGER' };
+    if (/^\d\w*$/.test(text) && !intLiteral.test(text)) return { ok: false, code: 'BAD_NUMBER' }; // 3F800000 needs its 0x
     return { ok: false, code: 'SYNTAX' };
   }
   const canned = calcIEEE[format]?.[text];

@@ -142,6 +142,14 @@
     dialog?.querySelector('input')?.focus();
   }
 
+  // Clear empties the input, which stays from one opening to the next. A failure is about the text that is gone,
+  // so it goes too; a result stays, with its copy button, and so do the history and ans.
+  function clearInput() {
+    input = '';
+    if (result?.display == null) result = null;
+    dialog?.querySelector('input')?.focus();
+  }
+
   function backspace() {
     input = input.slice(0, -1);
     result = null;
@@ -243,8 +251,11 @@
             </span>
           </div>
         {/if}
-        <input class="calc-input" bind:value={input} maxlength={MAX_INPUT} spellcheck="false" autocomplete="off"
-          aria-label="Expression" placeholder="Type an expression" onkeydown={event => { if (event.key === 'Enter') { event.preventDefault(); evaluate(); } }} />
+        <div class="calc-entry">
+          <input class="calc-input" bind:value={input} maxlength={MAX_INPUT} spellcheck="false" autocomplete="off"
+            aria-label="Expression" placeholder="Type an expression" onkeydown={event => { if (event.key === 'Enter') { event.preventDefault(); evaluate(); } }} />
+          <button type="button" class="calc-clear" aria-label="Clear" title="Clear the input" disabled={!input} onclick={clearInput}><Icon name="eraser" size={18} /></button>
+        </div>
         <div class="calc-output">
         <p class="calc-result" aria-live="polite">
           {#if result?.error}<span class="error">{result.error}</span>
@@ -340,6 +351,11 @@
   .calc-angle button { margin: 0; padding: .1rem .5rem; font-size: var(--text-sm); }
   .calc-close { display: inline-grid; place-items: center; margin: 0; padding: .1rem .45rem; }
   .calc-input { background: var(--bg-primary); font-family: var(--font-mono, monospace); font-size: 1.05rem; }
+  .calc-entry { display: flex; gap: var(--space-2); align-items: stretch; }
+  .calc-entry .calc-input { flex: 1; min-width: 0; }
+  .calc-clear { display: inline-grid; place-items: center; margin: 0; padding: .25rem .6rem; }
+  .calc-clear:not(:disabled) { color: var(--alert-text); }
+  .calc-clear:hover:not(:disabled) { background: var(--alert-fill); border-color: var(--alert); color: var(--alert-text); }
   .calc-output { display: flex; align-items: center; }
   .calc-result { flex: 1; min-width: 0; background: var(--bg-primary); min-height: 1.6rem; margin: 0; overflow-wrap: anywhere; }
   .calc-result .display { font-family: var(--font-mono, monospace); font-weight: 600; color: var(--text-main); }

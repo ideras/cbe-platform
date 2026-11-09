@@ -1,8 +1,8 @@
 import { test, expect } from '@playwright/test';
 
-// The programmer panel (plan Phases 5, 6 and 6A): bases, word size, the signed/unsigned toggle, flags, the bit
-// grid, and one input shared by the Keypad, IEEE 754 and Radix Point tabs — all computed in Go, with the panel's
-// settings in the logged details.
+// The programmer panel (plan Phases 5, 6 and 6A): word size, the signed/unsigned toggle, flags, the bit grid, and
+// one input shared by the Keypad, IEEE 754 and Radix Point tabs — all computed in Go, with the panel's settings in
+// the logged details. There is no input base (owner 2026-11-08): plain numbers are decimal, prefixes write the rest.
 async function login(page) {
   await page.getByLabel('I have read these rules').check();
   await page.getByLabel('Account number').fill('00123');
@@ -33,7 +33,6 @@ async function programmerPanel(page, tools = bothModes) {
 }
 
 const wordSize = (panel, size) => panel.getByRole('group', { name: 'Word size' }).getByRole('button', { name: String(size), exact: true });
-const inputBase = (panel, name) => panel.getByRole('group', { name: 'Input base' }).getByRole('button', { name, exact: true });
 const expression = panel => panel.getByLabel('Programmer expression');
 
 test('the tabs appear when more than one mode is implemented and enabled, and switching is recorded', async ({ page }) => {
@@ -75,17 +74,34 @@ test('the flags and readings follow the plan vectors', async ({ page }) => {
   await expect(panel.locator('.flags')).toContainText('OF 1');
   // The settings that reproduce the result go to Go with it.
   const evaluations = await page.evaluate(() => window.__studentHarness.calcEvaluations);
-  expect(evaluations.at(-1)).toMatchObject({ input: '127 + 1', wordSize: 8, inputBase: 'dec', signedMode: true });
+  expect(evaluations.at(-1)).toEqual({ input: '127 + 1', wordSize: 8, signedMode: true });
 });
 
-test('the input base decides how unprefixed literals are read', async ({ page }) => {
+test('there is no input base: prefixes write the other bases, and a number written another way gets a hint', async ({ page }) => {
   const panel = await programmerPanel(page);
-  await inputBase(panel, 'HEX').click();
+  await expect(panel.getByRole('group', { name: 'Input base' })).toHaveCount(0);
+  await expect(panel.locator('.hint')).toHaveText('Plain numbers are decimal. Write 0b1010, 0o17 or 0xFF for other bases.');
   await wordSize(panel, 16).click();
-  await expression(panel).fill('ff + 1');
-  await panel.getByRole('button', { name: 'Evaluate' }).click();
+  await expression(panel).fill('0xff + 1');
+  await expression(panel).press('Enter');
   await expect(panel).toContainText('DEC unsigned 256');
   await expect(panel).toContainText('HEX 0x0101');
+  const result = panel.locator('.calc-result');
+  for (const [input, message, hint] of [
+    ['ff + 1', 'This name has no value in this exam.', 'Hex numbers need the 0x prefix: 0xff.'],
+    ['0b102', 'This number is not written correctly.', '2 is not a binary digit: binary uses only 0 and 1.'],
+    ['010', 'This number is not written correctly.', 'A number cannot start with 0. Write 0o10 for octal, or 10 for decimal.'],
+  ]) {
+    await expression(panel).fill(input);
+    await expression(panel).press('Enter');
+    await expect(result.locator('.error')).toHaveText(message);
+    await expect(result.locator('.hint-line')).toHaveText(hint);
+  }
+  // A failure the hints do not cover has no hint line.
+  await expression(panel).fill('1 <<');
+  await expression(panel).press('Enter');
+  await expect(result.locator('.error')).toHaveText('This is not a valid expression.');
+  await expect(result.locator('.hint-line')).toHaveCount(0);
 });
 
 test('clicking a bit flips it, writes the literal into the input, and evaluates', async ({ page }) => {
@@ -94,12 +110,26 @@ test('clicking a bit flips it, writes the literal into the input, and evaluates'
   await expression(panel).fill('1');
   await panel.getByRole('button', { name: 'Evaluate' }).click();
   await expect(panel).toContainText('DEC unsigned 1');
-  // The grid shows 8 bits; flipping the highest bit writes 0x81 into the input in DEC and evaluates it.
+  // The grid shows 8 bits; flipping the highest bit of a decimal literal writes 129 and evaluates it.
   await panel.getByRole('button', { name: 'Bit 7, set it' }).click();
   await expect(expression(panel)).toHaveValue('129');
   await expect(panel).toContainText('DEC unsigned 129');
   const evaluations = await page.evaluate(() => window.__studentHarness.calcEvaluations);
   expect(evaluations.at(-1)).toMatchObject({ input: '129' });
+});
+
+test('a flipped bit keeps the base of the literal in the input, and an expression is written back in hex', async ({ page }) => {
+  const panel = await programmerPanel(page);
+  await wordSize(panel, 8).click();
+  for (const [input, flipped, again] of [['0x01', '0x81', '0xC1'], ['0b1', '0b10000001', '0b11000001'], ['0o1', '0o201', '0o301'], ['0 - 1', '0x7F', '0x3F']]) {
+    await expression(panel).fill(input);
+    await expression(panel).press('Enter');
+    await expect(panel.locator('.bitgrid')).toBeVisible();
+    await panel.getByRole('button', { name: /^Bit 7, / }).click();
+    await expect(expression(panel)).toHaveValue(flipped);
+    await panel.getByRole('button', { name: /^Bit 6, / }).click();
+    await expect(expression(panel)).toHaveValue(again);
+  }
 });
 
 test('the bit view shows 32 bits a row, so 64 bits take two rows, with bit 0 at the right edge', async ({ page }) => {
@@ -169,14 +199,14 @@ test('an exponent is refused with a hint (D19)', async ({ page }) => {
   const panel = await programmerPanel(page);
   await expression(panel).fill('1e3');
   await expression(panel).press('Enter');
-  await expect(panel.locator('.calc-result')).toContainText('This is not a valid expression.');
-  await expect(panel.locator('.calc-result')).toContainText('Exponents are not accepted. Write the number in full or use Decode.');
+  await expect(panel.locator('.calc-result .error')).toHaveText('This number is not written correctly.');
+  await expect(panel.locator('.calc-result .hint-line')).toHaveText('Exponents are not accepted. Write the number in full or use Decode. For a hex number, write 0x1e3.');
 });
 
 test('one input carries across the tabs, each tab reads it, and every tab change is recorded (D21, D22)', async ({ page }) => {
   const panel = await programmerPanel(page);
   await expression(panel).fill('10.625');
-  await expect(panel.locator('.hint')).toHaveText('Integer operators need whole numbers.');
+  await expect(panel.locator('.hint')).toHaveText('Plain numbers are decimal. Write 0b1010, 0o17 or 0xFF for other bases.');
   await panel.getByRole('tab', { name: 'Radix Point' }).click();
   // The text stays, and the Radix Point tab reads it on arrival.
   await expect(expression(panel)).toHaveValue('10.625');
@@ -194,7 +224,7 @@ test('one input carries across the tabs, each tab reads it, and every tab change
   expect(changes).toEqual([{ from: 'keypad', to: 'fraction' }, { from: 'fraction', to: 'ieee754' }]);
   // The Radix Point tab sent the panel settings with the input.
   const evaluations = await page.evaluate(() => window.__studentHarness.calcEvaluations);
-  expect(evaluations.find(entry => entry.view === 'fraction')).toMatchObject({ input: '10.625', wordSize: 32, inputBase: 'dec', signedMode: true });
+  expect(evaluations.find(entry => entry.view === 'fraction')).toEqual({ input: '10.625', view: 'fraction', wordSize: 32, signedMode: true });
   // The tabs are a tablist: the panel is labeled by its tab.
   await expect(panel.getByRole('tabpanel', { name: 'IEEE 754' })).toBeVisible();
   await expect(panel.getByRole('tab', { name: 'IEEE 754' })).toHaveAttribute('aria-selected', 'true');
@@ -235,28 +265,54 @@ test('the arrow keys move between the tabs and Enter selects one', async ({ page
   await expect(expression(panel)).toHaveValue('7');
 });
 
-test('the keypad types into the shared input, and digits the base cannot read are inactive', async ({ page }) => {
+test('the keypad types into the shared input, with every digit active and keys for the prefixes', async ({ page }) => {
   const panel = await programmerPanel(page);
   const keys = panel.getByRole('group', { name: 'Programmer keys' });
-  await expect(keys.getByRole('button', { name: 'A', exact: true })).toHaveAttribute('aria-disabled', 'true');
-  await keys.getByRole('button', { name: 'A', exact: true }).dispatchEvent('click'); // inactive: Playwright will not click it
-  await expect(expression(panel)).toHaveValue('');
   await keys.getByRole('button', { name: '1', exact: true }).click();
   await keys.getByRole('button', { name: 'Decimal point' }).click();
   await keys.getByRole('button', { name: '5', exact: true }).click();
   await expect(expression(panel)).toHaveValue('1.5');
   await keys.getByRole('button', { name: 'Clear the input' }).click();
   await expect(expression(panel)).toHaveValue('');
-  // In HEX, A–F are active; in BIN, only 0 and 1.
-  await inputBase(panel, 'HEX').click();
-  await expect(keys.getByRole('button', { name: 'A', exact: true })).not.toHaveAttribute('aria-disabled', 'true');
-  await inputBase(panel, 'BIN').click();
-  await expect(keys.getByRole('button', { name: '2', exact: true })).toHaveAttribute('aria-disabled', 'true');
-  await expect(keys.getByRole('button', { name: '1', exact: true })).not.toHaveAttribute('aria-disabled', 'true');
+  // No digit is ever inactive: A–F follow a 0x key, 0 and 1 a 0b key, 7 a 0o key.
+  await expect(keys.locator('[aria-disabled]')).toHaveCount(0);
+  for (const name of ['Hexadecimal prefix', 'A', 'F', 'Plus', 'Binary prefix', '1', '0', 'Plus', 'Octal prefix', '7']) {
+    await keys.getByRole('button', { name, exact: true }).click();
+  }
+  await expect(expression(panel)).toHaveValue('0xAF+0b10+0o7');
+  // The last row is the three prefixes, the point, AC and a two-cell =.
+  const top = async name => (await keys.getByRole('button', { name, exact: true }).boundingBox()).y;
+  for (const name of ['Octal prefix', 'Hexadecimal prefix', 'Decimal point', 'Clear the input', 'Evaluate']) {
+    expect(await top(name)).toBe(await top('Binary prefix'));
+  }
   // The programmer functions show when allowed; there is no >>> key (removed in 1.3).
   await expect(keys.getByRole('button', { name: 'nand' })).toBeVisible();
   await expect(keys.getByRole('button', { name: '>>>' })).toHaveCount(0);
   await expect(keys.getByRole('button', { name: 'Ans' })).toBeVisible();
+});
+
+test('Clear beside the input empties it in every tab, and the last result stays', async ({ page }) => {
+  const panel = await programmerPanel(page);
+  const clear = panel.getByRole('button', { name: 'Clear', exact: true });
+  await expect(clear).toBeDisabled();
+  await expression(panel).fill('0x2A');
+  await expression(panel).press('Enter');
+  await expect(panel).toContainText('DEC unsigned 42');
+  await clear.click();
+  await expect(expression(panel)).toHaveValue('');
+  await expect(expression(panel)).toBeFocused();
+  await expect(clear).toBeDisabled();
+  // The readings and the bits are the last result's, so they stay.
+  await expect(panel).toContainText('DEC unsigned 42');
+  await expect(panel.locator('.bitgrid')).toBeVisible();
+  // A failure is about the cleared text, so it goes; the Radix Point tab has the same button.
+  await panel.getByRole('tab', { name: 'Radix Point' }).click();
+  await expression(panel).fill('0b102');
+  await expression(panel).press('Enter');
+  await expect(panel.locator('.calc-result .error')).toBeVisible();
+  await clear.click();
+  await expect(expression(panel)).toHaveValue('');
+  await expect(panel.locator('.calc-result')).toHaveText('');
 });
 
 test('the Radix Point tab converts exactly, with the digit cap and its dots', async ({ page }) => {
@@ -290,14 +346,18 @@ test('the IEEE 754 tab encodes and decodes, and its fields carry text labels', a
   // Decode reads an integer expression as the bits; the control re-reads the input.
   await expression(panel).fill('0x3C00 | 0x8000');
   await inspector.getByRole('group', { name: 'Direction' }).getByRole('button', { name: 'Decode' }).click();
-  await expect(panel.locator('.hint')).toHaveText('Reads a bit pattern and shows the number it encodes.');
+  await expect(panel.locator('.hint')).toHaveText('Reads a bit pattern, such as 0x3F800000, and shows the number it encodes.');
   await expect(inspector).toContainText('Value -1');
+  // A bit pattern in hex needs its 0x, and the hint says so.
+  await expression(panel).fill('3C00');
+  await expression(panel).press('Enter');
+  await expect(panel.locator('.calc-result .hint-line')).toHaveText('Hex numbers need the 0x prefix: 0x3C00.');
   // A pattern wider than the format is refused.
   await expression(panel).fill('0x412A0000');
   await expression(panel).press('Enter');
   await expect(panel.locator('.calc-result')).toContainText('This bit pattern is wider than the format.');
   const inspections = await page.evaluate(() => window.__studentHarness.calcInspections);
-  expect(inspections.at(-1)).toMatchObject({ input: '0x412A0000', format: 'binary16', direction: 'decode', wordSize: 32, inputBase: 'dec', signedMode: true });
+  expect(inspections.at(-1)).toEqual({ input: '0x412A0000', format: 'binary16', direction: 'decode', wordSize: 32, signedMode: true });
 });
 
 test('with the inspector disabled the IEEE 754 tab does not exist', async ({ page }) => {
@@ -323,4 +383,11 @@ test('programmer input accepts paste and each displayed base has its own copy co
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('127');
   await panel.getByRole('button', { name: 'Copy hexadecimal', exact: true }).click();
   expect(await page.evaluate(() => navigator.clipboard.readText())).toMatch(/^0x0*7F$/);
+  // Every base is copied with its prefix, so a copied value pasted back in reads the same.
+  await panel.getByRole('button', { name: 'Copy octal', exact: true }).click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toMatch(/^0o0*177$/);
+  await panel.getByRole('button', { name: 'Copy binary', exact: true }).click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toMatch(/^0b0*1111111$/);
+  await panel.getByRole('button', { name: 'Copy unsigned decimal', exact: true }).click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('127');
 });

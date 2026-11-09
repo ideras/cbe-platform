@@ -50,27 +50,27 @@ func TestTheExamPreviewLoadsAndItsCalculatorEvaluates(t *testing.T) {
 		t.Fatalf("sin(90) = %+v, %v", result, err)
 	}
 	// The programmer panel: the ans survives between evaluations.
-	if result, err := s.CalcEvaluateInt("0xFF + 1", 8, "hex", true); err != nil || !result.Ok || result.Unsigned != "0" || !result.Carry {
+	if result, err := s.CalcEvaluateInt("0xFF + 1", 8, true); err != nil || !result.Ok || result.Unsigned != "0" || !result.Carry {
 		t.Fatalf("0xFF + 1 = %+v, %v", result, err)
 	}
-	if result, err := s.CalcEvaluateInt("ans", 8, "hex", true); err != nil || !result.Ok || result.Unsigned != "0" {
+	if result, err := s.CalcEvaluateInt("ans", 8, true); err != nil || !result.Ok || result.Unsigned != "0" {
 		t.Fatalf("ans = %+v, %v", result, err)
 	}
-	if result, err := s.CalcConvertFraction("10.625", 8, "dec", true); err != nil || !result.Ok || result.Binary != "1010.101" || result.Hex != "A.A" {
+	if result, err := s.CalcConvertFraction("10.625", 8, true); err != nil || !result.Ok || result.Binary != "1010.101" || result.Hex != "A.A" {
 		t.Fatalf("10.625 = %+v, %v", result, err)
 	}
 	// A real (D20), kept as the programmer ans with its kind.
-	if result, err := s.CalcEvaluateInt("1.0 / 4", 8, "dec", true); err != nil || !result.Ok || !result.Real || result.Value != "0.25" {
+	if result, err := s.CalcEvaluateInt("1.0 / 4", 8, true); err != nil || !result.Ok || !result.Real || result.Value != "0.25" {
 		t.Fatalf("1.0 / 4 = %+v, %v", result, err)
 	}
-	if result, err := s.CalcEvaluateInt("ans * 2", 8, "dec", true); err != nil || !result.Real || result.Value != "0.5" {
+	if result, err := s.CalcEvaluateInt("ans * 2", 8, true); err != nil || !result.Real || result.Value != "0.5" {
 		t.Fatalf("a real ans * 2 = %+v, %v", result, err)
 	}
 	// The inspector's two directions (D21): 0x1e3 is the number 483 to Encode, and Decode reads bits.
-	if view, err := s.CalcInspect("0x1e3", "binary16", "encode", 32, "dec", true); err != nil || !view.Ok || view.Bits != "0x5F8C" {
+	if view, err := s.CalcInspect("0x1e3", "binary16", "encode", 32, true); err != nil || !view.Ok || view.Bits != "0x5F8C" {
 		t.Fatalf("encode 0x1e3 = %+v, %v", view, err)
 	}
-	if view, err := s.CalcInspect("0x3C00 | 0x8000", "binary16", "decode", 8, "dec", true); err != nil || !view.Ok || view.Value != "-1" {
+	if view, err := s.CalcInspect("0x3C00 | 0x8000", "binary16", "decode", 8, true); err != nil || !view.Ok || view.Value != "-1" {
 		t.Fatalf("decode 0x3C00 | 0x8000 = %+v, %v", view, err)
 	}
 	s.DiscardPreview()

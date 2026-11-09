@@ -44,16 +44,12 @@ func (s *Service) CalcEvaluate(input string, angleMode string) (calc.CalcResult,
 }
 
 // CalcEvaluateInt evaluates one programmer expression of the previewed exam, integer or real (D20).
-func (s *Service) CalcEvaluateInt(input string, word int, inputBase string, signed bool) (calc.CalcIntResult, error) {
+func (s *Service) CalcEvaluateInt(input string, word int, signed bool) (calc.CalcIntResult, error) {
 	exam, err := s.previewCalculator()
 	if err != nil {
 		return calc.CalcIntResult{}, err
 	}
-	base, ok := calc.InputBase(inputBase)
-	if !ok {
-		return calc.CalcIntResult{}, errors.New("The input base is not one of bin, oct, dec, hex.")
-	}
-	value, evalErr := calc.EvaluateProgrammer(input, calc.IntOptions{Word: word, Signed: signed, Base: base, Allowed: exam.allowed, Ans: exam.ansProgrammer})
+	value, evalErr := calc.EvaluateProgrammer(input, calc.IntOptions{Word: word, Signed: signed, Allowed: exam.allowed, Ans: exam.ansProgrammer})
 	if evalErr != nil {
 		var code *calc.Error
 		if errors.As(evalErr, &code) {
@@ -68,16 +64,12 @@ func (s *Service) CalcEvaluateInt(input string, word int, inputBase string, sign
 
 // CalcConvertFraction converts the shared input's value exactly, in the previewed exam's programmer panel (D6,
 // D21).
-func (s *Service) CalcConvertFraction(input string, word int, inputBase string, signed bool) (calc.CalcFractionResult, error) {
+func (s *Service) CalcConvertFraction(input string, word int, signed bool) (calc.CalcFractionResult, error) {
 	exam, err := s.previewCalculator()
 	if err != nil {
 		return calc.CalcFractionResult{}, err
 	}
-	base, ok := calc.InputBase(inputBase)
-	if !ok {
-		return calc.CalcFractionResult{}, errors.New("The input base is not one of bin, oct, dec, hex.")
-	}
-	result, evalErr := calc.Fraction(input, calc.IntOptions{Word: word, Signed: signed, Base: base, Allowed: exam.allowed, Ans: exam.ansProgrammer})
+	result, evalErr := calc.Fraction(input, calc.IntOptions{Word: word, Signed: signed, Allowed: exam.allowed, Ans: exam.ansProgrammer})
 	if evalErr != nil {
 		var code *calc.Error
 		if errors.As(evalErr, &code) {
@@ -90,7 +82,7 @@ func (s *Service) CalcConvertFraction(input string, word int, inputBase string, 
 
 // CalcInspect encodes or decodes the shared input in one IEEE 754 format (plan Phases 6 and 6A, D13, D21) in
 // the previewed exam's programmer panel; it answers as if the inspector did not exist when the exam disabled it.
-func (s *Service) CalcInspect(input string, format string, direction string, word int, inputBase string, signed bool) (calc.CalcIEEEView, error) {
+func (s *Service) CalcInspect(input string, format string, direction string, word int, signed bool) (calc.CalcIEEEView, error) {
 	state, err := s.previewCalculator()
 	if err != nil {
 		return calc.CalcIEEEView{}, err
@@ -101,11 +93,7 @@ func (s *Service) CalcInspect(input string, format string, direction string, wor
 	if disabled["ieee754"] {
 		return calc.CalcIEEEView{}, errors.New("The calculator is not available.")
 	}
-	base, ok := calc.InputBase(inputBase)
-	if !ok {
-		return calc.CalcIEEEView{}, errors.New("The input base is not one of bin, oct, dec, hex.")
-	}
-	view, evalErr := calc.Inspect(input, format, direction, calc.IntOptions{Word: word, Signed: signed, Base: base, Allowed: state.allowed, Ans: state.ansProgrammer})
+	view, evalErr := calc.Inspect(input, format, direction, calc.IntOptions{Word: word, Signed: signed, Allowed: state.allowed, Ans: state.ansProgrammer})
 	if evalErr != nil {
 		var code *calc.Error
 		if errors.As(evalErr, &code) {

@@ -6,7 +6,7 @@ import "testing"
 // 32-digit cap and the three ASCII dots (D6), uppercase hex digits, and the shared input read through the
 // programmer evaluator (D21).
 func TestFractionConversion(t *testing.T) {
-	opts := optsInt(32, true, 10)
+	opts := optsInt(32, true)
 	for input, want := range map[string]FractionResult{
 		"10.625": {Binary: "1010.101", Octal: "12.5", Hex: "A.A", Exact: true},
 		"0.1": {Binary: "0.00011001100110011001100110011001...", Octal: "0.06314631463146314631463146314631...",
@@ -28,14 +28,14 @@ func TestFractionConversion(t *testing.T) {
 		}
 	}
 	// An integer is read through the signed/unsigned toggle.
-	if result, err := Fraction("0xFF", optsInt(8, true, 10)); err != nil || result.Binary != "-1" {
+	if result, err := Fraction("0xFF", optsInt(8, true)); err != nil || result.Binary != "-1" {
 		t.Fatalf("signed 8-bit 0xFF = %+v, %v", result, err)
 	}
-	if result, err := Fraction("0xFF", optsInt(8, false, 10)); err != nil || result.Binary != "11111111" {
+	if result, err := Fraction("0xFF", optsInt(8, false)); err != nil || result.Binary != "11111111" {
 		t.Fatalf("unsigned 8-bit 0xFF = %+v, %v", result, err)
 	}
 	for bad, code := range map[string]string{
-		"": CodeSyntax, "1e3": CodeSyntax, "1.2.3": CodeSyntax, ".": CodeSyntax, "1.": CodeSyntax, "1,5": CodeSyntax,
+		"": CodeSyntax, "1e3": CodeBadNumber, "1.2.3": CodeSyntax, ".": CodeSyntax, "1.": CodeBadNumber, "1,5": CodeSyntax,
 		"1.5 & 1": CodeNotInteger, "abc": CodeUnknownIdent,
 	} {
 		if _, err := Fraction(bad, opts); err == nil || err.(*Error).Code != code {

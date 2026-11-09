@@ -35,18 +35,19 @@ func TestProgrammerRealValues(t *testing.T) {
 		opts  IntOptions
 		want  string // the exact rational, as big.Rat writes it
 	}{
-		"exact decimal":                   {"10.625", optsInt(32, true, 10), "85/8"},
-		"a whole real stays real":         {"2.0 + 1", optsInt(32, true, 10), "3"},
-		"a real ignores the word size":    {"300.0", optsInt(8, true, 10), "300"},
-		"real addition":                   {"1.5 + 1", optsInt(32, true, 10), "5/2"},
-		"real division is exact":          {"1.0 / 3", optsInt(32, true, 10), "1/3"},
-		"unary minus of a real":           {"-0.5", optsInt(32, true, 10), "-1/2"},
-		"0d takes a point in HEX":         {"0d10.5", optsInt(32, true, 16), "21/2"},
-		"0d takes a point in BIN":         {"0d0.25", optsInt(32, true, 2), "1/4"},
-		"8-bit 0xFF is -1 when signed":    {"0xFF + 0.5", optsInt(8, true, 10), "-1/2"},
-		"8-bit 0xFF is 255 when unsigned": {"0xFF + 0.5", optsInt(8, false, 10), "511/2"},
-		"a real times an integer":         {"0.5 * 3", optsInt(32, true, 10), "3/2"},
-		"precedence with reals":           {"1 + 0.5 * 4", optsInt(32, true, 10), "3"},
+		"exact decimal":                   {"10.625", optsInt(32, true), "85/8"},
+		"a whole real stays real":         {"2.0 + 1", optsInt(32, true), "3"},
+		"a real ignores the word size":    {"300.0", optsInt(8, true), "300"},
+		"real addition":                   {"1.5 + 1", optsInt(32, true), "5/2"},
+		"real division is exact":          {"1.0 / 3", optsInt(32, true), "1/3"},
+		"unary minus of a real":           {"-0.5", optsInt(32, true), "-1/2"},
+		"0d takes a point":                {"0d10.5", optsInt(32, true), "21/2"},
+		"a whole part may start with 0":   {"010.5", optsInt(32, true), "21/2"},
+		"separators on both sides":        {"1_000.000_5", optsInt(32, true), "2000001/2000"},
+		"8-bit 0xFF is -1 when signed":    {"0xFF + 0.5", optsInt(8, true), "-1/2"},
+		"8-bit 0xFF is 255 when unsigned": {"0xFF + 0.5", optsInt(8, false), "511/2"},
+		"a real times an integer":         {"0.5 * 3", optsInt(32, true), "3/2"},
+		"precedence with reals":           {"1 + 0.5 * 4", optsInt(32, true), "3"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			value, code := evalProgrammer(t, test.input, test.opts)
@@ -69,13 +70,11 @@ func TestProgrammerIntegersStayIntegers(t *testing.T) {
 		opts  IntOptions
 		bits  uint64
 	}{
-		"integer division truncates":     {"1 / 3", optsInt(32, true, 10), 0},
-		"0x1e3 is hex in DEC":            {"0x1e3", optsInt(32, true, 10), 483},
-		"0x1e3 is hex in HEX":            {"0x1e3", optsInt(32, true, 16), 483},
-		"bare 1e3 is hex in HEX":         {"1e3", optsInt(32, true, 16), 483},
-		"0x1e3f is one hex integer":      {"0x1e3f", optsInt(32, true, 10), 0x1E3F},
-		"signed 8-bit 0xFF / 2 is -1/2":  {"0xFF / 2", optsInt(8, true, 10), 0},
-		"unsigned 8-bit 0xFF / 2 is 127": {"0xFF / 2", optsInt(8, false, 10), 127},
+		"integer division truncates":     {"1 / 3", optsInt(32, true), 0},
+		"0x1e3 is hex in DEC":            {"0x1e3", optsInt(32, true), 483},
+		"0x1e3f is one hex integer":      {"0x1e3f", optsInt(32, true), 0x1E3F},
+		"signed 8-bit 0xFF / 2 is -1/2":  {"0xFF / 2", optsInt(8, true), 0},
+		"unsigned 8-bit 0xFF / 2 is 127": {"0xFF / 2", optsInt(8, false), 127},
 	} {
 		t.Run(name, func(t *testing.T) {
 			value, code := evalProgrammer(t, test.input, test.opts)
@@ -92,31 +91,30 @@ func TestProgrammerRealRefusals(t *testing.T) {
 		opts  IntOptions
 		code  string
 	}{
-		"no leading digit":            {".5", optsInt(32, true, 10), CodeSyntax},
-		"a point in a hex literal":    {"0x1.8", optsInt(32, true, 10), CodeSyntax},
-		"a point in a binary literal": {"0b1.1", optsInt(32, true, 10), CodeSyntax},
-		"a point in an octal literal": {"0o1.1", optsInt(32, true, 10), CodeSyntax},
-		"no exponent in DEC":          {"1e3", optsInt(32, true, 10), CodeSyntax},
-		"no exponent after a point":   {"1.5e3", optsInt(32, true, 10), CodeSyntax},
-		"a point in HEX":              {"10.5", optsInt(32, true, 16), CodeSyntax},
-		"a point in BIN":              {"1.1", optsInt(32, true, 2), CodeSyntax},
-		"a hex word with a point":     {"ff.8", optsInt(32, true, 16), CodeSyntax},
-		"no digits after the point":   {"1.", optsInt(32, true, 10), CodeSyntax},
-		"two points":                  {"1.2.3", optsInt(32, true, 10), CodeSyntax},
-		"real AND":                    {"1.5 & 1", optsInt(32, true, 10), CodeNotInteger},
-		"a whole real is still real":  {"2.0 & 1", optsInt(32, true, 10), CodeNotInteger},
-		"real remainder":              {"5.0 % 2", optsInt(32, true, 10), CodeNotInteger},
-		"real NOT":                    {"~1.5", optsInt(32, true, 10), CodeNotInteger},
-		"real shift count":            {"1 << 0.5", optsInt(32, true, 10), CodeNotInteger},
-		"whole real shift count":      {"1 << 2.0", optsInt(32, true, 10), CodeNotInteger},
-		"real shifted":                {"2.0 >> 1", optsInt(32, true, 10), CodeNotInteger},
-		"real XOR":                    {"1 ^ 0.5", optsInt(32, true, 10), CodeNotInteger},
-		"real OR":                     {"1 | 0.5", optsInt(32, true, 10), CodeNotInteger},
-		"real rotate count":           {"rol(1, 2.0)", optsInt(32, true, 10), CodeNotInteger},
-		"real nand":                   {"nand(1.0, 1)", optsInt(32, true, 10), CodeNotInteger},
-		"real division by zero":       {"1.0 / 0", optsInt(32, true, 10), CodeDivisionByZero},
-		"a disallowed call first":     {"foo(1.5)", optsInt(32, true, 10), CodeUnknownFunction},
-		"an integer literal still":    {"256 + 0.5", optsInt(8, true, 10), CodeOverflow},
+		"no leading digit":            {".5", optsInt(32, true), CodeSyntax},
+		"a point in a hex literal":    {"0x1.8", optsInt(32, true), CodeBadNumber},
+		"a point in a binary literal": {"0b1.1", optsInt(32, true), CodeBadNumber},
+		"a point in an octal literal": {"0o1.1", optsInt(32, true), CodeBadNumber},
+		"no exponent":                 {"1e3", optsInt(32, true), CodeBadNumber},
+		"no exponent after a point":   {"1.5e3", optsInt(32, true), CodeBadNumber},
+		"a hex word with a point":     {"ff.8", optsInt(32, true), CodeSyntax},
+		"no digits after the point":   {"1.", optsInt(32, true), CodeBadNumber},
+		"two points":                  {"1.2.3", optsInt(32, true), CodeSyntax},
+		"a separator at the point":    {"1_.5", optsInt(32, true), CodeBadNumber},
+		"real AND":                    {"1.5 & 1", optsInt(32, true), CodeNotInteger},
+		"a whole real is still real":  {"2.0 & 1", optsInt(32, true), CodeNotInteger},
+		"real remainder":              {"5.0 % 2", optsInt(32, true), CodeNotInteger},
+		"real NOT":                    {"~1.5", optsInt(32, true), CodeNotInteger},
+		"real shift count":            {"1 << 0.5", optsInt(32, true), CodeNotInteger},
+		"whole real shift count":      {"1 << 2.0", optsInt(32, true), CodeNotInteger},
+		"real shifted":                {"2.0 >> 1", optsInt(32, true), CodeNotInteger},
+		"real XOR":                    {"1 ^ 0.5", optsInt(32, true), CodeNotInteger},
+		"real OR":                     {"1 | 0.5", optsInt(32, true), CodeNotInteger},
+		"real rotate count":           {"rol(1, 2.0)", optsInt(32, true), CodeNotInteger},
+		"real nand":                   {"nand(1.0, 1)", optsInt(32, true), CodeNotInteger},
+		"real division by zero":       {"1.0 / 0", optsInt(32, true), CodeDivisionByZero},
+		"a disallowed call first":     {"foo(1.5)", optsInt(32, true), CodeUnknownFunction},
+		"an integer literal still":    {"256 + 0.5", optsInt(8, true), CodeOverflow},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, code := evalProgrammer(t, test.input, test.opts); code != test.code {
@@ -128,7 +126,7 @@ func TestProgrammerRealRefusals(t *testing.T) {
 
 // A real cannot grow without bound: ans * ans repeated stops at OVERFLOW instead of eating the memory.
 func TestProgrammerRealSizeIsBounded(t *testing.T) {
-	opts := optsInt(32, true, 10)
+	opts := optsInt(32, true)
 	opts.Ans = Value{Real: rat("1.0000001")}
 	for i := 0; i < 20; i++ {
 		value, code := evalProgrammer(t, "ans * ans", opts)
@@ -145,7 +143,7 @@ func TestProgrammerRealSizeIsBounded(t *testing.T) {
 
 // The programmer ans keeps its kind: a real stays a real, an integer is read at the current word size.
 func TestProgrammerAnsKeepsItsKind(t *testing.T) {
-	opts := optsInt(32, true, 10)
+	opts := optsInt(32, true)
 	opts.Ans = Value{Real: rat("1.5")}
 	if value, code := evalProgrammer(t, "ans + 1", opts); code != "" || !value.IsReal() || value.Real.Cmp(rat("2.5")) != 0 {
 		t.Fatalf("real ans + 1 = %+v %s", value, code)
@@ -153,7 +151,7 @@ func TestProgrammerAnsKeepsItsKind(t *testing.T) {
 	if _, code := evalProgrammer(t, "ans & 1", opts); code != CodeNotInteger {
 		t.Fatalf("real ans & 1 = %s, want NOT_INTEGER", code)
 	}
-	opts = optsInt(8, true, 10)
+	opts = optsInt(8, true)
 	opts.Ans = Value{Bits: 0x1FF}
 	if value, code := evalProgrammer(t, "ans", opts); code != "" || value.Bits != 0xFF {
 		t.Fatalf("a 9-bit ans at 8 bits = %+v %s", value, code)
@@ -166,7 +164,7 @@ func TestProgrammerNegativeZero(t *testing.T) {
 		"-0.0": true, "0.0": false, "-(-0.0)": false, "-0": false, // -0 is the integer 0
 		"-0.0 * 1": true, "0.0 * -1": true, "-0.0 / -1": false, "-0.0 + -0.0": true, "1.0 - 1": false, "-0.0 - 0.0": true,
 	} {
-		value, code := evalProgrammer(t, input, optsInt(32, true, 10))
+		value, code := evalProgrammer(t, input, optsInt(32, true))
 		if code != "" {
 			t.Fatalf("%q: %s", input, code)
 		}

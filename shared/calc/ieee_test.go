@@ -14,11 +14,11 @@ import (
 // encode and decode are the tests' entries to the two directions of the inspector (D21), with the default
 // panel settings: 32 bits, signed, DEC.
 func encode(input, format string) (IEEEView, error) {
-	return Inspect(input, format, DirectionEncode, optsInt(32, true, 10))
+	return Inspect(input, format, DirectionEncode, optsInt(32, true))
 }
 
 func decode(input, format string) (IEEEView, error) {
-	return Inspect(input, format, DirectionDecode, optsInt(32, true, 10))
+	return Inspect(input, format, DirectionDecode, optsInt(32, true))
 }
 
 // The test vectors of the plan (Phases 6 and 6A).
@@ -52,7 +52,7 @@ func TestIEEETestVectors(t *testing.T) {
 		"decode a short one":   {DirectionDecode, "0x3C0", "binary16", "0x03C0", "subnormal", "0.000057220458984375"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			view, err := Inspect(test.input, test.format, test.direction, optsInt(32, true, 10))
+			view, err := Inspect(test.input, test.format, test.direction, optsInt(32, true))
 			if err != nil {
 				t.Fatalf("%s: %v", name, err)
 			}
@@ -83,13 +83,13 @@ func TestIEEETestVectors(t *testing.T) {
 		t.Fatalf("an exact value says it was rounded: %+v", view)
 	}
 	// Encode reads an integer through the signed/unsigned toggle (owner, 2026-10-24).
-	signed, _ := Inspect("0xFF", "binary16", DirectionEncode, optsInt(8, true, 10))
-	unsigned, _ := Inspect("0xFF", "binary16", DirectionEncode, optsInt(8, false, 10))
+	signed, _ := Inspect("0xFF", "binary16", DirectionEncode, optsInt(8, true))
+	unsigned, _ := Inspect("0xFF", "binary16", DirectionEncode, optsInt(8, false))
 	if signed.Bits != "0xBC00" || unsigned.Bits != "0x5BF8" {
 		t.Fatalf("8-bit 0xFF encodes as %s signed and %s unsigned, want 0xBC00 and 0x5BF8", signed.Bits, unsigned.Bits)
 	}
 	// Decode works at the format's width, whatever the word size.
-	if view, err := Inspect("0x412A0000", "binary32", DirectionDecode, optsInt(8, true, 10)); err != nil || view.Value != "10.625" {
+	if view, err := Inspect("0x412A0000", "binary32", DirectionDecode, optsInt(8, true)); err != nil || view.Value != "10.625" {
 		t.Fatalf("decoding binary32 at an 8-bit word size = %+v, %v", view, err)
 	}
 }
@@ -101,18 +101,19 @@ func TestIEEERefusals(t *testing.T) {
 		{DirectionDecode, "0x1FFFFFFFF", "binary32", CodeBitWidth},
 		{DirectionDecode, "1.5", "binary16", CodeNotInteger},
 		{DirectionDecode, "2.0", "binary16", CodeNotInteger},
-		{DirectionDecode, "0x3C0G", "binary16", CodeSyntax},
-		{DirectionEncode, "0x3C00", "binary17", CodeSyntax}, // no such format
-		{"sideways", "1.0", "binary16", CodeSyntax},         // no such direction
+		{DirectionDecode, "0x3C0G", "binary16", CodeBadNumber},
+		{DirectionDecode, "3C00", "binary16", CodeBadNumber}, // hex needs its prefix
+		{DirectionEncode, "0x3C00", "binary17", CodeSyntax},  // no such format
+		{"sideways", "1.0", "binary16", CodeSyntax},          // no such direction
 		{DirectionEncode, "", "binary16", CodeSyntax},
-		{DirectionEncode, "1e", "binary32", CodeSyntax},
-		{DirectionEncode, "1e-7", "binary32", CodeSyntax}, // no exponent (D19)
-		{DirectionEncode, "1e40", "binary32", CodeSyntax},
+		{DirectionEncode, "1e", "binary32", CodeBadNumber},
+		{DirectionEncode, "1e-7", "binary32", CodeBadNumber}, // no exponent (D19)
+		{DirectionEncode, "1e40", "binary32", CodeBadNumber},
 		{DirectionEncode, "1.2.3", "binary32", CodeSyntax},
 		{DirectionEncode, "1.5 & 1", "binary32", CodeNotInteger},
 		{DirectionEncode, "1.0 / 0", "binary32", CodeDivisionByZero},
 	} {
-		if view, err := Inspect(test.input, test.format, test.direction, optsInt(32, true, 10)); err == nil {
+		if view, err := Inspect(test.input, test.format, test.direction, optsInt(32, true)); err == nil {
 			t.Fatalf("%s %q in %s = %+v, want a refusal", test.direction, test.input, test.format, view)
 		} else if code := err.(*Error).Code; code != test.code {
 			t.Fatalf("%s %q in %s = %s, want %s", test.direction, test.input, test.format, code, test.code)
