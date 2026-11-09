@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { rosterCounts, filterRoster, sortRoster, needsAttention, inProgress, isSubmitted, canForce, initials, spoken, lockRule, lockLabel, lowTime, networkBadge, focusBadge, lifecycleBadge, sound, examLength, loginGate, remoteFindings, clockDuration, unlockChecks } from '../src/roster.js';
+import { rosterCounts, filterRoster, sortRoster, needsAttention, inProgress, isSubmitted, canForce, initials, spoken, lockRule, lockLabel, lowTime, networkBadge, focusBadge, lifecycleBadge, sound, examLength, loginGate, remoteFindings, clockDuration, unlockChecks, appRelease } from '../src/roster.js';
 
 const row = (name, status = 'active', extra = {}) => ({ student_name: name, account_number: name, status,
   presence: { monitoring: status === 'active', connectivity: 'healthy', focus: { state: 'focused' } }, ...extra });
@@ -164,4 +164,17 @@ test('the lock rules and the label of a lock keep the seconds of a short lock', 
   const away = { locked: { reason: 'away', since: '2035-01-01T00:00:00Z' } };
   assert.equal(lockLabel(away, { lock_away_after_ms: 10000 }, '2035-01-01T00:00:30Z').reason, 'away 10 s');
   assert.equal(lockLabel(away, { lock_away_after_ms: 90000 }, '2035-01-01T00:00:30Z').reason, 'away 1 min 30 s');
+});
+
+test('a student application is compared with the server release only when the server says its own', () => {
+  const on = (version, lastSeen = 'x') => ({ presence: { app_version: version, last_seen: lastSeen } });
+  assert.deepEqual(appRelease(on('v0.16.0'), 'v0.16.0'), { version: 'v0.16.0', differs: false, note: '' });
+  assert.deepEqual(appRelease(on('v0.15.0'), 'v0.16.0'), { version: 'v0.15.0', differs: true, note: 'Application v0.15.0 · the server is v0.16.0' });
+  // No release from an application that checked in: one older than the field. Before any heartbeat there is nothing to say.
+  assert.equal(appRelease(on(''), 'v0.16.0').differs, true);
+  assert.equal(appRelease(on('', null), 'v0.16.0').differs, false);
+  // A server older than the field compares nothing; malformed presence is no release.
+  assert.deepEqual(appRelease(on('v0.15.0'), ''), { version: 'v0.15.0', differs: false, note: '' });
+  assert.equal(appRelease({ presence: { app_version: 7 } }, '').version, '');
+  assert.equal(appRelease({}, 'v0.16.0').differs, false);
 });

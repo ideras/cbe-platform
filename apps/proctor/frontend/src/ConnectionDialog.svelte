@@ -71,6 +71,7 @@
         <div class="current-text">
           <span class="k">{view.connected ? 'Connected' : view.connecting ? 'Connecting' : 'Not connected'}</span>
           <span class="v">{view.connected || view.connecting ? host : 'No server'}</span>
+          {#if view.connected}<span class="release">{view.catalog?.server_version ? `Server release ${view.catalog.server_version}` : 'The server does not report its release (older than v0.16)'}</span>{/if}
         </div>
         {#if view.connected}<span class="pill {currentScheme}">{currentScheme.toUpperCase()}</span>{/if}
       </div>
@@ -125,6 +126,7 @@
   .current-text { display: grid; min-width: 0; }
   .k { font-size: .68rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
   .v { font-family: var(--font-mono); font-size: .92rem; font-weight: 700; overflow-wrap: anywhere; }
+  .release { font-size: .8rem; }
   .current.on { color: var(--ok-text); background: var(--ok-fill); border-color: var(--ok-border); border-left-color: var(--ok); }
   .current.on .state-dot { background: var(--ok); animation: okpulse 1.8s infinite; }
   .current.pending { color: var(--action-hover); background: var(--hover-fill); border-color: var(--action-border); border-left-color: var(--action-primary); }

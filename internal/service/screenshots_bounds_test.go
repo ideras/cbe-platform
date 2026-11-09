@@ -93,7 +93,7 @@ func TestScreenshotPurgeIsExamScopedAndKeepsAnswers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := other.Heartbeat(t.Context(), b.Token, "other", "192.0.2.2", domain.Sound{}); err != nil {
+	if _, err := other.Heartbeat(t.Context(), b.Token, "other", "192.0.2.2", "", domain.Sound{}); err != nil {
 		t.Fatal(err)
 	}
 	loss, err := other.ClientEvent(t.Context(), b.Token, service.EventInput{Type: "focus_lost"})

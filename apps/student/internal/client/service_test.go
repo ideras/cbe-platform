@@ -23,6 +23,7 @@ type writeRecord struct {
 }
 type telemetryRecord struct {
 	path, kind string
+	agent      string // the User-Agent the request named
 	at         time.Time
 	detail     map[string]any
 	volume     *int
@@ -145,7 +146,7 @@ func (f *fixture) handle(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid telemetry", 400)
 			return
 		}
-		record := telemetryRecord{path: r.URL.Path, kind: input.Type, at: time.Now(), detail: input.Detail, volume: input.Volume, muted: input.Muted}
+		record := telemetryRecord{path: r.URL.Path, kind: input.Type, agent: r.UserAgent(), at: time.Now(), detail: input.Detail, volume: input.Volume, muted: input.Muted}
 		f.mu.Lock()
 		f.telemetry = append(f.telemetry, record)
 		id := int64(100 + len(f.telemetry))
@@ -599,4 +600,60 @@ func TestVersionIsTheStampedRelease(t *testing.T) {
 	if got := (&Service{options: Options{Version: "v0.15.0"}}).Version(); got != "v0.15.0" {
 		t.Fatalf("stamped = %q", got)
 	}
+}
+
+// Every request names the application and its release in its User-Agent, the heartbeat included: the server records it for
+// the proctor. A request that names itself keeps its own.
+func TestRequestsNameTheApplicationRelease(t *testing.T) {
+	f := newFixture(t)
+	s := newClient(t, f, func(o *Options) { o.Version = "v0.16.0-test" })
+	loginClient(t, s, f)
+	until := time.Now().Add(3 * time.Second)
+	for {
+		f.mu.Lock()
+		var agents []string
+		for _, record := range f.telemetry {
+			if record.path == "/heartbeat" {
+				agents = append(agents, record.agent)
+			}
+		}
+		f.mu.Unlock()
+		if len(agents) > 0 {
+			if agents[0] != "cbe-portal-student/v0.16.0-test" {
+				t.Fatalf("heartbeat User-Agent = %q", agents[0])
+			}
+			break
+		}
+		if time.Now().After(until) {
+			t.Fatal("no heartbeat")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	seen := make(chan string, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { seen <- r.UserAgent() }))
+	defer server.Close()
+	client := withUserAgent(&http.Client{}, "cbe-portal-student/v1")
+	own, _ := http.NewRequest("GET", server.URL, nil)
+	own.Header.Set("User-Agent", "probe/2")
+	for _, request := range []*http.Request{must(http.NewRequest("GET", server.URL, nil)), own} {
+		response, err := client.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response.Body.Close()
+	}
+	if first, second := <-seen, <-seen; first != "cbe-portal-student/v1" || second != "probe/2" {
+		t.Fatalf("User-Agents = %q, %q", first, second)
+	}
+	if own.Header.Get("User-Agent") != "probe/2" {
+		t.Fatal("the request given was changed")
+	}
+}
+
+func must[T any](value T, err error) T {
+	if err != nil {
+		panic(err)
+	}
+	return value
 }

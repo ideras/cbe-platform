@@ -97,6 +97,10 @@ func TestBuiltServerStartedEmptyIsPreparedAndPublishedFromTheDashboard(t *testin
 	if v := s.Snapshot(); len(v.Classes) != 0 || len(v.Catalog.Exams) != 0 || v.ExamID != "" {
 		t.Fatalf("an empty server looks configured: %+v", v)
 	}
+	// The server says its release with the catalog: the stamped one, or "dev" for a binary built without it.
+	if v := s.Snapshot(); v.Catalog.ServerVersion == "" {
+		t.Fatal("the catalog did not carry the server's release")
+	}
 	if status, _ := login("0001", "midterm-pin"); status != http.StatusServiceUnavailable {
 		t.Fatalf("login on an empty server = %d", status)
 	}

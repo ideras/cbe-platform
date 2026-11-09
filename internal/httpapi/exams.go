@@ -35,6 +35,8 @@ type Options struct {
 	Rules          RulesAPI
 	MaxJSONBytes   int64
 	MaxRosterBytes int64
+	// Version is the server's release, which the exam catalog reports to the proctor dashboard.
+	Version string
 }
 
 type savedResponse struct {

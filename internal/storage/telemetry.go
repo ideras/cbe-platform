@@ -75,7 +75,7 @@ func (t *sessionTransaction) SetNetworkGap(ctx context.Context, sessionID string
 	return err
 }
 
-func (t *sessionTransaction) TouchHeartbeat(ctx context.Context, sessionID, hostname, remoteAddr string, sound domain.Sound, now time.Time) error {
+func (t *sessionTransaction) TouchHeartbeat(ctx context.Context, sessionID, hostname, remoteAddr, appVersion string, sound domain.Sound, now time.Time) error {
 	var volume, muted any // nil stores NULL: a heartbeat that does not report the level clears the previous one
 	if sound.VolumePercent != nil {
 		volume = int64(*sound.VolumePercent)
@@ -86,7 +86,7 @@ func (t *sessionTransaction) TouchHeartbeat(ctx context.Context, sessionID, host
 			muted = int64(1)
 		}
 	}
-	_, err := t.tx.ExecContext(ctx, `UPDATE sessions SET last_seen = ?, hostname = ?, remote_addr = ?, volume_percent = ?, volume_muted = ?, network_gap_since = NULL WHERE session_id = ?`, timestamp(now), hostname, remoteAddr, volume, muted, sessionID)
+	_, err := t.tx.ExecContext(ctx, `UPDATE sessions SET last_seen = ?, hostname = ?, remote_addr = ?, app_version = ?, volume_percent = ?, volume_muted = ?, network_gap_since = NULL WHERE session_id = ?`, timestamp(now), hostname, remoteAddr, appVersion, volume, muted, sessionID)
 	return err
 }
 

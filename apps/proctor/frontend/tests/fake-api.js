@@ -59,6 +59,8 @@ let releaseDelete;
 // Students working in an exam that is not published (admission closed, sessions still running), by exam.
 const workingIn = {};
 let catalogDown = false;
+// The server's release, as the catalog reports it; '' is a server older than the field.
+let serverVersion = 'v0.16.0-test';
 // The proctor's Settings: the monitoring values stored on the server.
 let settings = { heartbeat_interval_ms: 15000, overdue_threshold_ms: 30000, focus_threshold_ms: 5000, alert_interval_ms: 2000,
   capture_interval_ms: 5000, lock_away_after_ms: 300000, lock_no_contact_after_ms: 300000, incident_captures: 60, session_captures: 200,
@@ -106,7 +108,7 @@ let rows = Array.from({ length: 90 }, (_, i) => ({
   started_at: AT, deadline_at: '2035-01-01T00:01:29Z', grace_until: '2035-01-01T00:01:59Z',
   status: 'active', persisted_status: 'active', seconds_remaining: 89, finalization_pending: false, final_version: null,
   network_warning: i === 0, focus_warning: i === 0,
-  presence: { hostname: `desk-${i}`, remote_addr: `10.0.0.${i + 1}`, connectivity: i === 0 ? 'overdue' : 'healthy', heartbeat_age_ms: i === 0 ? 35000 : 1000, missed_intervals: i === 0 ? 2 : 0, ever_overdue: i < 2, monitoring: true, volume_percent: i === 2 ? null : i === 0 ? 35 : 70, volume_muted: i === 2 ? null : i === 0, focus: { state: i === 0 ? 'unknown' : 'focused', unfocused_duration_ms: null } }, last_known_unfocused_duration_ms: i === 0 ? 29000 : null,
+  presence: { hostname: `desk-${i}`, remote_addr: `10.0.0.${i + 1}`, app_version: 'v0.16.0-test', connectivity: i === 0 ? 'overdue' : 'healthy', heartbeat_age_ms: i === 0 ? 35000 : 1000, missed_intervals: i === 0 ? 2 : 0, ever_overdue: i < 2, monitoring: true, volume_percent: i === 2 ? null : i === 0 ? 35 : 70, volume_muted: i === 2 ? null : i === 0, focus: { state: i === 0 ? 'unknown' : 'focused', unfocused_duration_ms: null } }, last_known_unfocused_duration_ms: i === 0 ? 29000 : null,
 }));
 let missing = Array.from({ length: 30 }, (_, i) => ({ student_name: `Missing ${String(i).padStart(3, '0')}`, account_number: `M${i}` }));
 const final = { final_version_id: 12, version_seq: 3, reason: 'explicit_submit', submitted_at: AT };
@@ -133,7 +135,7 @@ function classList() {
 }
 function catalog() {
   const live = publishedEntry();
-  return { server_time: AT, current_exam_id: publishedExam, current_class_id: live ? live.class_id : '', current_class_name: live ? className(live.class_id) : '',
+  return { server_time: AT, server_version: serverVersion || undefined, current_exam_id: publishedExam, current_class_id: live ? live.class_id : '', current_class_name: live ? className(live.class_id) : '',
     exams: exams.map(entry => ({ ...entry, class_name: className(entry.class_id), published: entry.exam_id === publishedExam, active_sessions: entry.exam_id === publishedExam ? workingStudents : workingIn[entry.exam_id] ?? 0, locked_sessions: entry.exam_id === publishedExam ? rows.filter(row => row.locked).length : 0 })) };
 }
 function snapshot() {
@@ -477,7 +479,7 @@ window.ProctorHarness = {
   working(value) { workingStudents = value; }, studentsLogInLate(value) { lateStudents = value; }, examFile(value) { nextExamFile = { content: sampleContent, ...value }; }, importFails(value) { importFails = value; }, publishFails(value) { publishFails = value; }, pinFails(value) { pinFails = value; }, examPin(value) { examPin = value; }, examEndsAt(id, value) { exams.find(item => item.exam_id === id).ends_at = value; }, examWindow(id, value) { Object.assign(exams.find(item => item.exam_id === id), value); }, deleteExamFails(value) { deleteExamFails = value; },
   deleteScreenshots(value) { deleteScreenshots = value; }, deleteFilesPending(value) { deleteFilesPending = value; }, holdDelete() { deferDelete = true; }, releaseDelete() { deferDelete = false; releaseDelete?.(); },
   // Students still working in an exam that is not published, and a change in how many submissions an exam has since the page last looked.
-  examWorking(id, value) { workingIn[id] = value; }, examSessions(id, value) { exams.find(item => item.exam_id === id).total_sessions = value; }, catalogDown(value) { catalogDown = value; }, stale(value) { stale = value; }, imagesMissing(value) { imageMissing = value; },
+  examWorking(id, value) { workingIn[id] = value; }, examSessions(id, value) { exams.find(item => item.exam_id === id).total_sessions = value; }, catalogDown(value) { catalogDown = value; }, serverVersion(value) { serverVersion = value; }, stale(value) { stale = value; }, imagesMissing(value) { imageMissing = value; },
   failForce(value) { failForce = value; }, holdForce() { deferForce = true; }, releaseForce() { releaseForce?.(); }, originalSubmit() { forceStatus = 'submitted'; }, partialPurge() { partialPurge = true; },
   purgeFails(value) { purgeFails = value; }, purgeDeleted(value) { purgeDeleted = value; }, holdPurge() { deferPurge = true; }, releasePurge() { deferPurge = false; releasePurge?.(); },
   downloadPreview(value) { downloadPreviewOverride = value; }, downloadNeedsReplace(value = true) { downloadNeedsReplace = value; }, downloadExistingFormat(value) { downloadExistingFormat = value; }, downloadWarnings(value) { downloadWarnings = value; }, downloadFails(value) { downloadFails = value; }, downloadFailure(value) { downloadFailureFor = value; }, openFolderFails(value) { openFolderFails = value; },

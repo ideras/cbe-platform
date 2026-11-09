@@ -19,12 +19,15 @@ type Focus struct {
 }
 
 type Presence struct {
-	SessionID          string     `json:"session_id"`
-	ServerTime         time.Time  `json:"server_time"`
-	Monitoring         bool       `json:"monitoring"`
-	Connectivity       string     `json:"connectivity"`
-	Hostname           string     `json:"hostname"`
-	RemoteAddr         string     `json:"remote_addr"`
+	SessionID    string    `json:"session_id"`
+	ServerTime   time.Time `json:"server_time"`
+	Monitoring   bool      `json:"monitoring"`
+	Connectivity string    `json:"connectivity"`
+	Hostname     string    `json:"hostname"`
+	RemoteAddr   string    `json:"remote_addr"`
+	// AppVersion is the release of the student application the last heartbeat came from; empty when it did not say (an
+	// application older than the field).
+	AppVersion         string     `json:"app_version"`
 	LastSeen           *time.Time `json:"last_seen"`
 	HeartbeatAgeMillis *int64     `json:"heartbeat_age_ms"`
 	MissedIntervals    int64      `json:"missed_intervals"`

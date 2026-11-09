@@ -26,7 +26,7 @@ func TestProctorMigrationPreservesFinalAnswersEventsAndRestart(t *testing.T) {
 	}
 	// Every migration but 003 adds, renames or rebuilds what the current queries select; the fixture runs current service
 	// code on this older schema, and 003 is applied on the upgrade.
-	for _, name := range []string{"001_foundation.sql", "002_presence.sql", "004_screenshots.sql", "005_sound.sql", "006_exam_volume.sql", "007_publishing.sql", "008_classes.sql", "009_exam_content.sql", "010_capture_series.sql", "011_exam_class.sql", "012_exam_source.sql", "013_settings_and_lock.sql", "014_unlock_and_policy_copies.sql", "016_exam_timing.sql", "018_network_locks.sql"} {
+	for _, name := range []string{"001_foundation.sql", "002_presence.sql", "004_screenshots.sql", "005_sound.sql", "006_exam_volume.sql", "007_publishing.sql", "008_classes.sql", "009_exam_content.sql", "010_capture_series.sql", "011_exam_class.sql", "012_exam_source.sql", "013_settings_and_lock.sql", "014_unlock_and_policy_copies.sql", "016_exam_timing.sql", "018_network_locks.sql", "019_app_version.sql"} {
 		script, err := migrations.ReadFile("migrations/" + name)
 		if err != nil {
 			t.Fatal(err)

@@ -9,7 +9,7 @@
   import MonitoringRow from './MonitoringRow.svelte';
   import Icon from '../../../../shared/theme/Icon.svelte';
   import { localTime } from './dates.js';
-  import { rosterFilters, rosterCounts, sortRoster, filterRoster, initials, duration, spoken, examLength, lockRule } from './roster.js';
+  import { rosterFilters, rosterCounts, sortRoster, filterRoster, initials, duration, spoken, examLength, lockRule, inProgress, appRelease } from './roster.js';
   // Inlined on purpose: WebKitGTK cannot play audio through the wails:// scheme.
   import alertURL from './assets/lock-alert.wav?inline';
   let { view, bridgeError = '', disabled = false, onRefresh } = $props();
@@ -34,6 +34,11 @@
   const counts = $derived(rosterCounts(sessions));
   const missing = $derived(view.roster?.students_without_session ?? []);
   const policy = $derived(view.roster?.policy ?? {});
+  // The server's release, and the students still working whose application is another one.
+  const serverVersion = $derived(view.catalog?.server_version ?? '');
+  const otherRelease = $derived(sessions.filter(row => inProgress(row) && appRelease(row, serverVersion).differs));
+  // The first few of them by name; the rest are counted, and their rows say which release each runs.
+  const otherNames = $derived(otherRelease.slice(0, 5).map(row => row.student_name).join(', ') + (otherRelease.length > 5 ? ` and ${otherRelease.length - 5} more` : ''));
   const stale = $derived(Boolean(view.stale || bridgeError));
   // The exam's first roster is still on its way from the server. Nothing is displayed yet, so nothing is out of date: the proctor is
   // told it is loading, and the stale warning waits for a failure (view.error, or a native side that does not answer) to report.
@@ -145,8 +150,11 @@
         </div>
         <div class="policy">
           <p><Icon name="lock" size={13} /><span>Exam rules: alarm after {spoken(policy.focus_threshold_ms)} · screenshot every {spoken(policy.capture_interval_ms)} · {lockRule(policy)}.</span></p>
-          <p><Icon name="server" size={13} /><span>Server policy: heartbeat {duration(policy.heartbeat_interval_ms)} · overdue strictly beyond {duration(policy.overdue_threshold_ms)}.</span></p>
+          <p><Icon name="server" size={13} /><span>Server policy: heartbeat {duration(policy.heartbeat_interval_ms)} · overdue strictly beyond {duration(policy.overdue_threshold_ms)}{#if serverVersion}{` · release ${serverVersion}`}{/if}.</span></p>
         </div>
+        {#if otherRelease.length}
+          <p class="callout warning release">{otherRelease.length === 1 ? '1 student still working runs' : `${otherRelease.length} students still working run`} another release of the application than the server ({serverVersion}): {otherNames}. Their rows say which.</p>
+        {/if}
         <div class="table-frame">
           <div class="table-tools">
             <span>Locked first, then student name; warning columns are independent. Showing {visible.length} of {counts.total}.</span>
@@ -158,7 +166,7 @@
             <colgroup><col class="student-column" /><col class="network-column" /><col class="focus-column" /><col class="time-column" /><col class="control-column" /></colgroup>
             <thead><tr><th scope="col">Student</th><th scope="col">Network</th><th scope="col">Focus</th><th scope="col">Lifecycle / remaining</th><th scope="col">Review / control</th></tr></thead>
             <tbody>{#each visible as row (row.session_id)}
-              <MonitoringRow {row} serverTime={view.roster.server_time} {policy} disabled={disabled || view.busy} {timingBusy} {unlockBusy} {actionBusy} {releaseBusy}
+              <MonitoringRow {row} serverTime={view.roster.server_time} {policy} {serverVersion} disabled={disabled || view.busy} {timingBusy} {unlockBusy} {actionBusy} {releaseBusy}
                 onReview={review} onExtend={row => askTiming('grace', row)} onUnlock={askUnlock} onForce={row => ask('force', row)} onRelease={askRelease} />
             {:else}<tr class="empty-row"><td colspan="5">{sessions.length ? 'No sessions match this filter.' : 'No sessions for this exam yet.'}</td></tr>{/each}</tbody>
           </table></div>

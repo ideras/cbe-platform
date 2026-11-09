@@ -189,3 +189,35 @@ func TestHTTPHeartbeatReportsTheSoundLevelToPresence(t *testing.T) {
 		}
 	}
 }
+
+// The student application names its release in its User-Agent; a heartbeat stores it with the session, where the proctor's
+// roster reads it. Anything that is not the application, or not a plain release, stores none.
+func TestHeartbeatRecordsTheApplicationRelease(t *testing.T) {
+	f, _ := fullFixture(t)
+	login := f.login(t, "0012")
+	for _, test := range []struct{ agent, want string }{
+		{"cbe-portal-student/v0.16.0", "v0.16.0"},
+		{"cbe-portal-student/v0.16.0-3-g9f707df-dirty", "v0.16.0-3-g9f707df-dirty"},
+		{"Go-http-client/1.1", ""}, // an application older than the release, which never named one
+		{"cbe-portal-student/v1 <script>", ""},
+		{"cbe-portal-student/", ""},
+		{"", ""},
+	} {
+		r := httptest.NewRequest("POST", "/heartbeat", strings.NewReader(`{"hostname":"pc"}`))
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("Authorization", "Bearer "+login.SessionToken)
+		r.Header.Set("User-Agent", test.agent)
+		w := httptest.NewRecorder()
+		f.router.ServeHTTP(w, r)
+		if w.Code != http.StatusOK {
+			t.Fatalf("%q: heartbeat = %d %s", test.agent, w.Code, w.Body.String())
+		}
+		p, err := f.sessions.Presence(t.Context(), login.SessionID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if p.AppVersion != test.want {
+			t.Fatalf("%q: app version = %q, want %q", test.agent, p.AppVersion, test.want)
+		}
+	}
+}

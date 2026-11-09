@@ -79,7 +79,7 @@ func TestScreenshotHTTPAuthenticationValidationServingAndRetention(t *testing.T)
 	h := imageRouter(t, f)
 	a, b := f.login(t, "0012"), f.login(t, "0034")
 	at := f.clock.Now()
-	f.sessions.Heartbeat(t.Context(), a.SessionToken, "pc", "192.0.2.1", domain.Sound{})
+	f.sessions.Heartbeat(t.Context(), a.SessionToken, "pc", "192.0.2.1", "", domain.Sound{})
 	loss, err := f.sessions.ClientEvent(t.Context(), a.SessionToken, service.EventInput{Type: "focus_lost"})
 	if err != nil {
 		t.Fatal(err)
@@ -183,7 +183,7 @@ func TestScreenshotHTTPNarrowPostFinalizationException(t *testing.T) {
 	h := imageRouter(t, f)
 	a := f.login(t, "0012")
 	now := f.clock.Now()
-	f.sessions.Heartbeat(t.Context(), a.SessionToken, "pc", "192.0.2.1", domain.Sound{})
+	f.sessions.Heartbeat(t.Context(), a.SessionToken, "pc", "192.0.2.1", "", domain.Sound{})
 	loss, _ := f.sessions.ClientEvent(t.Context(), a.SessionToken, service.EventInput{Type: "focus_lost"})
 	f.clock.Set(now.Add(21 * time.Second))
 	if _, err := f.sessions.Submit(t.Context(), a.SessionToken, map[string]string{}); err != nil {

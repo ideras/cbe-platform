@@ -24,7 +24,7 @@ func reportedSound(t *testing.T, s *Store) domain.Sound {
 func touch(t *testing.T, s *Store, sound domain.Sound) {
 	t.Helper()
 	if err := s.WithSessionTransaction(t.Context(), func(tx service.SessionTransaction) error {
-		return tx.TouchHeartbeat(t.Context(), sessionID, "pc", "192.0.2.1", sound, testNow)
+		return tx.TouchHeartbeat(t.Context(), sessionID, "pc", "192.0.2.1", "", sound, testNow)
 	}); err != nil {
 		t.Fatal(err)
 	}

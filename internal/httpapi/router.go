@@ -52,7 +52,7 @@ func New(clock clock.Clock, sessions SessionAPI, logger *slog.Logger, options ..
 		admin.Handle("DELETE /admin/exam/{id}", deleteExamHandler(cfg.Exams, logger))
 	}
 	if cfg.Publisher != nil {
-		admin.Handle("GET /admin/exams", examCatalogHandler(cfg.Publisher, logger))
+		admin.Handle("GET /admin/exams", examCatalogHandler(cfg.Publisher, cfg.Version, logger))
 		admin.Handle("POST /admin/exam/{id}/publish", publishHandler(cfg.Publisher, logger))
 		admin.Handle("POST /admin/unpublish", unpublishHandler(cfg.Publisher, logger))
 	}

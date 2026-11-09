@@ -23,7 +23,7 @@ type SessionAPI interface {
 	Autosave(context.Context, string, domain.Answers) (service.SaveResult, error)
 	Submit(context.Context, string, domain.Answers) (service.SubmitResult, error)
 	Advance(context.Context, string, int, domain.Answers) (service.AdvanceResult, error)
-	Heartbeat(context.Context, string, string, string, domain.Sound) (service.HeartbeatResult, error)
+	Heartbeat(context.Context, string, string, string, string, domain.Sound) (service.HeartbeatResult, error)
 	ClientEvent(context.Context, string, service.EventInput) (service.EventResult, error)
 }
 
