@@ -87,7 +87,10 @@ test('a missing token file is asked for before any connection attempt, and a cho
 
   await page.evaluate(() => window.ProctorHarness.tokenFile('data/admin-token'));
   await dialog.getByRole('button', { name: 'Browse…' }).click();
-  await expect(dialog).toContainText('data/admin-token · loaded, not shown');
+  const token = dialog.getByRole('group', { name: /^Token file/ });
+  await expect(token).toContainText('data/admin-token');
+  await expect(token).toContainText('Loaded');
+  await expect(token).toContainText('Read here, never shown');
   await expect(dialog.getByRole('button', { name: 'Choose another…' })).toBeVisible();
   await expect(dialog).not.toContainText('Choose the token file the server was started with');
   await dialog.getByRole('button', { name: 'Connect', exact: true }).click();
@@ -106,7 +109,7 @@ test('a refused token file is explained in the dialog and the earlier choice sta
   await page.evaluate(() => window.ProctorHarness.tokenFileFails('Proctor credential must be a private regular file with 32–4096 non-whitespace characters.'));
   await dialog.getByRole('button', { name: 'Choose another…' }).click();
   await expect(dialog).toContainText('must be a private regular file');
-  await expect(dialog).toContainText('data/admin-token · loaded, not shown');
+  await expect(dialog.getByRole('group', { name: /^Token file/ })).toContainText('data/admin-token');
   expect(await dialog.locator('input[type="password"]').count()).toBe(0);
 });
 
@@ -281,7 +284,9 @@ test('a connected dashboard can be disconnected from the dialog and connected ag
   await connect(page);
   await item(page, 'Server connection').click();
   const dialog = connectionDialog(page);
-  await expect(dialog).toContainText('Connected to 127.0.0.1:8080');
+  await expect(dialog.getByRole('status')).toContainText('Connected');
+  await expect(dialog.getByRole('status')).toContainText('127.0.0.1:8080');
+  await expect(dialog.getByRole('status')).toContainText('HTTP');
   await expect(dialog.getByRole('button', { name: 'Disconnect' })).toBeVisible();
   await dialog.getByRole('button', { name: 'Disconnect' }).click();
   await expect(dialog).toBeHidden();
@@ -292,7 +297,7 @@ test('a connected dashboard can be disconnected from the dialog and connected ag
   await expect(page.getByRole('heading', { name: 'Classes', level: 1 })).toHaveCount(0);
 
   await item(page, 'Server connection').click();
-  await expect(dialog).not.toContainText('Connected to');
+  await expect(dialog.getByRole('status')).toContainText('Not connected');
   await expect(dialog.getByRole('button', { name: 'Disconnect' })).toHaveCount(0);
   await dialog.getByRole('button', { name: 'Connect', exact: true }).click();
   await expect(dialog).toBeHidden();
@@ -304,4 +309,34 @@ test('there is nothing to disconnect before connecting', async ({ page }) => {
   await page.goto('/');
   await item(page, 'Server connection').click();
   await expect(connectionDialog(page).getByRole('button', { name: 'Disconnect' })).toHaveCount(0);
+});
+
+test('the address says its scheme, warns about http, and the button says whether it connects, reconnects or switches', async ({ page }) => {
+  await page.goto('/');
+  await item(page, 'Server connection').click();
+  const dialog = connectionDialog(page);
+  const address = dialog.getByLabel('Server address');
+  // Not connected: the button connects, and plain http is warned about.
+  await expect(dialog.getByRole('status')).toContainText('Not connected');
+  await expect(dialog.getByRole('button', { name: 'Connect', exact: true })).toBeVisible();
+  await expect(address).toHaveAccessibleDescription('Unencrypted. Use HTTP only on a trusted, isolated network.');
+  await address.fill('https://exam.example.org');
+  await expect(dialog.locator('.scheme')).toHaveText('HTTPS');
+  await expect(address).toHaveAccessibleDescription('');
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+
+  await connect(page);
+  await item(page, 'Server connection').click();
+  // Connected: the same address reconnects; another one switches, and says what it replaces.
+  await expect(dialog.getByRole('button', { name: 'Reconnect', exact: true })).toBeVisible();
+  await address.fill('https://exam.example.org');
+  await expect(dialog.getByRole('button', { name: 'Switch server', exact: true })).toBeVisible();
+  await expect(address).toHaveAccessibleDescription('Connecting here replaces the connection to 127.0.0.1:8080.');
+  await address.fill('http://10.0.0.5:8080');
+  await expect(address).toHaveAccessibleDescription('Unencrypted, and replaces the connection to 127.0.0.1:8080. Use HTTP only on a trusted, isolated network.');
+  // A bad address still says why when the button is pressed, and nothing is sent.
+  await address.fill('ftp://example.org');
+  await dialog.getByRole('button', { name: 'Switch server', exact: true }).click();
+  await expect(address).toHaveAccessibleDescription(/^Use an http or https address/);
+  expect((await calls(page)).connect.length).toBe(1);
 });
