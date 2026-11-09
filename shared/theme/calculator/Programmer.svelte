@@ -6,7 +6,8 @@
   // Everything is computed in Go: CalcEvaluateInt, CalcInspect and CalcConvertFraction answer every reading as
   // strings, because a 64-bit unsigned value exceeds the JS safe integers. The signed/unsigned toggle (D15,
   // default signed) decides how /, % and >> read operands from now on, and how the IEEE 754 and Radix Point tabs
-  // read an integer; it never changes the displayed result, whose bits and readings stay put.
+  // read an integer; it never changes the displayed result, whose bits and readings stay put. There is no input
+  // base (owner 2026-11-08): a plain number is decimal, and 0b, 0o and 0x write the others.
   import { tick } from 'svelte';
   import CopyButton from './CopyButton.svelte';
   import Icon from '../Icon.svelte';
@@ -16,7 +17,6 @@
   const uid = $props.id();
 
   const MAX_INPUT = 200;
-  const bases = [['bin', 'BIN'], ['oct', 'OCT'], ['dec', 'DEC'], ['hex', 'HEX']];
   const words = [8, 16, 32, 64];
   const ieeeFormats = ['binary16', 'bfloat16', 'binary32', 'binary64'];
   const fieldWidths = { binary16: [5, 10], bfloat16: [8, 7], binary32: [8, 23], binary64: [11, 52] };
@@ -28,7 +28,6 @@
     { id: 'fraction', label: 'Radix Point' },
   ]);
 
-  let base = $state('dec');
   let word = $state(32);
   let signedMode = $state(true);
   let input = $state('');
@@ -47,12 +46,13 @@
   // something changed (each reading is logged).
   const lastRead = { keypad: null, ieee754: null, fraction: null };
 
-  const hint = $derived(tab === 'keypad' ? 'Integer operators need whole numbers.'
+  const hint = $derived(tab === 'keypad' ? 'Plain numbers are decimal. Write 0b1010, 0o17 or 0xFF for other bases.'
     : tab === 'fraction' ? 'Reads a number. Shows up to 32 fraction digits.'
-    : direction === 'encode' ? 'Reads a number and shows its IEEE 754 encoding.' : 'Reads a bit pattern and shows the number it encodes.');
+    : direction === 'encode' ? 'Reads a number and shows its IEEE 754 encoding.' : 'Reads a bit pattern, such as 0x3F800000, and shows the number it encodes.');
 
-  // The keypad (mock board B): seven columns, digits the input base cannot read are inactive, a programmer
-  // function the exam does not allow is hidden (its cell stays, so the grid keeps its shape).
+  // The keypad (mock board B): seven columns; a programmer function the exam does not allow is hidden (its cell
+  // stays, so the grid keeps its shape). The hex digits are always active, for after 0x, and the prefix keys
+  // write 0b, 0o and 0x.
   const keypad = [
     { label: 'A', digit: true }, { label: 'B', digit: true }, { label: 'C', digit: true }, { label: 'D', digit: true },
     { label: 'E', digit: true }, { label: 'F', digit: true }, { label: '⌫', action: 'backspace', aria: 'Delete the last character' },
@@ -64,9 +64,9 @@
     { label: '>>', aria: 'Shift right' }, { label: 'Ans', insert: 'ans' }, { label: '+', aria: 'Plus' },
     { label: '0', digit: true }, { label: '(' }, { label: ')' },
     { label: 'nand', name: 'nand' }, { label: 'nor', name: 'nor' }, { label: 'rol', name: 'rol' }, { label: 'ror', name: 'ror' },
+    { label: '0b', aria: 'Binary prefix' }, { label: '0o', aria: 'Octal prefix' }, { label: '0x', aria: 'Hexadecimal prefix' },
     { label: '.', aria: 'Decimal point' }, { label: 'AC', action: 'clear', aria: 'Clear the input' },
   ];
-  const readable = { bin: '01', oct: '01234567', dec: '0123456789', hex: '0123456789ABCDEF' };
 
   // Group a pure bit pattern in fours; anything else (fractions, hex readings) is shown as computed.
   const grouped = value => (value && /^[01]+$/.test(value) ? value.match(/.{1,4}/g).join(' ') : value ?? '');
@@ -94,13 +94,13 @@
   });
 
   function readKey(which) {
-    const settings = `${input}\u0000${base}\u0000${word}\u0000${signedMode}`;
+    const settings = `${input}\u0000${word}\u0000${signedMode}`;
     return which === 'ieee754' ? `${settings}\u0000${ieeeFormat}\u0000${direction}` : settings;
   }
 
   function fail(code, expression) {
     failure = calcMessage(code);
-    failureHint = programmerHint(expression, code, { base, decode: ieeeShown });
+    failureHint = programmerHint(expression, code, { decode: ieeeShown });
   }
 
   function problemText(problem) { return String(problem).replace(/^Error:\s*/, ''); }
@@ -118,7 +118,7 @@
     failure = ''; failureHint = ''; warning = '';
     lastRead.keypad = readKey('keypad');
     try {
-      const answer = await api.CalcEvaluateInt(expression, word, base, signedMode);
+      const answer = await api.CalcEvaluateInt(expression, word, signedMode);
       if (answer.ok) {
         result = answer;
         onEvaluated?.({ expression, ok: true, display: answer.real ? answer.value : answer.unsigned, mode: 'programmer' });
@@ -139,7 +139,7 @@
     failure = ''; failureHint = '';
     lastRead.ieee754 = readKey('ieee754');
     try {
-      const answer = await api.CalcInspect(expression, ieeeFormat, direction, word, base, signedMode);
+      const answer = await api.CalcInspect(expression, ieeeFormat, direction, word, signedMode);
       if (answer.ok) {
         ieeeResult = answer;
         onEvaluated?.({ expression, ok: true, display: answer.bits, mode: 'programmer', view: 'ieee' });
@@ -160,7 +160,7 @@
     failure = ''; failureHint = '';
     lastRead.fraction = readKey('fraction');
     try {
-      const answer = await api.CalcConvertFraction(expression, word, base, signedMode);
+      const answer = await api.CalcConvertFraction(expression, word, signedMode);
       if (answer.ok) {
         fraction = answer;
         onEvaluated?.({ expression, ok: true, display: answer.binary, mode: 'programmer' });
@@ -225,14 +225,24 @@
     word = next;
   }
 
-  // Clicking a bit flips it, writes the new value into the input as a literal in the current input base, and
-  // evaluates it — logged like any other evaluation (plan Phase 5); another active tab reads it too.
+  // The base the input wrote its number in, when the input is one literal; anything else (an expression, ans) is
+  // written back in hex, which keeps the bits readable.
+  function literalBase(text) {
+    if (/^\s*0[bB][01_]+\s*$/.test(text)) return 'bin';
+    if (/^\s*0[oO][0-7_]+\s*$/.test(text)) return 'oct';
+    if (/^\s*(0[dD])?[0-9_]+\s*$/.test(text)) return 'dec';
+    return 'hex';
+  }
+
+  // Clicking a bit flips it, writes the new value into the input as one literal, in the base of the literal that
+  // was there (hex after an expression), so flipping again keeps it, and evaluates it — logged like any other
+  // evaluation (plan Phase 5); another active tab reads it too.
   async function flip(index) {
     const bits = (result?.binary ?? '').split('');
     if (index >= bits.length) return;
     bits[index] = bits[index] === '1' ? '0' : '1';
     const value = BigInt('0b' + bits.join(''));
-    input = { dec: value.toString(10), hex: '0x' + value.toString(16).toUpperCase(), oct: '0o' + value.toString(8), bin: '0b' + bits.join('') }[base];
+    input = { dec: value.toString(10), hex: '0x' + value.toString(16).toUpperCase(), oct: '0o' + value.toString(8), bin: '0b' + bits.join('') }[literalBase(input)];
     await evaluate();
     if (tab !== 'keypad') run();
   }
@@ -248,10 +258,13 @@
     focusInput();
   }
 
+  // Clear (beside the input, in every tab) and the keypad's AC empty the input, which stays from one opening to
+  // the next, and the failure about it; the last result, its bits, the history and ans stay.
+  function clearInput() { input = ''; failure = ''; failureHint = ''; focusInput(); }
+
   function press(key) {
-    if (key.digit && !readable[base].includes(key.label)) return; // inactive in this base
     if (key.action === 'backspace') { input = input.slice(0, -1); focusInput(); return; }
-    if (key.action === 'clear') { input = ''; failure = ''; failureHint = ''; focusInput(); return; }
+    if (key.action === 'clear') { clearInput(); return; }
     if (key.name) { insert(`${key.name}(`); return; }
     insert(key.insert ?? key.label);
   }
@@ -276,18 +289,13 @@
 <div class="prog" onkeydown={typeIntoInput}>
   <div class="rows">
     <div class="row">
-      <span class="seg" role="group" aria-label="Input base">{#each bases as [value, label] (value)}
-        <button type="button" aria-pressed={base === value} onclick={() => base = value}>{label}</button>
+      <span class="seg" role="group" aria-label="Word size">{#each words as value (value)}
+        <button type="button" aria-pressed={word === value} onclick={() => setWord(value)}>{value}</button>
       {/each}</span>
       <span class="seg" role="group" aria-label="Signed arithmetic" title="Decides how ÷, % and » read operands from now on, and how the IEEE 754 and Radix Point tabs read an integer.">
         <button type="button" aria-pressed={signedMode} onclick={() => signedMode = true}>Signed</button>
         <button type="button" aria-pressed={!signedMode} onclick={() => signedMode = false}>Unsigned</button>
       </span>
-    </div>
-    <div class="row">
-      <span class="seg" role="group" aria-label="Word size">{#each words as value (value)}
-        <button type="button" aria-pressed={word === value} onclick={() => setWord(value)}>{value}</button>
-      {/each}</span>
       <span class="flags" aria-label="Flags">
         <span class="chip" class:on={result?.carry}>CF {result?.carry ? '1' : '0'}</span>
         <span class="chip" class:on={result?.overflow}>OF {result?.overflow ? '1' : '0'}</span>
@@ -296,9 +304,12 @@
   </div>
 
   <div class="display">
-    <input class="calc-input" bind:this={inputElement} bind:value={input} maxlength={MAX_INPUT} spellcheck="false" autocomplete="off"
-      aria-label="Programmer expression" aria-describedby="{uid}-hint" placeholder="e.g. 0xFF &amp; 0x0F, 1 &lt;&lt; 4, 10.625"
-      onkeydown={event => { if (event.key === 'Enter') { event.preventDefault(); run(); } }} />
+    <div class="entry">
+      <input class="calc-input" bind:this={inputElement} bind:value={input} maxlength={MAX_INPUT} spellcheck="false" autocomplete="off"
+        aria-label="Programmer expression" aria-describedby="{uid}-hint" placeholder="e.g. 0xFF &amp; 0x0F, 1 &lt;&lt; 4, 10.625"
+        onkeydown={event => { if (event.key === 'Enter') { event.preventDefault(); run(); } }} />
+      <button type="button" class="clear" aria-label="Clear" title="Clear the input" disabled={!input} onclick={clearInput}><Icon name="eraser" size={18} /></button>
+    </div>
     <p class="hint" id="{uid}-hint">{hint}</p>
     <p class="calc-result" aria-live="polite">
       {#if failure}<span class="error">{failure}</span>{#if failureHint}<span class="hint-line">{failureHint}</span>{/if}{/if}
@@ -315,8 +326,8 @@
         <span><strong>{signedMode ? 'DEC signed' : 'DEC'}</strong> {result.signed}<CopyButton value={result.signed} label="Copy signed decimal" /></span>
         <span><strong>DEC unsigned</strong> {result.unsigned}<CopyButton value={result.unsigned} label="Copy unsigned decimal" /></span>
         <span><strong>HEX</strong> {result.hex}<CopyButton value={result.hex} label="Copy hexadecimal" /></span>
-        <span><strong>OCT</strong> {result.octal}<CopyButton value={result.octal} label="Copy octal" /></span>
-        <span><strong>BIN</strong> {grouped(result.binary)}<CopyButton value={result.binary} label="Copy binary" /></span>
+        <span><strong>OCT</strong> {result.octal}<CopyButton value={'0o' + result.octal} label="Copy octal" /></span>
+        <span><strong>BIN</strong> {grouped(result.binary)}<CopyButton value={'0b' + result.binary} label="Copy binary" /></span>
       {/if}
     </p>
     {#if result?.real}<p class="note">Whole numbers only. The Radix Point and IEEE 754 tabs show this value.</p>{/if}
@@ -357,7 +368,7 @@
             <span class="key-gap" aria-hidden="true"></span>
           {:else}
             <button type="button" class="key" class:fn={key.name} class:sym={!key.digit && !key.name && !key.action} class:clear={key.action === 'clear'}
-              aria-label={key.aria} aria-disabled={key.digit && !readable[base].includes(key.label) ? 'true' : undefined}
+              aria-label={key.aria}
               onclick={() => press(key)}>{#if key.action === 'backspace'}<Icon name="backspace" size={18} />{:else}{key.label}{/if}</button>
           {/if}
         {/each}
@@ -423,6 +434,11 @@
   .chip.on { background: var(--alert-fill); color: var(--alert-text); font-weight: 600; }
   .display { display: grid; gap: var(--space-1); padding: var(--space-2) var(--space-3); border-radius: var(--radius-ctl); background: var(--hover-fill); }
   .display .calc-input { width: 100%; text-align: right; font-family: var(--font-mono, monospace); }
+  .entry { display: flex; gap: var(--space-2); align-items: stretch; }
+  .entry .calc-input { flex: 1; min-width: 0; }
+  .clear { display: inline-grid; place-items: center; margin: 0; padding: .25rem .6rem; }
+  .clear:not(:disabled) { color: var(--alert-text); }
+  .clear:hover:not(:disabled) { background: var(--alert-fill); border-color: var(--alert); color: var(--alert-text); }
   .hint { margin: 0; font-size: var(--text-xs); color: var(--text-muted); text-align: right; }
   .calc-result { margin: 0; min-height: 1.2em; display: grid; gap: 2px; }
   .hint-line { font-size: var(--text-sm); color: var(--text-muted); }
@@ -449,8 +465,7 @@
   .key.fn { background: var(--hover-fill); color: var(--action-hover); }
   .key.clear { color: var(--alert-text); }
   .key.clear:hover { background: var(--alert-fill); border-color: var(--alert); color: var(--alert-text); }
-  .key[aria-disabled='true'] { opacity: .4; cursor: not-allowed; }
-  .key.equals { grid-column: span 5; background: var(--action-primary); border-color: var(--action-primary); color: var(--bg-primary); box-shadow: var(--shadow-action); }
+  .key.equals { grid-column: span 2; background: var(--action-primary); border-color: var(--action-primary); color: var(--bg-primary); box-shadow: var(--shadow-action); }
   .key.equals:hover { background: var(--action-hover); border-color: var(--action-hover); color: var(--bg-primary); }
   .run { margin: 0; }
   .fields { display: grid; grid-template-columns: auto auto minmax(0, 1fr); gap: var(--space-1); }

@@ -270,8 +270,9 @@ test('the review window lists the calculator rows and filters them', async ({ pa
   await expect(table.getByRole('row').filter({ hasText: 'Keypad → IEEE 754' })).toContainText('Calculator tab changed');
   // The tab ids are named as the student sees the tabs: the logged id "fraction" is the Radix Point tab.
   await expect(table.getByRole('row').filter({ hasText: 'IEEE 754 → Radix Point' })).toContainText('Calculator tab changed');
-  await expect(table.getByRole('row').filter({ hasText: 'radix point: 10.625 = 1010.101 (32 bits, dec, signed)' })).toBeVisible();
-  await expect(table.getByRole('row').filter({ hasText: 'decode 0x3C00 → 0x3C00 (binary16; 32 bits, dec, signed)' })).toBeVisible();
+  await expect(table.getByRole('row').filter({ hasText: 'radix point: 10.625 = 1010.101 (32 bits, signed)' })).toBeVisible();
+  await expect(table.getByRole('row').filter({ hasText: 'decode 0x3C00 → 0x3C00 (binary16; 32 bits, signed)' })).toBeVisible();
+  // A row of an older exam, logged when the panel had an input base, still says which.
   await expect(table.getByRole('row').filter({ hasText: '0xFF / 2 = 127 (8 bits, hex, unsigned)' })).toBeVisible();
   // The filter group counts them and hides them.
   const calculator = review.getByRole('checkbox', { name: /Calculator/ });

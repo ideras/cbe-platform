@@ -90,10 +90,12 @@ export function lockDetail(type, detail, recordedAt) {
   return '';
 }
 
-/** The programmer panel's settings of a row, which reproduce its result: "8 bits, dec, signed". */
+/** The programmer panel's settings of a row, which reproduce its result: "8 bits, signed". The input base
+ *  (removed 2026-11-08) is shown only for the rows of older exams that logged one: "8 bits, hex, signed". */
 function panel(d) {
+  const base = d.input_base ? `, ${d.input_base}` : '';
   const signedness = d.signed === true ? ', signed' : d.signed === false ? ', unsigned' : '';
-  return d.word_size ? `${d.word_size} bits, ${d.input_base}${signedness}` : '';
+  return d.word_size ? `${d.word_size} bits${base}${signedness}` : '';
 }
 
 /** The programmer tab ids the student app logs, named as the student sees them; an unknown id is shown as sent. */

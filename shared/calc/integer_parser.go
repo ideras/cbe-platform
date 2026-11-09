@@ -3,16 +3,21 @@ package calc
 import (
 	"math/big"
 	"slices"
+	"strings"
 )
 
 // The programmer lexer, parser and evaluator. The grammar is C-like, without the scientific mode's implicit
 // multiplication and postfix !: precedence from low to high is | ^ & shifts + - * / %, with unary - and ~ above
-// all, so `1 + 2 << 3` is 24 and `1 | 2 ^ 3` is 1. In the input base HEX a bare word made of hex digits is a
-// literal (`ff` is 255); a name is only a function when `(` follows it.
+// all, so `1 + 2 << 3` is 24 and `1 | 2 ^ 3` is 1. A name is only a function when `(` follows it.
+//
+// There is no input base (owner 2026-11-08): a plain number is decimal, and the other bases are written with a
+// prefix, 0b, 0o or 0x (0d is decimal too). A word that starts with a digit is always a number, so `ff` is a
+// name and `1F` a malformed number, BAD_NUMBER, as is 010 (C reads it as octal 8, so it is refused rather than
+// read as ten). A _ may stand between two digits: 0b1010_0101, 1_000_000.
 //
 // Values are integers or reals, C-style, by how they are written (D20): a literal with a point is a real, even
 // 300.0, held as an exact rational; + - * / and unary - give a real when an operand is real, the other operators
-// are integer-only. A point literal is decimal: in the DEC input base, or after 0d in any base (D19).
+// are integer-only. A point literal is decimal (D19).
 
 type intTokenKind int
 
@@ -30,7 +35,7 @@ type intToken struct {
 	real  *big.Rat // a point literal
 }
 
-func lexInt(input string, base int) ([]intToken, *Error) {
+func lexInt(input string) ([]intToken, *Error) {
 	var tokens []intToken
 	for i := 0; i < len(input); {
 		c := input[i]
@@ -43,26 +48,25 @@ func lexInt(input string, base int) ([]intToken, *Error) {
 				end++
 			}
 			word := input[i:end]
-			if c >= '0' && c <= '9' && end < len(input) && input[end] == '.' {
-				// A point literal: the digits before the point and the word after it are both decimal digits.
-				real, next, ok := realLiteral(input, word, end, base)
+			if c < '0' || c > '9' {
+				tokens = append(tokens, intToken{kind: intIdent, text: word})
+				i = end
+				continue
+			}
+			if end < len(input) && input[end] == '.' {
+				real, next, ok := realLiteral(input, word, end)
 				if !ok {
-					return nil, &Error{Code: CodeSyntax}
+					return nil, &Error{Code: CodeBadNumber}
 				}
 				tokens = append(tokens, intToken{kind: intNumber, real: real})
 				i = next
 				continue
 			}
-			if c >= '0' && c <= '9' || base == 16 && isHexWord(word) {
-				// A word that starts with a digit is a literal; in HEX a bare word of hex digits is one too.
-				value, ok := intLiteral(word, base)
-				if !ok {
-					return nil, &Error{Code: CodeSyntax}
-				}
-				tokens = append(tokens, intToken{kind: intNumber, value: value})
-			} else {
-				tokens = append(tokens, intToken{kind: intIdent, text: word})
+			value, ok := intLiteral(word)
+			if !ok {
+				return nil, &Error{Code: CodeBadNumber}
 			}
+			tokens = append(tokens, intToken{kind: intNumber, value: value})
 			i = end
 		default:
 			kind, ok := scanIntOperator(input, i)
@@ -77,92 +81,86 @@ func lexInt(input string, base int) ([]intToken, *Error) {
 }
 
 // realLiteral reads `digits.digits` (D19) from the word before the point at input[point]. The point belongs to a
-// decimal number only: the word is unprefixed in the DEC input base, or carries 0d in any base; a 0x, 0b or 0o
-// literal never takes one. The fraction is one word of decimal digits, so 1.5e3, 1. and 1.2.3 are refused,
-// and there is no exponent. It answers the value and the index after the literal.
-func realLiteral(input, word string, point, base int) (*big.Rat, int, bool) {
+// decimal number only, plain or after 0d; a 0x, 0b or 0o literal never takes one. The fraction is one word of
+// decimal digits, so 1.5e3, 1. and 1.2.3 are refused, and there is no exponent. Either part may group its digits
+// with _. A whole part may start with 0 (0.5, and 010.5 is ten and a half in C as well). It answers the value
+// and the index after the literal.
+func realLiteral(input, word string, point int) (*big.Rat, int, bool) {
 	whole := word
 	if len(word) > 1 && word[0] == '0' && (word[1] == 'd' || word[1] == 'D') {
 		whole = word[2:]
-	} else if base != 10 {
-		return nil, 0, false
 	}
 	end := point + 1
 	for end < len(input) && isIntWordChar(input[end]) {
 		end++
 	}
-	fraction := input[point+1 : end]
-	if !allDecimal(whole) || !allDecimal(fraction) {
+	whole, wholeOK := withoutSeparators(whole)
+	fraction, fractionOK := withoutSeparators(input[point+1 : end])
+	if !wholeOK || !fractionOK || !allDigits(whole, 10) || !allDigits(fraction, 10) {
 		return nil, 0, false
 	}
 	value, ok := new(big.Rat).SetString(whole + "." + fraction)
 	return value, end, ok
 }
 
-func allDecimal(word string) bool { return allDigits(word, 10) }
-
 func isIntWordChar(c byte) bool {
 	return c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c == '_'
 }
 
-func isHexWord(word string) bool {
-	if word == "" {
-		return false
-	}
-	for i := 0; i < len(word); i++ {
-		c := word[i]
-		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F') {
-			return false
-		}
-	}
-	return true
-}
-
-// intLiteral reads a literal: an explicit prefix wins (0x, 0b, 0o, 0d, case-insensitive on the prefix letter),
-// otherwise the input base decides. It answers false when the word is not a literal in any reading.
-func intLiteral(word string, base int) (*big.Int, bool) {
-	value := new(big.Int)
+// intLiteral reads an integer literal: 0x, 0b, 0o or 0d (the prefix letter in either case) and digits of that
+// base, or plain decimal digits. A plain literal of more than one digit may not start with 0 (see the top of
+// this file). It answers false when the word is not a literal.
+func intLiteral(word string) (*big.Int, bool) {
+	base, digits := 10, word
 	if len(word) > 1 && word[0] == '0' {
-		prefixBase := 0
 		switch word[1] {
 		case 'x', 'X':
-			prefixBase = 16
+			base, digits = 16, word[2:]
 		case 'b', 'B':
-			prefixBase = 2
+			base, digits = 2, word[2:]
 		case 'o', 'O':
-			prefixBase = 8
+			base, digits = 8, word[2:]
 		case 'd', 'D':
-			prefixBase = 10
-		}
-		if prefixBase != 0 {
-			digits := word[2:]
-			if digits == "" || !allDigits(digits, prefixBase) {
-				return nil, false
-			}
-			if _, ok := value.SetString(digits, prefixBase); !ok {
-				return nil, false
-			}
-			return value, true
+			base, digits = 10, word[2:]
+		default:
+			return nil, false // a leading zero
 		}
 	}
-	if !allDigits(word, base) {
+	digits, ok := withoutSeparators(digits)
+	if !ok || !allDigits(digits, base) {
 		return nil, false
 	}
-	if _, ok := value.SetString(word, base); !ok {
-		return nil, false
-	}
-	return value, true
+	value, ok := new(big.Int).SetString(digits, base)
+	return value, ok
 }
 
+// withoutSeparators drops the _ that group digits, each between two digits: none first, last, or doubled.
+func withoutSeparators(digits string) (string, bool) {
+	if !strings.Contains(digits, "_") {
+		return digits, true
+	}
+	if digits[0] == '_' || digits[len(digits)-1] == '_' || strings.Contains(digits, "__") {
+		return "", false
+	}
+	return strings.ReplaceAll(digits, "_", ""), true
+}
+
+// allDigits says the word is one or more digits of the base, hex letters in either case.
 func allDigits(word string, base int) bool {
 	if word == "" {
 		return false
 	}
 	for i := 0; i < len(word); i++ {
-		switch c := word[i]; {
+		c, digit := word[i], 99
+		switch {
 		case c >= '0' && c <= '9':
-		case base == 16 && (c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F'):
-		default:
+			digit = int(c - '0')
+		case c >= 'a' && c <= 'f':
+			digit = int(c-'a') + 10
+		case c >= 'A' && c <= 'F':
+			digit = int(c-'A') + 10
+		}
+		if digit >= base {
 			return false
 		}
 	}
@@ -393,20 +391,16 @@ func (e *intEval) eval(n *intNode) (pval, bool, bool, *Error) {
 	return pval{}, false, false, &Error{Code: CodeSyntax}
 }
 
-// ident answers `ans` or a bare literal in the input base; anything else is an unknown identifier, whether or
-// not a function of that name exists. An integer ans is read at the current word size.
+// ident answers `ans`; anything else is an unknown identifier, whether or not a function of that name exists,
+// and so is a bare word of hex digits such as `ff`. An integer ans is read at the current word size.
 func (e *intEval) ident(name string) (pval, bool, bool, *Error) {
-	if name == "ans" {
-		if e.opts.Ans.Real != nil {
-			return pval{r: new(big.Rat).Set(e.opts.Ans.Real), negative: e.opts.Ans.NegativeZero}, false, false, nil
-		}
-		return pval{i: new(big.Int).And(new(big.Int).SetUint64(e.opts.Ans.Bits), e.mask)}, false, false, nil
-	}
-	value, ok := intLiteral(name, e.opts.Base)
-	if !ok {
+	if name != "ans" {
 		return pval{}, false, false, &Error{Code: CodeUnknownIdent}
 	}
-	return e.literal(value)
+	if e.opts.Ans.Real != nil {
+		return pval{r: new(big.Rat).Set(e.opts.Ans.Real), negative: e.opts.Ans.NegativeZero}, false, false, nil
+	}
+	return pval{i: new(big.Int).And(new(big.Int).SetUint64(e.opts.Ans.Bits), e.mask)}, false, false, nil
 }
 
 // literal applies an integer literal's fit rule: 0 ≤ value < 2^N; a negative number is written with unary -.

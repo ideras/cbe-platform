@@ -18,6 +18,7 @@ const (
 	CodeTypeMismatch    = "TYPE_MISMATCH"
 	CodeDimMismatch     = "DIM_MISMATCH"
 	CodeTooLarge        = "TOO_LARGE"
+	CodeBadNumber       = "BAD_NUMBER" // a programmer word that starts with a digit and is no literal: 0b102, 1F, 010
 )
 
 // Error is a calculator failure: a code, never prose. The frontend maps codes to messages in one module, so the

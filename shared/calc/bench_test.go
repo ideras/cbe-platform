@@ -50,7 +50,7 @@ func BenchmarkEvaluate200Characters(b *testing.B) {
 }
 
 func BenchmarkEvaluateProgrammer200Characters(b *testing.B) {
-	opts := IntOptions{Word: 32, Signed: true, Base: 10}
+	opts := IntOptions{Word: 32, Signed: true}
 	for b.Loop() {
 		if _, err := EvaluateProgrammer(longProgrammer, opts); err != nil {
 			b.Fatal(err)
@@ -77,7 +77,7 @@ func TestEvaluationMeetsThePerformanceTargets(t *testing.T) {
 			return err
 		},
 		"programmer": func() error {
-			_, err := EvaluateProgrammer(longProgrammer, IntOptions{Word: 32, Signed: true, Base: 10})
+			_, err := EvaluateProgrammer(longProgrammer, IntOptions{Word: 32, Signed: true})
 			return err
 		},
 		"matmul": func() error { _, err := Evaluate("matmul(ans, ans)", neuralOptions(square8)); return err },

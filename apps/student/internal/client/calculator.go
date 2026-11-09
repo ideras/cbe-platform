@@ -118,11 +118,11 @@ func (s *Service) CalcModeChanged(from, to string) error {
 }
 
 // CalcInspect encodes or decodes the shared input in one IEEE 754 format (plan Phases 6 and 6A, D13, D21):
-// direction is "encode" or "decode", and the panel's word size, input base and signed/unsigned toggle are the
-// caller's, since the input is a programmer expression. It answers as if the inspector did not exist when the
-// calculator is unavailable, programmer mode is off, or the exam disabled the inspector: the panel is hidden and
-// this method refuses. Every inspection is logged as calc_inspected, with what reproduces it.
-func (s *Service) CalcInspect(input string, format string, direction string, word int, inputBase string, signed bool) (calc.CalcIEEEView, error) {
+// direction is "encode" or "decode", and the panel's word size and signed/unsigned toggle are the caller's,
+// since the input is a programmer expression. It answers as if the inspector did not exist when the calculator
+// is unavailable, programmer mode is off, or the exam disabled the inspector: the panel is hidden and this
+// method refuses. Every inspection is logged as calc_inspected, with what reproduces it.
+func (s *Service) CalcInspect(input string, format string, direction string, word int, signed bool) (calc.CalcIEEEView, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	config, ok := s.calculatorConfig()
@@ -132,13 +132,9 @@ func (s *Service) CalcInspect(input string, format string, direction string, wor
 	if s.tools.full() {
 		return calc.CalcIEEEView{}, errCalcPaused
 	}
-	base, ok := intBase(inputBase)
-	if !ok {
-		return calc.CalcIEEEView{}, errors.New("The input base is not one of bin, oct, dec, hex.")
-	}
 	detail := map[string]any{"client_time": clientTimestamp(), "format": format, "direction": direction, "input": input,
-		"word_size": word, "input_base": inputBase, "signed": signed}
-	view, err := calc.Inspect(input, format, direction, calc.IntOptions{Word: word, Signed: signed, Base: base, Allowed: calc.Allowed(config.Effective()), Ans: s.calcAnsProgrammer})
+		"word_size": word, "signed": signed}
+	view, err := calc.Inspect(input, format, direction, calc.IntOptions{Word: word, Signed: signed, Allowed: calc.Allowed(config.Effective()), Ans: s.calcAnsProgrammer})
 	if err != nil {
 		var code *calc.Error
 		if errors.As(err, &code) {
@@ -191,10 +187,10 @@ type CalcIntResult = calc.CalcIntResult
 type CalcFractionResult = calc.CalcFractionResult
 
 // CalcEvaluateInt evaluates one programmer expression (plan Phases 5 and 6A), integer or real (D20), and keeps
-// the programmer ans with its kind. The panel's word size, signed/unsigned toggle and input base are the
-// caller's; the logging follows the same rules as CalcEvaluate, with word_size, input_base and signed in the
-// detail so the result can be reproduced.
-func (s *Service) CalcEvaluateInt(input string, word int, inputBase string, signed bool) (CalcIntResult, error) {
+// the programmer ans with its kind. The panel's word size and signed/unsigned toggle are the caller's (there
+// is no input base: a plain number is decimal); the logging follows the same rules as CalcEvaluate, with
+// word_size and signed in the detail so the result can be reproduced.
+func (s *Service) CalcEvaluateInt(input string, word int, signed bool) (CalcIntResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	config, ok := s.calculatorConfig()
@@ -204,12 +200,8 @@ func (s *Service) CalcEvaluateInt(input string, word int, inputBase string, sign
 	if s.tools.full() {
 		return CalcIntResult{}, errCalcPaused
 	}
-	base, ok := intBase(inputBase)
-	if !ok {
-		return CalcIntResult{}, errors.New("The input base is not one of bin, oct, dec, hex.")
-	}
-	detail := map[string]any{"client_time": clientTimestamp(), "mode": "programmer", "expression": input, "word_size": word, "input_base": inputBase, "signed": signed}
-	value, err := calc.EvaluateProgrammer(input, calc.IntOptions{Word: word, Signed: signed, Base: base, Allowed: calc.Allowed(config.Effective()), Ans: s.calcAnsProgrammer})
+	detail := map[string]any{"client_time": clientTimestamp(), "mode": "programmer", "expression": input, "word_size": word, "signed": signed}
+	value, err := calc.EvaluateProgrammer(input, calc.IntOptions{Word: word, Signed: signed, Allowed: calc.Allowed(config.Effective()), Ans: s.calcAnsProgrammer})
 	if err != nil {
 		var code *calc.Error
 		if errors.As(err, &code) {
@@ -233,7 +225,7 @@ func (s *Service) CalcEvaluateInt(input string, word int, inputBase string, sign
 // CalcConvertFraction reads the shared input as a programmer expression and converts its value to binary,
 // octal and hexadecimal, exactly (D6, D21). It is logged like an evaluation, with view "fraction" and what
 // reproduces it.
-func (s *Service) CalcConvertFraction(input string, word int, inputBase string, signed bool) (CalcFractionResult, error) {
+func (s *Service) CalcConvertFraction(input string, word int, signed bool) (CalcFractionResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	config, ok := s.calculatorConfig()
@@ -243,12 +235,8 @@ func (s *Service) CalcConvertFraction(input string, word int, inputBase string, 
 	if s.tools.full() {
 		return CalcFractionResult{}, errCalcPaused
 	}
-	base, ok := intBase(inputBase)
-	if !ok {
-		return CalcFractionResult{}, errors.New("The input base is not one of bin, oct, dec, hex.")
-	}
-	detail := map[string]any{"client_time": clientTimestamp(), "mode": "programmer", "view": "fraction", "expression": input, "word_size": word, "input_base": inputBase, "signed": signed}
-	result, err := calc.Fraction(input, calc.IntOptions{Word: word, Signed: signed, Base: base, Allowed: calc.Allowed(config.Effective()), Ans: s.calcAnsProgrammer})
+	detail := map[string]any{"client_time": clientTimestamp(), "mode": "programmer", "view": "fraction", "expression": input, "word_size": word, "signed": signed}
+	result, err := calc.Fraction(input, calc.IntOptions{Word: word, Signed: signed, Allowed: calc.Allowed(config.Effective()), Ans: s.calcAnsProgrammer})
 	if err != nil {
 		var code *calc.Error
 		if errors.As(err, &code) {
@@ -271,6 +259,3 @@ func (s *Service) CalcConvertFraction(input string, word int, inputBase string, 
 func (s *Service) calculatorModeEnabled(mode string) bool {
 	return slices.Contains(s.exam.Tools.Calculator.Modes, mode) || len(s.exam.Tools.Calculator.Modes) == 0 && mode == calc.ModeScientific
 }
-
-// intBase reads the panel's base selector.
-func intBase(inputBase string) (int, bool) { return calc.InputBase(inputBase) }

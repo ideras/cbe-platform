@@ -356,10 +356,10 @@ export async function Timeline(id, cursor) {
     { id: 'event:42', kind: 'event', occurred_at: AT, event: { event_log_id: 42, event_type: 'calc_evaluated', detail: { client: { client_time: AT, mode: 'scientific', expression: 'log(8)', ok: false, code: 'ARITY', angle_mode: 'deg' } }, screenshots: [] } },
     { id: 'event:43', kind: 'event', occurred_at: AT, event: { event_log_id: 43, event_type: 'calc_closed', detail: { client: { client_time: AT, mode: 'scientific', open_ms: 30000 } }, screenshots: [] } },
     { id: 'event:44', kind: 'event', occurred_at: AT, event: { event_log_id: 44, event_type: 'calc_tab_changed', detail: { client: { client_time: AT, from: 'keypad', to: 'ieee754' } }, screenshots: [] } },
-    { id: 'event:45', kind: 'event', occurred_at: AT, event: { event_log_id: 45, event_type: 'calc_inspected', detail: { client: { client_time: AT, format: 'binary16', direction: 'decode', input: '0x3C00', ok: true, bits: '0x3C00', word_size: 32, input_base: 'dec', signed: true } }, screenshots: [] } },
+    { id: 'event:45', kind: 'event', occurred_at: AT, event: { event_log_id: 45, event_type: 'calc_inspected', detail: { client: { client_time: AT, format: 'binary16', direction: 'decode', input: '0x3C00', ok: true, bits: '0x3C00', word_size: 32, signed: true } }, screenshots: [] } },
     { id: 'event:46', kind: 'event', occurred_at: AT, event: { event_log_id: 46, event_type: 'calc_evaluated', detail: { client: { client_time: AT, mode: 'programmer', expression: '0xFF / 2', ok: true, display: '127', word_size: 8, input_base: 'hex', signed: false } }, screenshots: [] } },
     { id: 'event:47', kind: 'event', occurred_at: AT, event: { event_log_id: 47, event_type: 'calc_tab_changed', detail: { client: { client_time: AT, from: 'ieee754', to: 'fraction' } }, screenshots: [] } },
-    { id: 'event:48', kind: 'event', occurred_at: AT, event: { event_log_id: 48, event_type: 'calc_evaluated', detail: { client: { client_time: AT, mode: 'programmer', view: 'fraction', expression: '10.625', ok: true, display: '1010.101', word_size: 32, input_base: 'dec', signed: true } }, screenshots: [] } },
+    { id: 'event:48', kind: 'event', occurred_at: AT, event: { event_log_id: 48, event_type: 'calc_evaluated', detail: { client: { client_time: AT, mode: 'programmer', view: 'fraction', expression: '10.625', ok: true, display: '1010.101', word_size: 32, signed: true } }, screenshots: [] } },
   ], next_cursor: cursor ? null : 'opaque cursor +/=' };
 }
 export async function Image(id, thumbnail) { calls.image.push({ id, thumbnail }); if (imageMissing) throw new Error('Image missing or purged.'); return { id, data: PNG }; }
@@ -531,7 +531,7 @@ export async function CalcEvaluate(input, angleMode) {
   if (canned) return { ok: true, display: canned };
   return { ok: false, code: 'SYNTAX' };
 }
-export async function CalcEvaluateInt(input, word, inputBase, signedMode) {
+export async function CalcEvaluateInt(input, word, signedMode) {
   record('CalcEvaluateInt');
   if (!previewExam || previewExam === 'no-calc') throw Error('The calculator is not available.');
   if (/^\d+$/.test(input.trim()) && BigInt(input.trim()) < (1n << BigInt(word))) {

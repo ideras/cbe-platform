@@ -354,13 +354,13 @@ func TestTheExamEndClearsTheAns(t *testing.T) {
 }
 
 // The programmer evaluator through the service: the panel's word size, signed toggle and input base decide,
-// the programmer ans survives evaluations with its kind, and the details carry word_size, input_base and signed.
+// the programmer ans survives evaluations with its kind, and the details carry word_size and signed, and no input base.
 func TestCalcEvaluateIntFollowsThePanel(t *testing.T) {
 	f := newFixture(t)
 	f.examTools = &calc.Tools{Version: 1, Calculator: &calc.Calculator{Enabled: true, Modes: []string{calc.ModeScientific, calc.ModeProgrammer}, AngleMode: calc.AngleUser}}
 	s := newClient(t, f, nil)
 	loginClient(t, s, f)
-	result, err := s.CalcEvaluateInt("0xFF + 1", 8, "hex", true)
+	result, err := s.CalcEvaluateInt("0xFF + 1", 8, true)
 	if err != nil || !result.Ok {
 		t.Fatalf("0xFF + 1 = %+v, %v", result, err)
 	}
@@ -368,30 +368,30 @@ func TestCalcEvaluateIntFollowsThePanel(t *testing.T) {
 		t.Fatalf("0xFF + 1 at 8 bits = %+v", result)
 	}
 	// The programmer ans kept the raw bits; the next evaluation reads it.
-	if _, err := s.CalcEvaluateInt("ans", 8, "hex", true); err != nil {
+	if _, err := s.CalcEvaluateInt("ans", 8, true); err != nil {
 		t.Fatal(err)
 	}
 	// The unsigned reading of -8 >> 1 differs by the toggle: 124 when unsigned, -4 when signed.
-	unsigned, err := s.CalcEvaluateInt("-8 >> 1", 8, "dec", false)
+	unsigned, err := s.CalcEvaluateInt("-8 >> 1", 8, false)
 	if err != nil || unsigned.Signed != "124" || unsigned.Binary != "01111100" {
 		t.Fatalf("-8 >> 1 unsigned = %+v, %v", unsigned, err)
 	}
-	signedOnly, err := s.CalcEvaluateInt("-8 >> 1", 8, "dec", true)
+	signedOnly, err := s.CalcEvaluateInt("-8 >> 1", 8, true)
 	if err != nil || signedOnly.Signed != "-4" || signedOnly.Binary != "11111100" {
 		t.Fatalf("-8 >> 1 signed = %+v, %v", signedOnly, err)
 	}
 	// A real (D20) answers only its display, and the ans keeps it as a real.
-	real, err := s.CalcEvaluateInt("1.0 / 4", 8, "dec", true)
+	real, err := s.CalcEvaluateInt("1.0 / 4", 8, true)
 	if err != nil || !real.Ok || !real.Real || real.Value != "0.25" || real.Unsigned != "" || real.Carry {
 		t.Fatalf("1.0 / 4 = %+v, %v", real, err)
 	}
-	if again, err := s.CalcEvaluateInt("ans + 1", 8, "dec", true); err != nil || !again.Real || again.Value != "1.25" {
+	if again, err := s.CalcEvaluateInt("ans + 1", 8, true); err != nil || !again.Real || again.Value != "1.25" {
 		t.Fatalf("a real ans + 1 = %+v, %v", again, err)
 	}
-	if refused, err := s.CalcEvaluateInt("ans & 1", 8, "dec", true); err != nil || refused.Ok || refused.Code != calc.CodeNotInteger {
+	if refused, err := s.CalcEvaluateInt("ans & 1", 8, true); err != nil || refused.Ok || refused.Code != calc.CodeNotInteger {
 		t.Fatalf("a real ans & 1 = %+v, %v", refused, err)
 	}
-	if _, err := s.CalcEvaluateInt("-8 >> 1", 8, "dec", true); err != nil {
+	if _, err := s.CalcEvaluateInt("-8 >> 1", 8, true); err != nil {
 		t.Fatal(err)
 	}
 	// The details reproduce the result; the queue sends asynchronously, so poll until the last one arrives.
@@ -406,7 +406,7 @@ func TestCalcEvaluateIntFollowsThePanel(t *testing.T) {
 		}
 		f.mu.Unlock()
 		if last != nil {
-			if last["word_size"] != float64(8) || last["input_base"] != "dec" || last["signed"] != true || last["mode"] != "programmer" {
+			if last["word_size"] != float64(8) || last["input_base"] != nil || last["signed"] != true || last["mode"] != "programmer" {
 				t.Fatalf("the detail cannot reproduce the result: %v", last)
 			}
 			return
@@ -424,10 +424,10 @@ func TestCalcEvaluateIntNeedsProgrammerMode(t *testing.T) {
 	f.examTools = &calc.Tools{Version: 1, Calculator: &calc.Calculator{Enabled: true, Modes: []string{calc.ModeScientific}}}
 	s := newClient(t, f, nil)
 	loginClient(t, s, f)
-	if _, err := s.CalcEvaluateInt("1+1", 8, "dec", true); err == nil {
+	if _, err := s.CalcEvaluateInt("1+1", 8, true); err == nil {
 		t.Fatal("the programmer panel answered a scientific-only exam")
 	}
-	if _, err := s.CalcConvertFraction("10.625", 32, "dec", true); err == nil {
+	if _, err := s.CalcConvertFraction("10.625", 32, true); err == nil {
 		t.Fatal("the fraction field answered a scientific-only exam")
 	}
 }
@@ -439,7 +439,7 @@ func TestCalcConvertFractionLogsTheView(t *testing.T) {
 	f.examTools = &calc.Tools{Version: 1, Calculator: &calc.Calculator{Enabled: true, Modes: []string{calc.ModeProgrammer}}}
 	s := newClient(t, f, nil)
 	loginClient(t, s, f)
-	result, err := s.CalcConvertFraction("10.625", 32, "dec", false)
+	result, err := s.CalcConvertFraction("10.625", 32, false)
 	if err != nil || !result.Ok || result.Binary != "1010.101" || result.Octal != "12.5" || result.Hex != "A.A" {
 		t.Fatalf("10.625 = %+v, %v", result, err)
 	}
@@ -449,7 +449,7 @@ func TestCalcConvertFractionLogsTheView(t *testing.T) {
 		found := false
 		for _, record := range f.telemetry {
 			if record.kind == "calc_evaluated" && record.detail["view"] == "fraction" && record.detail["expression"] == "10.625" && record.detail["mode"] == "programmer" &&
-				record.detail["word_size"] == float64(32) && record.detail["input_base"] == "dec" && record.detail["signed"] == false {
+				record.detail["word_size"] == float64(32) && record.detail["input_base"] == nil && record.detail["signed"] == false {
 				found = true
 			}
 		}
@@ -472,15 +472,12 @@ func TestCalcInspectAnswersAndLogs(t *testing.T) {
 	f.examTools = &calc.Tools{Version: 1, Calculator: &calc.Calculator{Enabled: true, Modes: []string{calc.ModeProgrammer}}}
 	s := newClient(t, f, nil)
 	loginClient(t, s, f)
-	view, err := s.CalcInspect("1.0", "binary16", calc.DirectionEncode, 32, "dec", true)
+	view, err := s.CalcInspect("1.0", "binary16", calc.DirectionEncode, 32, true)
 	if err != nil || !view.Ok || view.Bits != "0x3C00" || view.Class != "normal" || view.Value != "1" {
 		t.Fatalf("1.0 in binary16 = %+v, %v", view, err)
 	}
-	if view, err = s.CalcInspect("0x412A0000", "binary16", calc.DirectionDecode, 32, "dec", true); err != nil || view.Ok || view.Code != calc.CodeBitWidth {
+	if view, err = s.CalcInspect("0x412A0000", "binary16", calc.DirectionDecode, 32, true); err != nil || view.Ok || view.Code != calc.CodeBitWidth {
 		t.Fatalf("a wide pattern = %+v, %v, want a BIT_WIDTH result", view, err)
-	}
-	if _, err = s.CalcInspect("1.0", "binary16", calc.DirectionEncode, 32, "base 3", true); err == nil {
-		t.Fatal("an unknown input base was accepted")
 	}
 	until := time.Now().Add(3 * time.Second)
 	for {
@@ -490,7 +487,7 @@ func TestCalcInspectAnswersAndLogs(t *testing.T) {
 			if record.kind != "calc_inspected" {
 				continue
 			}
-			reproducible := record.detail["word_size"] == float64(32) && record.detail["input_base"] == "dec" && record.detail["signed"] == true
+			reproducible := record.detail["word_size"] == float64(32) && record.detail["input_base"] == nil && record.detail["signed"] == true
 			if record.detail["bits"] == "0x3C00" && record.detail["input"] == "1.0" && record.detail["direction"] == "encode" && reproducible {
 				found = true
 			}
@@ -515,7 +512,7 @@ func TestCalcInspectRefusesWhenDisabled(t *testing.T) {
 	f.examTools = &calc.Tools{Version: 1, Calculator: &calc.Calculator{Enabled: true, Modes: []string{calc.ModeProgrammer}, DisabledFunctions: []string{"ieee754"}}}
 	s := newClient(t, f, nil)
 	loginClient(t, s, f)
-	if view, err := s.CalcInspect("1.0", "binary16", calc.DirectionEncode, 32, "dec", true); err == nil || view.Ok {
+	if view, err := s.CalcInspect("1.0", "binary16", calc.DirectionEncode, 32, true); err == nil || view.Ok {
 		t.Fatalf("a disabled inspector = %+v, %v", view, err)
 	}
 	// And scientific-only exams have no programmer panel at all.
@@ -523,7 +520,7 @@ func TestCalcInspectRefusesWhenDisabled(t *testing.T) {
 	f2.examTools = &calc.Tools{Version: 1, Calculator: &calc.Calculator{Enabled: true, Modes: []string{calc.ModeScientific}}}
 	s2 := newClient(t, f2, nil)
 	loginClient(t, s2, f2)
-	if _, err := s2.CalcInspect("1.0", "binary16", calc.DirectionEncode, 32, "dec", true); err == nil {
+	if _, err := s2.CalcInspect("1.0", "binary16", calc.DirectionEncode, 32, true); err == nil {
 		t.Fatal("the inspector answered a scientific-only exam")
 	}
 }

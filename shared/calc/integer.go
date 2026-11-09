@@ -16,11 +16,10 @@ import (
 // and OF of an addition are what they are, whatever the operands are taken to mean afterwards.
 
 // IntOptions are the panel's settings: the word size (8, 16, 32 or 64), the signed/unsigned toggle (D15), the
-// input base for unprefixed literals, the allowed names, and the programmer ans (D10) with its kind.
+// allowed names, and the programmer ans (D10) with its kind. There is no input base: a plain literal is decimal.
 type IntOptions struct {
 	Word    int
 	Signed  bool
-	Base    int // 2, 8, 10 or 16; anything else reads as 10
 	Allowed map[string]bool
 	Ans     Value
 }
@@ -51,7 +50,7 @@ type IntDisplay struct {
 	Signed, Unsigned, Hex, Octal, Binary string
 }
 
-// EvaluateProgrammer evaluates one programmer expression: integer literals in the input base or with an explicit
+// EvaluateProgrammer evaluates one programmer expression: decimal integer literals or ones with a 0b, 0o or 0x
 // prefix, point literals (D19), the operators, `ans`, and the allowed registry functions of programmer mode
 // (nand, nor, rol, ror). A failed evaluation is a *Error with a Code; the checks of a call run allowed → arity →
 // evaluation, as everywhere.
@@ -78,10 +77,7 @@ func evaluateProgrammer(input string, opts IntOptions, fitCode string) (Value, e
 		return Value{}, &Error{Code: CodeTooLong}
 	}
 	word := effectiveWord(opts.Word)
-	if opts.Base != 2 && opts.Base != 8 && opts.Base != 16 {
-		opts.Base = 10
-	}
-	tokens, lexErr := lexInt(input, opts.Base)
+	tokens, lexErr := lexInt(input)
 	if lexErr != nil {
 		return Value{}, lexErr
 	}

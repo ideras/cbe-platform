@@ -81,19 +81,17 @@ func FuzzEvaluateProgrammer(f *testing.F) {
 	allowed := allowedProgrammer()
 	f.Fuzz(func(t *testing.T, input string) {
 		for _, signed := range []bool{true, false} {
-			for _, base := range []int{10, 16} {
-				opts := IntOptions{Word: 64, Signed: signed, Base: base, Allowed: allowed, Ans: Value{Real: big.NewRat(3, 2)}}
-				if value, err := EvaluateProgrammer(input, opts); err == nil && value.IsReal() && FormatReal(value.Real, value.NegativeZero) == "" {
-					t.Errorf("%q: a real with an empty display", input)
+			opts := IntOptions{Word: 64, Signed: signed, Allowed: allowed, Ans: Value{Real: big.NewRat(3, 2)}}
+			if value, err := EvaluateProgrammer(input, opts); err == nil && value.IsReal() && FormatReal(value.Real, value.NegativeZero) == "" {
+				t.Errorf("%q: a real with an empty display", input)
+			}
+			opts.Ans = Value{Bits: 255}
+			_, _ = Fraction(input, opts)
+			for _, format := range []string{"binary16", "bfloat16", "binary32", "binary64"} {
+				if view, err := Inspect(input, format, DirectionEncode, opts); err == nil && view.Bits == "" {
+					t.Errorf("%q: an encoding without bits", input)
 				}
-				opts.Ans = Value{Bits: 255}
-				_, _ = Fraction(input, opts)
-				for _, format := range []string{"binary16", "bfloat16", "binary32", "binary64"} {
-					if view, err := Inspect(input, format, DirectionEncode, opts); err == nil && view.Bits == "" {
-						t.Errorf("%q: an encoding without bits", input)
-					}
-					_, _ = Inspect(input, format, DirectionDecode, opts)
-				}
+				_, _ = Inspect(input, format, DirectionDecode, opts)
 			}
 		}
 	})
@@ -110,7 +108,7 @@ func FuzzInspect(f *testing.F) {
 	f.Fuzz(func(t *testing.T, input string) {
 		for format := range IEEEFormats {
 			for _, direction := range []string{DirectionEncode, DirectionDecode} {
-				view, err := Inspect(input, format, direction, IntOptions{Word: 32, Signed: true, Base: 10, Allowed: allowed})
+				view, err := Inspect(input, format, direction, IntOptions{Word: 32, Signed: true, Allowed: allowed})
 				if err != nil {
 					continue
 				}

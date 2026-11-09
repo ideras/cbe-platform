@@ -77,18 +77,3 @@ func ResolveAngle(configured, requested string) string {
 	}
 	return AngleRadians
 }
-
-// InputBase reads the programmer panel's base selector: bin, oct, dec or hex.
-func InputBase(inputBase string) (int, bool) {
-	switch inputBase {
-	case "bin":
-		return 2, true
-	case "oct":
-		return 8, true
-	case "dec":
-		return 10, true
-	case "hex":
-		return 16, true
-	}
-	return 0, false
-}
