@@ -1,6 +1,5 @@
 [Unit]
 Description=CBE quota helper: size-limited /work folders for workspace exams (root, serves only cbe-runner)
-Documentation=file:///usr/local/share/doc/cbe-platform/deployment.md
 After=local-fs.target
 RequiresMountsFor=/data/cbe-platform/work
 

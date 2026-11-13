@@ -5,7 +5,7 @@
 // CBE_E2E_SERVER_BIN is set; deploy/workspace/test-server.sh sets everything up and runs it in two phases, restarting the runner
 // between them.
 //
-//	CBE_E2E_SERVER_BIN        the server binary             CBE_E2E_PHASE   "A" (everything, leaves sessions), "B" (after the runner restarted) or "cleanup"
+//	CBE_E2E_SERVER_BIN        the server binary             CBE_E2E_PHASE   "A" (everything, leaves sessions), "B" (after the runner restarted), "C" (after the runtime's user manager restarted, which is what a boot does to the containers) or "cleanup"
 //	CBE_E2E_STATE             a folder both phases share    CBE_RUNNER_SOCKET / CBE_RUNNER_SECRET_FILE   the runner's
 //	CBE_E2E_RUNTIME_SOCKET    the runtime's socket, which this account must not be able to reach
 //	CBE_E2E_PACKAGE           a folder with what examc made of the example package: document.json, starter.tar, grading.tar
@@ -338,6 +338,8 @@ func TestRealServer(t *testing.T) {
 		phaseA(t, r)
 	case "B":
 		phaseB(t, r)
+	case "C":
+		phaseC(t, r)
 	case "cleanup":
 		// Whatever the other phases made, whether or not they got to the end: the containers and their folders go.
 		r.load()
@@ -347,7 +349,7 @@ func TestRealServer(t *testing.T) {
 			}
 		}
 	default:
-		t.Fatalf("CBE_E2E_PHASE must be A, B or cleanup, not %q", phase)
+		t.Fatalf("CBE_E2E_PHASE must be A, B, C or cleanup, not %q", phase)
 	}
 }
 
@@ -600,6 +602,10 @@ func phaseA(t *testing.T, r *rig) {
 		if code, out := sh(t, a, good, "dd if=/dev/zero of=/work/ok bs=1M count=20 && rm /work/ok"); code != 0 {
 			t.Errorf("the other student's disk: %d %q", code, out)
 		}
+		// Another student's files are not there to find, however hard a student looks (ada wrote wait.txt in her own workspace).
+		if code, out := sh(t, g, term, "echo found=$(find / -name wait.txt -not -path '/proc/*' 2>/dev/null | wc -l)"); code != 0 || !strings.Contains(out, "found=0") {
+			t.Errorf("looking for another student's file: %d %q", code, out)
+		}
 		sh(t, g, term, "rm -f /work/big; echo tidy > /work/after-the-abuse.txt")
 		r.state.Files["grace"] = map[string]string{"after-the-abuse.txt": "tidy\n"}
 	})
@@ -703,6 +709,65 @@ func phaseB(t *testing.T, r *rig) {
 		}
 		_ = grace
 	})
+}
+
+// Phase C runs after the container host's runtime was restarted the way a boot restarts it (the user manager of cbe-runner goes down
+// and every container with it, and comes back with the runner). The students' workspaces are there as stopped containers on their
+// own /work, and the exam server that is started now brings each back as it does an agent that ended. The deadline comes last, so
+// that what is frozen here was never through the restart (a runtime that is restarted this way keeps a paused container's state; a
+// real boot clears it, and Phase 8 rehearses that).
+func phaseC(t *testing.T, r *rig) {
+	r.load()
+	ctx := context.Background()
+	workspacetest.Eventually(t, 90*time.Second, "the runner to answer after the restart", func() bool { return r.runner.Ping(ctx) == nil })
+	ada, grace := r.state.Sessions["ada"], r.state.Sessions["grace"]
+	before := map[string]runner.Status{}
+	for name, s := range map[string]sessionState{"ada": ada, "grace": grace} {
+		status, err := r.runner.Status(ctx, s.ID)
+		if err != nil || status.State != runner.StateExited {
+			t.Fatalf("%s: after the restart the container is %+v (%v); it should be stopped, with its files", name, status, err)
+		}
+		before[name] = status
+	}
+	r.start()
+	for name, s := range map[string]sessionState{"ada": ada, "grace": grace} {
+		r.waitRunning(s)
+		status, err := r.runner.Status(ctx, s.ID)
+		if err != nil || status.StartedAt.Equal(r.state.Started[name]) || status.State != runner.StateRunning {
+			t.Errorf("%s: %+v (started before at %v), %v", name, status, r.state.Started[name], err)
+		}
+		// The count is made a moment after the agent is back, and the student's own kill earlier counted for grace.
+		want := map[string]int{"ada": 1, "grace": 2}[name]
+		var session adminSession
+		workspacetest.Eventually(t, 20*time.Second, "the loss to be counted", func() bool {
+			session = r.adminSession(s)
+			return session.AgentRestarts >= want
+		})
+		lost := false
+		for _, snap := range session.Snapshots {
+			lost = lost || snap.Reason == "agent_loss"
+		}
+		if !lost {
+			t.Errorf("%s: no snapshot at the loss: %+v", name, session)
+		}
+	}
+	for name, files := range r.state.Files {
+		if name == "joan" {
+			continue
+		}
+		c := workspacetest.Dial(t, r.base, r.state.Sessions[name].Token)
+		c.Wait("ws.status", c.OfType("ws.status"))
+		for path, want := range files {
+			reply := c.Call(map[string]any{"type": "fs.read", "path": path})
+			if !workspacetest.OK(reply) || reply["content"] != want {
+				t.Errorf("%s: %s after the restart = %v", name, path, reply)
+			}
+		}
+		term := openTerminal(t, c)
+		if code, out := sh(t, c, term, "echo after-the-boot-$((6*7))"); code != 0 || !strings.Contains(out, "after-the-boot-42") {
+			t.Errorf("%s's terminal: %d %q", name, code, out)
+		}
+	}
 
 	t.Run("at the deadline the work is snapshotted and the container frozen", func(t *testing.T) {
 		var classes struct {

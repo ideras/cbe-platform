@@ -5,8 +5,9 @@
 #   deploy/workspace/test-server.sh
 #
 # Needs deploy/workspace/install.sh to have been run and the image (images/build.sh cpp20). It uses sudo. Phase A does everything, the
-# runner is restarted, and phase B checks the containers were found again by a new server and then lets an exam run out. Takes about
-# four minutes. Whatever happens, the test's containers and folders are removed at the end.
+# runner is restarted, phase B checks the containers were found again by a new server and then lets an exam run out, and the runtime's
+# user manager is restarted (what a boot does to containers) for phase C to check the workspaces come back with their files. Takes
+# about five minutes. Whatever happens, the test's containers and folders are removed at the end.
 set -euo pipefail
 repo=$(cd "$(dirname "$0")/../.." && pwd)
 RUNNER=cbe-runner
@@ -37,3 +38,8 @@ sudo -n -u "$RUNNER" env HOME="/home/$RUNNER" XDG_RUNTIME_DIR="/run/user/$RUID" 
 sleep 3
 echo "== phase B"
 run B
+echo "== the runtime's user manager restarts, as at a boot: every container goes down with it, and the runner comes back by itself"
+sudo -n systemctl restart "user@$RUID.service"
+sleep 5
+echo "== phase C"
+run C
