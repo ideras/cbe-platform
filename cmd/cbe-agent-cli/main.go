@@ -358,7 +358,10 @@ func (s *session) exec(args []string) int {
 	if err != nil {
 		return s.fail(err)
 	}
-	return s.stream(reply.Term)
+	code := s.stream(reply.Term)
+	// A terminal that has ended stays open, as a tab does, and counts toward the limit of four until it is closed.
+	_, _ = s.do(&agentproto.PTYClose{Header: agentproto.Header{Type: agentproto.TypePTYClose}, Term: reply.Term})
+	return code
 }
 
 // stream prints a terminal's output until its program ends, and returns the program's exit code.

@@ -109,6 +109,13 @@ func TestExecRunsACommandAndReturnsItsExitCode(t *testing.T) {
 	if code, _, _ := cli(t, socket, "", "exec", "-cwd", "missing", "ls"); code != 1 {
 		t.Errorf("exec in a missing folder = %d", code)
 	}
+	// Ten commands in a row: each closes its terminal, so the limit of four never bites.
+	for range 10 {
+		cli(t, socket, "", "exec", "true")
+	}
+	if _, stdout, _ := cli(t, socket, "", "terms"); stdout != "" {
+		t.Errorf("terminals are left open: %q", stdout)
+	}
 	_, size, _ := cli(t, socket, "", "exec", "-cols", "132", "-rows", "50", "stty", "size")
 	if !strings.Contains(size, "50 132") {
 		t.Errorf("stty size = %q", size)
