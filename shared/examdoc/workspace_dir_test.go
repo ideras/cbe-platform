@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -48,6 +49,11 @@ func dirProblems(t *testing.T, dir string) string {
 
 func symlink(t *testing.T, target, name string) {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		// Windows gives a link's target back with backslashes and often needs a privilege to make one; the same rules are
+		// tested with links in memory (TestWorkspaceProblemsNameTheirLines).
+		t.Skip("real symbolic links are not tested on Windows")
+	}
 	if err := os.Symlink(target, name); err != nil {
 		t.Skipf("this system cannot make symbolic links here: %v", err)
 	}

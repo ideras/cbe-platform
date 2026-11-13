@@ -326,6 +326,8 @@ func TestWorkspaceProblemsNameTheirLines(t *testing.T) {
 		"picture from grading": {pkg(okFront, "![x](grading/a.png)\n\n[ ] a\n", fstest.MapFS{"grading/a.png": {Data: tinyPNG(t)}, "grading/grade": {Data: []byte("#!/bin/sh\n")}}),
 			fmt.Sprintf(`line %d: image "grading/a.png": pictures cannot come from the grading folder`, body)},
 		"picture reaching up": {pkg(okFront, "![x](../a.png)\n\n[ ] a\n"), fmt.Sprintf(`line %d: image "../a.png"`, body)},
+		"picture absolute":    {pkg(okFront, "![x](/etc/a.png)\n\n[ ] a\n"), fmt.Sprintf(`line %d: image "/etc/a.png": absolute paths are not allowed`, body)},
+		"picture on the web":  {pkg(okFront, "![x](https://example.com/a.png)\n\n[ ] a\n"), fmt.Sprintf(`line %d: image "https://example.com/a.png": only files next to the exam can be used`, body)},
 
 		// 5.1 TODO items
 		"empty todo":          {pkg(okFront, "[ ]\n"), fmt.Sprintf("line %d: the TODO item has no text", body)},
@@ -373,6 +375,7 @@ func TestWorkspaceProblemsNameTheirLines(t *testing.T) {
 		"link above":          {pkg(okFront, "[ ] a\n", link("project/up", "../workspace.md")), `project/up: the symbolic link points to "../workspace.md", outside the folder`},
 		"link above deep":     {pkg(okFront, "[ ] a\n", link("project/a/b/up", "../../../x")), `project/a/b/up: the symbolic link points to "../../../x", outside the folder`},
 		"link through a name": {pkg(okFront, "[ ] a\n", link("project/sneaky", "a/../../x")), `project/sneaky: the symbolic link has the target "a/../../x", which uses .. after a name`},
+		"link drive":          {pkg(okFront, "[ ] a\n", link("project/drive", "C:/Windows")), `project/drive: the symbolic link points to the absolute path "C:/Windows", outside the folder`},
 		"link empty":          {pkg(okFront, "[ ] a\n", link("project/empty", "")), "project/empty: the symbolic link has an empty target"},
 		"link backslash":      {pkg(okFront, "[ ] a\n", link("project/win", `a\b`)), "project/win: the symbolic link has a target with \\"},
 		"device file":         {pkg(okFront, "[ ] a\n", fstest.MapFS{"project/null": {Mode: fs.ModeDevice | fs.ModeCharDevice | 0o666}}), "project/null: it is a device file"},

@@ -7,6 +7,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io/fs"
+	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -76,6 +78,10 @@ func buildBundle(pkg fs.FS, dir string, problem func(format string, args ...any)
 			if err != nil {
 				fail("%s: the symbolic link cannot be read: %v", name, err)
 				return nil
+			}
+			if runtime.GOOS == "windows" {
+				// Windows writes a link's target with backslashes; the bundle is for Linux and holds it with slashes.
+				target = filepath.ToSlash(target)
 			}
 			if reason := linkProblem(relative, target); reason != "" {
 				fail("%s: the symbolic link %s", name, reason)
@@ -191,7 +197,7 @@ func linkProblem(relative, target string) string {
 		return "has a target with characters a path cannot have"
 	case strings.Contains(target, `\`):
 		return `has a target with \; write the path with /`
-	case strings.HasPrefix(target, "/"):
+	case strings.HasPrefix(target, "/") || drivePattern.MatchString(target):
 		return fmt.Sprintf("points to the absolute path %q, outside the folder", target)
 	}
 	depth := strings.Count(relative, "/")
