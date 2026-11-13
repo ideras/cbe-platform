@@ -1,7 +1,7 @@
 # Phase 1 report: package format and compiler
 
-**Date:** 2026-11-13. **Branch:** `feat/workspace-phase-1-package-format` (from `feat/workspace-phase-0-discovery`, which is pushed). **Plan:** `.agents/WORKSPACE-PLAN.md` v1.1.
-**Status:** done; all five acceptance items are met. **Not pushed.** Decisions P1-1 to P1-17 are recorded and wait for the owner; P1-3 first.
+**Date:** 2026-11-13. **Branch:** `feat/workspace-phase-1-package-format` (from `feat/workspace-phase-0-discovery`, which is pushed; this branch is pushed too). **Plan:** `.agents/WORKSPACE-PLAN.md` v1.1.
+**Status:** done; all five acceptance items are met. The owner confirmed decisions P1-1 to P1-17 as proposed (P1-18).
 
 ## What changed
 
