@@ -1,0 +1,27 @@
+# Phase 2 fuzz runs, 2026-11-13, Go go1.27.4, commit e1b311e
+# go test <package> -run '^$' -fuzz '^<Target>$' -fuzztime <time>; each ends PASS: no panic, no failed property
+== FuzzDecodeRequest 60s  15:20:40
+fuzz: elapsed: 54s, execs: 6016165 (109955/sec), new interesting: 179 (total: 541)
+fuzz: elapsed: 57s, execs: 6324797 (102850/sec), new interesting: 182 (total: 544)
+fuzz: elapsed: 1m0s, execs: 6637530 (104153/sec), new interesting: 184 (total: 546)
+fuzz: elapsed: 1m1s, execs: 6637530 (0/sec), new interesting: 184 (total: 546)
+PASS
+ok  	exam-platform/internal/agentproto	61.055s
+== FuzzFilePaths 60s  15:21:41
+fuzz: elapsed: 54s, execs: 2173619 (30102/sec), new interesting: 166 (total: 186)
+fuzz: elapsed: 57s, execs: 2261311 (29232/sec), new interesting: 167 (total: 187)
+fuzz: elapsed: 1m0s, execs: 2346870 (28517/sec), new interesting: 167 (total: 187)
+fuzz: elapsed: 1m1s, execs: 2346870 (0/sec), new interesting: 167 (total: 187)
+PASS
+ok  	exam-platform/internal/agent	61.030s
+== FuzzReadFrame 30s  15:22:44
+fuzz: elapsed: 30s, execs: 1949727 (61653/sec), new interesting: 14 (total: 18)
+fuzz: elapsed: 30s, execs: 1949727 (0/sec), new interesting: 14 (total: 18)
+PASS
+ok  	exam-platform/internal/agentproto	30.118s
+== FuzzCheckPath 20s  15:23:15
+fuzz: elapsed: 21s, execs: 2287746 (49275/sec), new interesting: 82 (total: 91)
+fuzz: elapsed: 21s, execs: 2287746 (0/sec), new interesting: 82 (total: 91)
+PASS
+ok  	exam-platform/internal/agentproto	21.039s
+== DONE 15:23:36
