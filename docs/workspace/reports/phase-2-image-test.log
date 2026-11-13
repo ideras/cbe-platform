@@ -1,4 +1,4 @@
-# images/test.sh cpp20 on 2026-11-13, image e33e47cc3438589395e90d6a8771e17729fb5e5c5718b272d7812a007ae0afa3, host kernel 7.0.0-43-generic, podman 4.9.3
+# images/test.sh cpp20 on 2026-11-13, image 869b4a3488ee (the one the reproducibility check built), kernel 7.0.0-43-generic, podman 4.9.3
 == the image
   PASS  the agent in it is labelled with its hash
   PASS  the user is student, 1000:1000
@@ -34,7 +34,7 @@
   PASS  the memory limit kills the program, not the container, and the agent says so
   PASS  a fork storm hits the process limit and the agent still answers
 == stopping
-  PASS  podman stop ends the agent on SIGTERM without waiting for the kill (.164705553 s)
+  PASS  podman stop ends the agent on SIGTERM without waiting for the kill (.204689238 s)
   PASS  the socket is gone after a clean stop
   PASS  the agent exited by itself, with code 0
 
