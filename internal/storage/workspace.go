@@ -273,3 +273,13 @@ func (s Workspaces) SetTodo(ctx context.Context, sessionID string, todo map[stri
 	_, err := s.db.ExecContext(ctx, `UPDATE workspace_sessions SET todo_json = ? WHERE session_id = ?`, string(raw), sessionID)
 	return err
 }
+
+// Kind says whether an exam is a "question" exam or a "workspace" one (domain.ErrNotFound when there is no such exam).
+func (s Workspaces) Kind(ctx context.Context, examID string) (string, error) {
+	var kind string
+	err := s.db.QueryRowContext(ctx, `SELECT kind FROM exams WHERE exam_id = ?`, examID).Scan(&kind)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", domain.ErrNotFound
+	}
+	return kind, err
+}

@@ -259,11 +259,34 @@ func (r *relay) refuse(id uint64, kind, code, message string) {
 	r.sendJSON(serverReply{ID: id, Type: kind, Code: code, Message: message})
 }
 
-// toAgent writes one frame to the agent, if there is one.
+// agentWait is how long a message from the student waits for the agent's connection to be there: the student's application opens the
+// WebSocket and may speak at once, while the container is still starting or restarting.
+const agentWait = 8 * time.Second
+
+// currentAgent returns the connection to the agent, waiting for it a while if there is none yet.
+func (r *relay) currentAgent() net.Conn {
+	deadline := time.Now().Add(agentWait)
+	for {
+		r.mu.Lock()
+		agent := r.agent
+		r.mu.Unlock()
+		if agent != nil {
+			return agent
+		}
+		if time.Now().After(deadline) {
+			return nil
+		}
+		select {
+		case <-r.ctx.Done():
+			return nil
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+}
+
+// toAgent writes one frame to the agent, once there is one.
 func (r *relay) toAgent(frame agentproto.Frame) bool {
-	r.mu.Lock()
-	agent := r.agent
-	r.mu.Unlock()
+	agent := r.currentAgent()
 	if agent == nil {
 		return false
 	}

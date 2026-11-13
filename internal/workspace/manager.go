@@ -154,8 +154,23 @@ func (m *Manager) Ensure(ctx context.Context, session string) (SessionInfo, erro
 	}
 	if info.State == StateReady {
 		status, err := m.opts.Runner.Status(ctx, session)
-		if err == nil && status.State == runner.StateRunning {
-			return info, nil
+		if err == nil {
+			switch status.State {
+			case runner.StateRunning:
+				return info, nil
+			case runner.StatePaused:
+				if _, err := m.opts.Runner.Unpause(ctx, session); err != nil {
+					return info, err
+				}
+				return info, nil
+			case runner.StateExited, runner.StateCreated:
+				// The agent was lost (the student ended it, or it failed): the same path as the supervisor's, so that wherever it is noticed
+				// first the files are snapshotted, the container is started again on the same volume, and it is counted and told.
+				if err := m.restart(ctx, info, "the container ended", false); err != nil {
+					return info, err
+				}
+				return m.opts.Repo.Session(ctx, session)
+			}
 		}
 	}
 	return m.provision(ctx, info)
@@ -376,7 +391,9 @@ func (m *Manager) watchReady(ctx context.Context, info SessionInfo) {
 		log.Error("workspace: the container is gone")
 		return
 	case runner.StateExited, runner.StateCreated:
-		m.restart(ctx, info, "the container ended", false)
+		if err := m.restart(ctx, info, "the container ended", false); err != nil {
+			log.Error("workspace: the container could not be restarted", "error", err)
+		}
 		return
 	case runner.StatePaused:
 		// A container is paused only at the deadline; one that is paused before it is let go again.
@@ -395,7 +412,9 @@ func (m *Manager) watchReady(ctx context.Context, info SessionInfo) {
 	rounds := m.silent[info.SessionID]
 	m.mu.Unlock()
 	if silent && rounds >= 3 {
-		m.restart(ctx, info, "the agent went quiet", true)
+		if err := m.restart(ctx, info, "the agent went quiet", true); err != nil {
+			log.Error("workspace: the container could not be restarted", "error", err)
+		}
 		return
 	}
 	interval := m.opts.SnapshotEvery
@@ -409,9 +428,9 @@ func (m *Manager) watchReady(ctx context.Context, info SessionInfo) {
 	}
 }
 
-// restart is the answer to a lost agent: a snapshot first, so that whatever happens next the student's files are kept, then the
+// restart is the answer to a lost agent (the caller holds the session's lock): a snapshot first, so that whatever happens next the student's files are kept, then the
 // container is started again on the same volume, and the student's workspace is told.
-func (m *Manager) restart(ctx context.Context, info SessionInfo, why string, stop bool) {
+func (m *Manager) restart(ctx context.Context, info SessionInfo, why string, stop bool) error {
 	log := m.opts.Logger.With("session", info.SessionID)
 	log.Warn("workspace: agent lost", "why", why)
 	if _, _, err := m.Snapshots.Take(ctx, info.SessionID, ReasonAgentLoss); err != nil {
@@ -423,12 +442,10 @@ func (m *Manager) restart(ctx context.Context, info SessionInfo, why string, sto
 		}
 	}
 	if _, err := m.opts.Runner.Start(ctx, info.SessionID); err != nil {
-		log.Error("workspace: restarting the container failed", "error", err)
-		return
+		return fmt.Errorf("restarting the container: %w", err)
 	}
 	if err := m.waitAgent(ctx, info.SessionID); err != nil {
-		log.Error("workspace: the agent did not come back", "error", err)
-		return
+		return fmt.Errorf("the agent did not come back: %w", err)
 	}
 	_ = m.opts.Repo.AddAgentRestart(ctx, info.SessionID)
 	m.mu.Lock()
@@ -437,4 +454,5 @@ func (m *Manager) restart(ctx context.Context, info SessionInfo, why string, sto
 	// workspace.agent_restarted is logged here and, in Phase 5, goes into the event log.
 	log.Info("workspace.agent_restarted")
 	m.notifyRestart(info.SessionID)
+	return nil
 }
