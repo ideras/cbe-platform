@@ -41,7 +41,7 @@ image at `/data/cbe-platform/work.img`, mounted with project quotas, with a line
       (`DECISIONS.md`, `P0-17` to `P0-21`): rootless Podman; D6, D7, D9, D12, D13 and D14 as the plan states them; D8 with the
       interval made configurable.
 
-I ticked Phase 0 in Appendix D of the plan, and moved D6 to D14 to "Resolved (owner, 2026-11-13)", after the owner's message of that
+I ticked Phase 0 in Appendix D of the plan, and moved D6 to D14 to "Resolved (owner, 2026-11-13)" (the owner confirmed the moby client, D14 with its corrections and D8's placement in a second message, `P0-28`), after the owner's message of that
 day. The plan file is not tracked by git (`.agents` is in `.git/info/exclude`), so that change is on disk only.
 
 ## Still open
@@ -50,34 +50,5 @@ day. The plan file is not tracked by git (`.agents` is in `.git/info/exclude`), 
   asked to be the one who reboots. `spike/reboot-check.sh prep` has been run; after the reboot, `spike/reboot-check.sh verify` gives
   the answer. It is not an acceptance criterion, so it did not hold Phase 0 open, but it is the last check on the fstab line and the
   boot order (P0-4).
+- **Phase 1 is on hold at the owner's request** until the real reboot has been tested ("Don't start Phase 1, allow me to restart and test").
 - **Q2 and Q5 were not answered.** Defaults are in force until the owner says otherwise (`DECISIONS.md`, "Not answered yet").
-- **D8's placement** (a `snapshot` key in `workspace.md`, with a server default and bounds) is proposed, not confirmed (P0-19). Phase 1
-  builds it that way unless the owner says otherwise.
-
-## Deviations from the plan, and conflicts found (standing rule 1)
-
-None of these was resolved silently; each is in `DISCOVERY.md`.
-
-1. **Real reboot not done**, only simulated (P0-12). The plan asks to "confirm containers survive a host reboot".
-2. **Extra checks** beyond the five (agent socket for D7, isolation of neighbours, density, an inode quota, delegation).
-3. **"Stored exams need no migration" (plan 5.4) is true only for old rows.** A `kind` column and workspace tables need a numbered
-   migration, and the server validates exam documents with its own code and rejects unknown fields.
-4. **`examc` takes a file today**; the plan says it detects a package by `workspace.md`, which needs a folder argument.
-5. **No WebSocket dependency or support exists** on the server or in the student client, the HTTP server has 10 s and 15 s
-   timeouts, and the student interface has no network access of its own (everything is in the Go client, polled every 500 ms).
-   Plan section 6's "one WebSocket per student session" needs a decision on who owns it (Q3, Q4).
-6. **Three documents the plan names are not in this repository** (`THEME-PROMPT-*`, `TEST-FOCUS.md`, `STUDENT-NOTICE.md`); the
-   owner pointed me to the sibling repo (P0-13).
-7. **D14 needs refinements:** archive `/work/.` (not `/work`), `0700` session folders, a tar extractor written for a hostile
-   filesystem, and `QUOTA` for both `ENOSPC` and `EDQUOT`. D10's runner also needs OOM detection from `memory.events` because the API flag is never set.
-8. The plan contains no item marked `[DECIDE]`; I treated the decisions with status "Proposed" as the open ones.
-
-## Left behind and worth knowing
-
-- **Temporary resource backstop on `cbe-runner`'s slice** (`CPUQuota=400%`, `TasksMax=6000`, `MemoryMax=16G`): remove before production.
-- **Probe leftovers** from the sizing run: a stopped container `snapprobe` (it exits by itself after 90 s) and the quota folder
-  `snap-probe`. A safety check blocked my cleanup commands, so I left them; they are tiny. To remove them:
-  `sudo -u cbe-runner env XDG_RUNTIME_DIR=/run/user/1001 podman rm snapprobe` and `sudo cbe-quota-helper remove snap-probe`.
-- The course-sized image `localhost/cbe-spike-cpp:1` (343 MB) in `cbe-runner`'s storage, used by the sizing script.
-- **A running container `cbe-spike-reboot`** (64 MiB, 0.5 CPU, restart policy `always`) and the folder `spike-reboot`, started by
-  `reboot-check.sh prep` for the real-reboot check. `reboot-check.sh verify` removes the container after a pass.
