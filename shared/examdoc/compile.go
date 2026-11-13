@@ -122,6 +122,9 @@ type compiler struct {
 	pictures     map[*ast.Image]string
 	pictureBytes int
 	overTotal    bool
+	// pictureRoots holds the first folder or file name of every picture path a workspace exam's text asks for. Only a workspace
+	// exam fills it in.
+	pictureRoots map[string]bool
 }
 
 // section is the run of top-level blocks under one heading, or before the first exercise heading.
@@ -130,12 +133,22 @@ type section struct {
 	nodes   []ast.Node
 }
 
-func (c *compiler) content() Content {
-	c.markdown = goldmark.New(
+// newMarkdown builds the Markdown reader of the compiler. With headingAttributes, {#id points=N} at the end of a heading is read
+// as its attributes: that is how an exercise or item gets its ID and points, and a workspace exam has neither.
+func (c *compiler) newMarkdown(headingAttributes bool) goldmark.Markdown {
+	options := []parser.Option{parser.WithInlineParsers(util.Prioritized(blankParser{}, 50))}
+	if headingAttributes {
+		options = append(options, parser.WithHeadingAttribute())
+	}
+	return goldmark.New(
 		goldmark.WithExtensions(extension.NewTable(extension.WithTableCellAlignMethod(extension.TableCellAlignAttribute)), extension.Strikethrough),
-		goldmark.WithParserOptions(parser.WithHeadingAttribute(), parser.WithInlineParsers(util.Prioritized(blankParser{}, 50))),
+		goldmark.WithParserOptions(options...),
 		goldmark.WithRendererOptions(renderer.WithNodeRenderers(util.Prioritized(slotRenderer{}, 50), util.Prioritized(pictureRenderer{c.pictures}, 50))),
 	)
+}
+
+func (c *compiler) content() Content {
+	c.markdown = c.newMarkdown(true)
 	document := c.markdown.Parser().Parse(text.NewReader(c.body))
 	instructions := section{}
 	var exercises []section

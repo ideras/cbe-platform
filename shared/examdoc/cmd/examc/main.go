@@ -4,6 +4,10 @@
 //	examc -json exam.md              print the compiled exam document (without a PIN)
 //	examc -fill answers.json exam.md print the exam filled in with the answers, as a student's file looks
 //
+//	examc lab/                       check a workspace package: a folder that holds workspace.md (or the path of workspace.md)
+//	examc -json lab/                 print the compiled workspace document (it holds the hashes of the bundles, not the bundles)
+//	examc -bundles out/ lab/         also write the starter and grading bundles (starter.tar, grading.tar) to out/
+//
 // The pictures of an exam (![alt](figure.svg)) are read from the folder of the exam file, so examc finds them from any working
 // directory. -json prints them embedded in the exam's HTML, as the proctor application imports them.
 //
@@ -17,8 +21,10 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"html"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"exam-platform/shared/calc"
@@ -28,8 +34,10 @@ import (
 func main() {
 	asJSON := flag.Bool("json", false, "print the compiled exam document instead of a summary")
 	fill := flag.String("fill", "", "print the exam with the answers of this JSON file (slot ID to answer) filled in")
+	bundles := flag.String("bundles", "", "for a workspace package: write its starter and grading bundles (tar files) to this folder")
 	flag.Usage = func() {
 		fmt.Fprintln(flag.CommandLine.Output(), "usage: examc [-json | -fill answers.json] exam.md")
+		fmt.Fprintln(flag.CommandLine.Output(), "       examc [-json] [-bundles folder] package-folder")
 		flag.PrintDefaults()
 	}
 	flag.Parse()
@@ -37,10 +45,38 @@ func main() {
 		flag.Usage()
 		os.Exit(2)
 	}
-	os.Exit(run(flag.Arg(0), *asJSON, *fill))
+	os.Exit(runWith(flag.Arg(0), *asJSON, *fill, *bundles))
 }
 
-func run(path string, asJSON bool, fillPath string) int {
+// workspacePackage says whether path names a workspace package, and where its folder is: a folder is a package, and so is a file
+// called workspace.md. Anything else is a question exam.
+func workspacePackage(path string) (string, bool) {
+	info, err := os.Stat(path)
+	switch {
+	case err != nil:
+		return "", false
+	case info.IsDir():
+		return path, true
+	case filepath.Base(path) == "workspace.md":
+		return filepath.Dir(path), true
+	}
+	return "", false
+}
+
+func run(path string, asJSON bool, fillPath string) int { return runWith(path, asJSON, fillPath, "") }
+
+func runWith(path string, asJSON bool, fillPath, bundlesPath string) int {
+	if dir, ok := workspacePackage(path); ok {
+		if fillPath != "" {
+			fmt.Fprintln(os.Stderr, "-fill is for question exams; a workspace package has no answer fields to fill in")
+			return 2
+		}
+		return runWorkspace(path, dir, asJSON, bundlesPath)
+	}
+	if bundlesPath != "" {
+		fmt.Fprintln(os.Stderr, "-bundles is for workspace packages: give examc the package folder")
+		return 2
+	}
 	source, err := os.ReadFile(path)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -177,4 +213,92 @@ func points(value *float64) string {
 		return ""
 	}
 	return fmt.Sprintf(" [%g pts]", *value)
+}
+
+// runWorkspace checks the workspace package in dir and prints the summary or, with asJSON, the compiled document.
+func runWorkspace(path, dir string, asJSON bool, bundlesPath string) int {
+	exam, bundles, err := examdoc.CompileWorkspaceDir(dir)
+	var problems examdoc.Problems
+	if errors.As(err, &problems) {
+		fmt.Fprintf(os.Stderr, "%s cannot be imported:\n", path)
+		for _, problem := range problems {
+			fmt.Fprintln(os.Stderr, "  "+problem)
+		}
+		return 1
+	}
+	if bundlesPath != "" {
+		if err := writeBundles(bundlesPath, bundles); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+	}
+	if asJSON {
+		encoder := json.NewEncoder(os.Stdout)
+		encoder.SetIndent("", "  ")
+		encoder.SetEscapeHTML(false)
+		if err := encoder.Encode(exam); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		return 0
+	}
+	workspace := exam.Workspace
+	terminal := "off"
+	if workspace.Terminal {
+		terminal = "on"
+	}
+	fmt.Printf("%s\n", exam.Title)
+	fmt.Printf("  workspace exam, %d min, image %s, terminal %s\n", exam.DurationSeconds/60, workspace.Image, terminal)
+	if summary := calculatorSummary(exam.Tools); summary != "" {
+		fmt.Printf("  %s\n", summary)
+	}
+	var buttons []string
+	if workspace.Run != "" {
+		buttons = append(buttons, "run: "+workspace.Run)
+	}
+	if workspace.Check != "" {
+		buttons = append(buttons, "check: "+workspace.Check)
+	}
+	if len(buttons) > 0 {
+		fmt.Printf("  %s\n", strings.Join(buttons, " · "))
+	}
+	fmt.Printf("  resources: %g cpu, %d MiB memory, %d MiB disk\n", workspace.Resources.CPU, workspace.Resources.MemoryMB, workspace.Resources.DiskMB)
+	for _, todo := range exam.Content.Todos {
+		fmt.Printf("  %-4s %s%s\n", todo.ID, plainHTML(todo.TextHTML), points(todo.Points))
+	}
+	if total, ok := exam.Content.Points(); ok {
+		fmt.Printf("  total: %g points\n", total)
+	}
+	fmt.Printf("  starter bundle: %s\n", describeBundle(bundles.Starter))
+	if bundles.Grading != nil {
+		fmt.Printf("  grading bundle: %s\n", describeBundle(*bundles.Grading))
+	} else {
+		fmt.Println("  no grading folder")
+	}
+	return 0
+}
+
+var tagPattern = regexp.MustCompile(`<[^>]*>`)
+
+// plainHTML is the text of an HTML fragment, for the summary.
+func plainHTML(fragment string) string {
+	return html.UnescapeString(tagPattern.ReplaceAllString(fragment, ""))
+}
+
+func describeBundle(bundle examdoc.Bundle) string {
+	return fmt.Sprintf("%d files, %d bytes, %s", bundle.Files, bundle.Size, bundle.Hash)
+}
+
+// writeBundles writes the starter bundle and, when the package has one, the grading bundle to the folder.
+func writeBundles(folder string, bundles examdoc.WorkspaceBundles) error {
+	if err := os.MkdirAll(folder, 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(folder, "starter.tar"), bundles.Starter.Data, 0o644); err != nil {
+		return err
+	}
+	if bundles.Grading != nil {
+		return os.WriteFile(filepath.Join(folder, "grading.tar"), bundles.Grading.Data, 0o644)
+	}
+	return nil
 }

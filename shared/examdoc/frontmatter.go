@@ -38,10 +38,32 @@ func splitFrontMatter(source []byte) (front []string, body []byte, lines int, er
 	return nil, nil, 0, fmt.Errorf("line 1: the front matter block is not closed by a --- line")
 }
 
-// parseFrontMatter reads "key: value" lines. Values may be quoted; # starts a comment line.
+// parseFrontMatter reads the front matter of a question exam: "key: value" lines. Values may be quoted; # starts a comment line.
 func parseFrontMatter(lines []string, report func(int, string, ...any)) settings {
 	var s settings
 	s.exam.Navigation = FreeNavigation
+	seen := readFrontMatter(lines, report, func(line int, key, value string) {
+		if s.common(line, key, value, report) {
+			return
+		}
+		switch key {
+		case "navigation":
+			if value != FreeNavigation && value != ForwardOnly {
+				report(line, "navigation must be %s or %s", FreeNavigation, ForwardOnly)
+				return
+			}
+			s.exam.Navigation = value
+		default:
+			report(line, "unknown front matter key %q", key)
+		}
+	})
+	s.requireBasics(seen, report)
+	return s
+}
+
+// readFrontMatter walks the "key: value" lines and calls handle once for each key with its value unquoted. It reports a line that
+// is not a pair, a key that is set twice and a quote that does not close, and returns the keys it handled.
+func readFrontMatter(lines []string, report func(int, string, ...any), handle func(line int, key, value string)) map[string]bool {
 	seen := map[string]bool{}
 	for i, raw := range lines {
 		line := i + 2
@@ -66,75 +88,80 @@ func parseFrontMatter(lines []string, report func(int, string, ...any)) settings
 		} else {
 			value = unquoted
 		}
-		switch key {
-		case "title":
-			s.exam.Title = value
-		case "duration":
-			if seconds, ok := wholeSeconds(value); ok {
-				s.exam.DurationSeconds = seconds
-			} else {
-				report(line, "duration must be a positive length of time in whole seconds, such as 80m or 1h20m")
-			}
-		case "grace":
-			if seconds, ok := wholeSeconds(value); ok {
-				s.exam.GraceSeconds = &seconds
-			} else {
-				report(line, "grace must be a positive length of time in whole seconds, such as 2m or 30s")
-			}
-		case "focus_threshold":
-			report(line, "focus_threshold is set in the proctor's Settings now")
-		case "min_volume":
-			volume, err := strconv.Atoi(strings.TrimSuffix(value, "%"))
-			if err != nil || volume < 0 || volume > 100 {
-				report(line, "min_volume must be a whole number from 0 to 100")
-				continue
-			}
-			s.exam.MinVolumePercent = &volume
-		case "opens_at", "closes_at":
-			at, err := time.Parse(time.RFC3339, value)
-			if err != nil {
-				report(line, "%s must be a date and time with its offset, such as 2026-10-20T08:00:00-06:00", key)
-				continue
-			}
-			if key == "opens_at" {
-				s.exam.OpensAt = &at
-			} else {
-				s.exam.ClosesAt = &at
-			}
-		case "navigation":
-			if value != FreeNavigation && value != ForwardOnly {
-				report(line, "navigation must be %s or %s", FreeNavigation, ForwardOnly)
-				continue
-			}
-			s.exam.Navigation = value
-		case "points":
-			points, err := strconv.ParseFloat(value, 64)
-			if err != nil || !(points > 0) || points > maxPoints {
-				report(line, "points must be a positive number")
-				continue
-			}
-			s.points = &points
-		case "pin":
-			report(line, "the PIN does not belong in the exam file; the proctor enters it when importing the exam")
-		case "calculator":
-			calculator, problems := parseCalculatorValue(value)
-			for _, problem := range problems {
-				report(line, "calculator: %s", problem)
-			}
-			if len(problems) == 0 {
-				s.exam.Tools = &calc.Tools{Version: 1, Calculator: calculator}
-			}
-		default:
-			report(line, "unknown front matter key %q", key)
-		}
+		handle(line, key, value)
 	}
+	return seen
+}
+
+// common reads the keys that question exams and workspace exams share, and says whether key is one of them. Everything it
+// finds wrong it reports with the line.
+func (s *settings) common(line int, key, value string, report func(int, string, ...any)) bool {
+	switch key {
+	case "title":
+		s.exam.Title = value
+	case "duration":
+		if seconds, ok := wholeSeconds(value); ok {
+			s.exam.DurationSeconds = seconds
+		} else {
+			report(line, "duration must be a positive length of time in whole seconds, such as 80m or 1h20m")
+		}
+	case "grace":
+		if seconds, ok := wholeSeconds(value); ok {
+			s.exam.GraceSeconds = &seconds
+		} else {
+			report(line, "grace must be a positive length of time in whole seconds, such as 2m or 30s")
+		}
+	case "focus_threshold":
+		report(line, "focus_threshold is set in the proctor's Settings now")
+	case "min_volume":
+		volume, err := strconv.Atoi(strings.TrimSuffix(value, "%"))
+		if err != nil || volume < 0 || volume > 100 {
+			report(line, "min_volume must be a whole number from 0 to 100")
+			return true
+		}
+		s.exam.MinVolumePercent = &volume
+	case "opens_at", "closes_at":
+		at, err := time.Parse(time.RFC3339, value)
+		if err != nil {
+			report(line, "%s must be a date and time with its offset, such as 2026-10-20T08:00:00-06:00", key)
+			return true
+		}
+		if key == "opens_at" {
+			s.exam.OpensAt = &at
+		} else {
+			s.exam.ClosesAt = &at
+		}
+	case "points":
+		points, err := strconv.ParseFloat(value, 64)
+		if err != nil || !(points > 0) || points > maxPoints {
+			report(line, "points must be a positive number")
+			return true
+		}
+		s.points = &points
+	case "pin":
+		report(line, "the PIN does not belong in the exam file; the proctor enters it when importing the exam")
+	case "calculator":
+		calculator, problems := parseCalculatorValue(value)
+		for _, problem := range problems {
+			report(line, "calculator: %s", problem)
+		}
+		if len(problems) == 0 {
+			s.exam.Tools = &calc.Tools{Version: 1, Calculator: calculator}
+		}
+	default:
+		return false
+	}
+	return true
+}
+
+// requireBasics reports a missing title or duration, which every kind of exam needs.
+func (s *settings) requireBasics(seen map[string]bool, report func(int, string, ...any)) {
 	if strings.TrimSpace(s.exam.Title) == "" {
 		report(1, "the front matter must set a title")
 	}
 	if !seen["duration"] {
 		report(1, "the front matter must set a duration, such as duration: 80m")
 	}
-	return s
 }
 
 func unquote(value string) (string, error) {

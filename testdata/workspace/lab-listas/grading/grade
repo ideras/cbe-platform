@@ -1,0 +1,6 @@
+#!/bin/sh
+# Hidden tests. Prints one JSON object: the key is a TODO id, the value says whether it passed.
+# The cases live in grading/tests/hidden_cases.txt (HIDDEN-CASES-MARKER-4f1c9a: this line must never reach a student).
+cd "$(dirname "$0")" || exit 1
+printf '{"t1": {"passed": true, "points": 10, "log": "4/4 tests passed"},\n'
+printf ' "t2": {"passed": false, "points": 6, "log": "3/5 tests passed"}}\n'
