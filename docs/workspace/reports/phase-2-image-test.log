@@ -1,0 +1,41 @@
+# images/test.sh cpp20 on 2026-11-13, image e33e47cc3438589395e90d6a8771e17729fb5e5c5718b272d7812a007ae0afa3, host kernel 7.0.0-43-generic, podman 4.9.3
+== the image
+  PASS  the agent in it is labelled with its hash
+  PASS  the user is student, 1000:1000
+  PASS  root and student have no password
+  PASS  there is no sudo
+  PASS  no file is setuid or setgid
+  PASS  /work belongs to the student
+== starting the container as the runner will
+== the agent, from outside
+  PASS  the agent answers on the socket in the runner's folder
+  PASS  it is PID 1
+  PASS  openat2 works under the default seccomp profile (no slow paths)
+  PASS  a heartbeat arrives
+  PASS  PID 1 is the agent, and it runs as uid 1000
+  PASS  the root file system is read-only
+  PASS  there is no network
+  PASS  there is no way to become root
+== files, from outside
+  PASS  create, read, write, move, delete
+  PASS  files are uid 1000 inside, and cannot be read from the host
+  PASS  a link to /etc made in the terminal leads nowhere
+== terminals, from outside
+  PASS  make builds the project, streams its output and returns the exit code
+  PASS  the toolchain: C++20 with ranges and format, cmake, gdb, flex, bison, nano
+  PASS  cmake configures and builds
+  PASS  flex and bison generate code that compiles
+  PASS  gdb runs a program
+  PASS  a terminal resizes
+  PASS  files created from a terminal produce events
+  PASS  orphaned processes are reaped (no zombies)
+== limits, from outside
+  PASS  a full disk is QUOTA, for a create and for a write, and frees up again
+  PASS  the memory limit kills the program, not the container, and the agent says so
+  PASS  a fork storm hits the process limit and the agent still answers
+== stopping
+  PASS  podman stop ends the agent on SIGTERM without waiting for the kill (.164705553 s)
+  PASS  the socket is gone after a clean stop
+  PASS  the agent exited by itself, with code 0
+
+31 passed, 0 failed

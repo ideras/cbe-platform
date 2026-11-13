@@ -67,8 +67,13 @@ func TestReaperHelper(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if end := <-status; end.Code != 3 {
-		t.Fatalf("the program ended with %+v", end)
+	select {
+	case end := <-status:
+		if end.Code != 3 {
+			t.Fatalf("the program ended with %+v", end)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the reaper never reported the program it started")
 	}
 	// The two background jobs are orphans of this process now. Within a few seconds neither is a zombie, and none is left.
 	deadline := time.Now().Add(5 * time.Second)
