@@ -443,7 +443,7 @@ func TestErrnoMapping(t *testing.T) {
 		unix.ENOSPC: agentproto.CodeQuota, unix.EDQUOT: agentproto.CodeQuota, // a full XFS project quota says ENOSPC, other file systems EDQUOT (P0-7)
 		unix.EXDEV: agentproto.CodeBadPath, unix.ELOOP: agentproto.CodeBadPath, unix.ENOTDIR: agentproto.CodeBadPath, unix.EISDIR: agentproto.CodeBadPath,
 		unix.ENAMETOOLONG: agentproto.CodeBadPath, unix.EACCES: agentproto.CodeDenied, unix.EPERM: agentproto.CodeDenied, unix.EROFS: agentproto.CodeDenied,
-		unix.EMFILE: agentproto.CodeLimit, unix.EIO: agentproto.CodeInternal,
+		unix.EMFILE: agentproto.CodeLimit, unix.EAGAIN: agentproto.CodeUnavailable, unix.EIO: agentproto.CodeInternal,
 	} {
 		if got := agentproto.CodeOf(mapErrno(errno)); got != want {
 			t.Errorf("%v -> %s, want %s", errno, got, want)

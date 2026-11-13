@@ -46,6 +46,35 @@ func doClose(t *testing.T, c *agentproto.Client, term uint32) {
 	do(t, c, &agentproto.PTYClose{Header: agentproto.Header{Type: agentproto.TypePTYClose}, Term: term})
 }
 
+// A program that ends before the connection that started it is attached still gets its exit reported, once.
+func TestAProgramThatEndsAtOnceIsReportedOnce(t *testing.T) {
+	r := startAgent(t, nil)
+	c := r.dial(t)
+	for range 30 {
+		term := open(t, c, "true")
+		if message := exited(t, c, term); *message.ExitCode != 0 {
+			t.Fatalf("exit = %+v", message)
+		}
+		doClose(t, c, term)
+	}
+	// And a connection that attaches long after hears it too, but only that one time.
+	term := open(t, c, "exit 5")
+	exited(t, c, term)
+	late := r.dial(t)
+	do(t, late, &agentproto.PTYAttach{Header: agentproto.Header{Type: agentproto.TypePTYAttach}, Term: term})
+	if message := exited(t, late, term); *message.ExitCode != 5 {
+		t.Fatalf("late exit = %+v", message)
+	}
+	do(t, late, &agentproto.PTYAttach{Header: agentproto.Header{Type: agentproto.TypePTYAttach}, Term: term})
+	select {
+	case m := <-late.Events:
+		if m.Type == agentproto.TypePTYExit {
+			t.Fatalf("a second attach repeated the exit: %+v", m)
+		}
+	case <-time.After(300 * time.Millisecond):
+	}
+}
+
 func TestASignalIsReported(t *testing.T) {
 	r := startAgent(t, nil)
 	c := r.dial(t)

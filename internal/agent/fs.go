@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"runtime"
 	"sort"
 	"sync"
 	"syscall"
@@ -72,11 +73,18 @@ func (f *FS) open(rel string, flags int, mode uint32) (int, error) {
 	}
 	if f.beneath {
 		how := &unix.OpenHow{Flags: uint64(flags | unix.O_CLOEXEC), Mode: uint64(mode), Resolve: unix.RESOLVE_BENEATH | unix.RESOLVE_NO_MAGICLINKS}
-		for {
+		// The kernel gives up with EAGAIN when a rename or a mount anywhere on the system happened while it resolved the path, because
+		// it cannot then promise the path stayed beneath the folder; it says to ask again. A student renaming files in a terminal
+		// makes this ordinary, so the agent asks again, a few times, and then reports the folder as busy.
+		for attempt := 0; ; attempt++ {
 			fd, err := unix.Openat2(f.root, rel, how)
-			if err != unix.EINTR {
-				return fd, err
+			if err == unix.EINTR || err == unix.EAGAIN && attempt < 100 {
+				if err == unix.EAGAIN {
+					runtime.Gosched()
+				}
+				continue
 			}
+			return fd, err
 		}
 	}
 	return f.openSlow(rel, flags, mode)
@@ -169,6 +177,8 @@ func mapErrno(err error) error {
 		return agentproto.Errorf(agentproto.CodeBadPath, "the path cannot be used")
 	case unix.EACCES, unix.EPERM, unix.EROFS:
 		return agentproto.Errorf(agentproto.CodeDenied, "the permissions of the file or folder do not allow that")
+	case unix.EAGAIN:
+		return agentproto.Errorf(agentproto.CodeUnavailable, "the folder is changing too fast to be read; try again")
 	case unix.EMFILE, unix.ENFILE, unix.ENOMEM:
 		return agentproto.Errorf(agentproto.CodeLimit, "the container has run out of a resource (%v)", errno)
 	}

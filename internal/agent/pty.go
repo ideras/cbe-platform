@@ -43,6 +43,9 @@ type Terminal struct {
 	exited   bool
 	exit     ExitStatus
 	closing  bool
+	// exitMessage is the pty.exit event, once it has been made. A connection that attaches after that gets it from Attach; those
+	// attached before got it when it was made, so each hears it once.
+	exitMessage *agentproto.Message
 }
 
 // Terminals are the open terminals: at most agentproto.MaxTerminals.
@@ -209,16 +212,17 @@ func (t *Terminal) watch(status <-chan ExitStatus, oomBefore uint64) {
 	case <-t.pumped:
 	case <-time.After(300 * time.Millisecond):
 	}
+	message := agentproto.Message{Type: agentproto.TypePTYExit, Term: t.id, ExitCode: &end.Code, OOMKilled: t.owner.agent.oomKills() > oomBefore}
+	if end.Signal != 0 {
+		message.Signal = signalName(end.Signal)
+	}
 	t.mu.Lock()
+	t.exitMessage = &message
 	targets := make([]*Conn, 0, len(t.attached))
 	for c := range t.attached {
 		targets = append(targets, c)
 	}
 	t.mu.Unlock()
-	message := agentproto.Message{Type: agentproto.TypePTYExit, Term: t.id, ExitCode: &end.Code, OOMKilled: t.owner.agent.oomKills() > oomBefore}
-	if end.Signal != 0 {
-		message.Signal = signalName(end.Signal)
-	}
 	for _, c := range targets {
 		c.sendMessage(message)
 	}
@@ -258,7 +262,13 @@ func (ts *Terminals) Attach(c *Conn, id uint32) (*Terminal, error) {
 			return nil, agentproto.Errorf(agentproto.CodeUnavailable, "the connection is too busy to take the terminal's output")
 		}
 	}
-	t.attached[c] = struct{}{}
+	if _, already := t.attached[c]; !already {
+		// A program that ends at once can end before the connection that started it is attached: it is told now.
+		if t.exitMessage != nil {
+			c.trySendMessage(*t.exitMessage)
+		}
+		t.attached[c] = struct{}{}
+	}
 	return t, nil
 }
 

@@ -4,7 +4,6 @@ package agent
 
 import (
 	"context"
-	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -61,15 +60,8 @@ func startAgent(t *testing.T, change func(*Config)) *rig {
 		}
 	})
 	r := &rig{agent: a, work: work, socket: cfg.Socket, memory: cfg.MemoryEvents}
-	waitFor(t, "the socket", func() bool {
-		conn, err := net.Dial("unix", cfg.Socket)
-		if err != nil {
-			return false
-		}
-		conn.Close()
-		return true
-	})
-	waitFor(t, "the first connection to go", func() bool { return len(a.connections()) == 0 })
+	// A client that connects before the agent has accepted is queued by the kernel, so there is nothing to wait for but the agent.
+	waitFor(t, "the agent to listen", a.Ready)
 	return r
 }
 

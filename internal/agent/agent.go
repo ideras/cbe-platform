@@ -84,6 +84,10 @@ type Agent struct {
 	mu       sync.Mutex
 	conns    map[*Conn]struct{}
 	listener net.Listener
+	// socketFile is what the socket path held when the agent made it: only that file is removed at shutdown, never one that a later
+	// agent made at the same path.
+	socketFile os.FileInfo
+	stopped    sync.Once
 }
 
 // New prepares an agent: it opens /work, makes the home folder, and starts the watcher. Serve then answers on the socket.
@@ -123,8 +127,10 @@ func (a *Agent) Serve(ctx context.Context) error {
 		listener.Close()
 		return err
 	}
+	info, _ := os.Stat(a.cfg.Socket)
 	a.mu.Lock()
 	a.listener = listener
+	a.socketFile = info
 	a.mu.Unlock()
 	go a.heartbeats(ctx)
 	go func() {
@@ -157,25 +163,36 @@ func (a *Agent) accept(nc net.Conn) {
 	c.start()
 }
 
-// Shutdown ends every connection and every terminal and removes the socket.
-func (a *Agent) Shutdown() {
+// Ready says whether the agent is listening, so a client that connects now will be served.
+func (a *Agent) Ready() bool {
 	a.mu.Lock()
-	listener := a.listener
-	conns := make([]*Conn, 0, len(a.conns))
-	for c := range a.conns {
-		conns = append(conns, c)
-	}
-	a.mu.Unlock()
-	if listener != nil {
-		listener.Close()
-	}
-	for _, c := range conns {
-		c.close()
-	}
-	a.terms.CloseAll()
-	a.watcher.Close()
-	a.reaper.Stop()
-	_ = os.Remove(a.cfg.Socket)
+	defer a.mu.Unlock()
+	return a.listener != nil
+}
+
+// Shutdown ends every connection and every terminal and removes the socket. It does its work once, however often it is called.
+func (a *Agent) Shutdown() {
+	a.stopped.Do(func() {
+		a.mu.Lock()
+		listener, made := a.listener, a.socketFile
+		conns := make([]*Conn, 0, len(a.conns))
+		for c := range a.conns {
+			conns = append(conns, c)
+		}
+		a.mu.Unlock()
+		if listener != nil {
+			listener.Close()
+		}
+		for _, c := range conns {
+			c.close()
+		}
+		a.terms.CloseAll()
+		a.watcher.Close()
+		a.reaper.Stop()
+		if now, err := os.Stat(a.cfg.Socket); err == nil && made != nil && os.SameFile(now, made) {
+			_ = os.Remove(a.cfg.Socket)
+		}
+	})
 }
 
 func (a *Agent) removeConn(c *Conn) {
