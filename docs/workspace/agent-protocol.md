@@ -84,7 +84,7 @@ The programs run in `/work` (or `cwd`) with an environment of the agent's own: `
 | `agent.hello` | when a connection is made | `proto` (1), `agent_version`, `pid1`, `uptime_ms`, `work`, `slow_paths`, `connections`, `watches`, `open_terminals`, `oom_kills` |
 | `agent.hb` | every 5 s (configurable) on every connection | the same, plus a rising `seq` |
 | `fs.event` | a file or folder changed under `/work` | `kind`: `create`, `modify`, `delete`, `rename` (with `from`) or `overflow`; `path`; `is_dir` |
-| `pty.exit` | a terminal's program ended | `term`, `exit_code` (128 + the signal when a signal ended it), `signal`, `oom_killed` |
+| `pty.exit` | a terminal's program ended | `term`, `exit_code` (128 + the signal when a signal ended it), `signal`, `oom_killed`. **Every connection attached to the terminal hears it once**, including one that attaches after it, so a program that ends at once is never missed. |
 | `agent.error` | a binary frame could not be used | `term`, `code`, `message` |
 
 **`fs.event` is built from inotify** and keeps its promises small: repeated writes to one file are one `modify`; at most 2,000 events wait
@@ -98,7 +98,7 @@ runner must not read that as a lost agent (Phase 3).
 
 ## Errors
 
-`NOT_FOUND`, `EXISTS`, `CONFLICT`, `TOO_LARGE`, `BINARY`, `QUOTA`, `LIMIT`, `BAD_PATH`, `UNAVAILABLE`, `RATE` are the plan's. The protocol adds
+`NOT_FOUND`, `EXISTS`, `CONFLICT`, `TOO_LARGE`, `BINARY`, `QUOTA`, `LIMIT`, `BAD_PATH`, `UNAVAILABLE`, `RATE` are the plan's. (`UNAVAILABLE` is also what a request gets when the kernel keeps saying a rename is going on in the folder while it resolves the path: the agent asks it again a hundred times first, so this is rare.) The protocol adds
 `BAD_REQUEST` (a malformed message), `DENIED` (the file's permissions refuse it) and `INTERNAL`. A full disk is `QUOTA` whether the kernel says
 `ENOSPC` (an XFS project quota) or `EDQUOT` (P0-7).
 
