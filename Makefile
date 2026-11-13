@@ -32,7 +32,8 @@ server:
 	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o build/cbe-portal-server ./cmd/server
 
 # examc checks an exam written in Markdown: build/examc exam.md (or -json to print what the proctor would import, or
-# -fill answers.json to print the exam with those answers filled in).
+# -fill answers.json to print the exam with those answers filled in). Given a folder that holds workspace.md it checks a
+# workspace package instead: build/examc lab/ (see docs/workspace-format.md; -bundles dir writes its two archives).
 examc:
 	mkdir -p build
 	cd shared/examdoc && CGO_ENABLED=0 go build -trimpath -o ../../build/examc ./cmd/examc
