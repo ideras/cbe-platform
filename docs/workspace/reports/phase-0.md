@@ -48,8 +48,10 @@ image at `/data/cbe-platform/work.img`, mounted with project quotas, with a line
 I ticked Phase 0 in Appendix D of the plan, and moved D6 to D14 to "Resolved (owner, 2026-11-13)" (the owner confirmed the moby client, D14 with its corrections and D8's placement in a second message, `P0-28`), after the owner's message of that
 day. The plan file is not tracked by git (`.agents` is in `.git/info/exclude`), so that change is on disk only.
 
-## Still open
+## Where things stand
 
 - **Phase 1 has not started.** The owner asked it to wait until the real reboot had been tested ("Don't start Phase 1, allow me to
   restart and test"). The test has passed; Phase 1 starts when the owner says so.
-- **Q2 and Q5 were not answered.** Defaults are in force until the owner says otherwise (`DECISIONS.md`, "Not answered yet").
+- **Q2 and Q5 were answered later the same day** (`DECISIONS.md`, P0-29 and P0-30): keep the host setup; the `student` user is uid and gid
+  1000. The uid check found no conflict on the host, but `ubuntu:24.04` already has a user `ubuntu` at 1000:1000, so the Phase 2 image must rename
+  it to `student`, not add a second user.
