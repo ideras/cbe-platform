@@ -1,18 +1,20 @@
 # Phase 0 report: discovery
 
 **Date:** 2026-11-13. **Branch:** `feat/workspace-phase-0-discovery`. **Plan:** `.agents/WORKSPACE-PLAN.md` v1.1.
-**Status:** work done; **not closed**. The last acceptance item needs the owner (below).
+**Status:** **closed on 2026-11-13**, with one task still open that the plan lists but its acceptance does not: the real reboot of the host
+(see "Still open"). The owner confirmed the runtime and the decisions the same day.
 
 ## What changed
 
-Documentation and a throwaway spike only. No product code, no existing file was modified.
+Documentation, a throwaway spike and four copied documents. No product code, no existing file was modified.
 
 | Path | What |
 |------|------|
 | `docs/workspace/DISCOVERY.md` | The deliverable: host facts, spike results, findings, repo map, the `examdoc` decision, sizing, baseline, open questions |
 | `docs/workspace/DECISIONS.md` | Decisions the plan does not settle (`P0-1` to `P0-16`) |
 | `docs/workspace/reports/phase-0.md` | This report |
-| `docs/workspace/spike/` | The spike, its own Go module nothing imports: driver, host setup and teardown, quota helper prototype, sizing script, raw results |
+| `docs/workspace/spike/` | The spike, its own Go module nothing imports: driver, host setup and teardown, quota helper prototype, sizing script, `reboot-check.sh` for the real reboot, raw results |
+| `docs/THEME-PROMPT-proctor-student.md`, `docs/THEME-PROMPT-v2-amendment.md`, `docs/tools/TEST-FOCUS.md`, `docs/tools/STUDENT-NOTICE.md` | Copied byte for byte from the sibling repository at the owner's request (`DECISIONS.md` P0-26). New files, not changes to existing ones |
 
 **Changes outside the repository, on this machine** (all reversible with `spike/teardown-host.sh [--purge]`):
 Podman 4.9.3 and its dependencies installed (15 packages, nothing removed or upgraded); the system user `cbe-runner` with
@@ -35,11 +37,22 @@ image at `/data/cbe-platform/work.img`, mounted with project quotas, with a line
 - [x] `DISCOVERY.md` committed, with the spike results, the chosen runtime and the sizing estimate.
 - [x] The spike program is not merged into the product code; it is under `docs/workspace/spike/` as a separate module.
 - [x] Baseline tests recorded.
-- [ ] **The owner has confirmed the chosen runtime, and confirmed or changed D6 to D9, D12, D13 and D14.** Pending: the
-      recommendations and the eight new questions are in `DISCOVERY.md` section 9. Per standing rule 2, Phase 1 does not
-      start until this is done and Appendix D is ticked.
+- [x] **The owner has confirmed the chosen runtime, and confirmed or changed D6 to D9, D12, D13 and D14.** Done on 2026-11-13
+      (`DECISIONS.md`, `P0-17` to `P0-21`): rootless Podman; D6, D7, D9, D12, D13 and D14 as the plan states them; D8 with the
+      interval made configurable.
 
-I did not tick Phase 0 in Appendix D of the plan: the plan file is not tracked by git and the box is the owner's to tick.
+I ticked Phase 0 in Appendix D of the plan, and moved D6 to D14 to "Resolved (owner, 2026-11-13)", after the owner's message of that
+day. The plan file is not tracked by git (`.agents` is in `.git/info/exclude`), so that change is on disk only.
+
+## Still open
+
+- **The real reboot (P0-12, P0-27).** The plan's Phase 0 task asks to confirm containers survive a host reboot. The owner agreed and
+  asked to be the one who reboots. `spike/reboot-check.sh prep` has been run; after the reboot, `spike/reboot-check.sh verify` gives
+  the answer. It is not an acceptance criterion, so it did not hold Phase 0 open, but it is the last check on the fstab line and the
+  boot order (P0-4).
+- **Q2 and Q5 were not answered.** Defaults are in force until the owner says otherwise (`DECISIONS.md`, "Not answered yet").
+- **D8's placement** (a `snapshot` key in `workspace.md`, with a server default and bounds) is proposed, not confirmed (P0-19). Phase 1
+  builds it that way unless the owner says otherwise.
 
 ## Deviations from the plan, and conflicts found (standing rule 1)
 
@@ -66,3 +79,5 @@ None of these was resolved silently; each is in `DISCOVERY.md`.
   `snap-probe`. A safety check blocked my cleanup commands, so I left them; they are tiny. To remove them:
   `sudo -u cbe-runner env XDG_RUNTIME_DIR=/run/user/1001 podman rm snapprobe` and `sudo cbe-quota-helper remove snap-probe`.
 - The course-sized image `localhost/cbe-spike-cpp:1` (343 MB) in `cbe-runner`'s storage, used by the sizing script.
+- **A running container `cbe-spike-reboot`** (64 MiB, 0.5 CPU, restart policy `always`) and the folder `spike-reboot`, started by
+  `reboot-check.sh prep` for the real-reboot check. `reboot-check.sh verify` removes the container after a pass.

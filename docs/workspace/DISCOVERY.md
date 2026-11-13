@@ -302,6 +302,12 @@ No test was flaky in this run.
 
 ## 9. What the owner has to decide
 
+> **Answered on 2026-11-13** (recorded as `P0-17` to `P0-27` in `DECISIONS.md`). D6, D7, D9, D12, D13 and D14 are confirmed as the plan
+> states them; D8 is confirmed with the interval made configurable; D10 is confirmed as rootless Podman. Q1 (real reboot): yes, and the
+> owner does it. Q3: the Go client owns the WebSocket. Q4: the new dependency is accepted. Q6: yes, its own account. Q7: copy the
+> documents (done). Q8: yes, on the Wi-Fi router. **Not answered**: Q2 and Q5 (defaults in `DECISIONS.md`). The questions and the
+> recommendations are kept below as they were asked.
+
 ### Confirm or change (the plan asks for these before Phase 3)
 
 | Item | Recommendation | Why |
