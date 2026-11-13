@@ -1,0 +1,81 @@
+##### go version  [14:39:00]
+go version go1.27.4 linux/amd64
+##### RESULT go version rc=0 seconds=0
+##### git commit  [14:39:00]
+de574e6
+##### RESULT git commit rc=0 seconds=0
+##### build server (scratch)  [14:39:00]
+##### RESULT build server (scratch) rc=0 seconds=1
+##### build student frontend  [14:39:01]
+- Use build.rolldownOptions.output.codeSplitting to improve chunking: https://rolldown.rs/reference/OutputOptions.codeSplitting
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 620ms
+##### RESULT build student frontend rc=0 seconds=2
+##### build proctor frontend  [14:39:03]
+dist/assets/index-BVKWPBGj.js   379.94 kB │ gzip: 114.05 kB
+
+✓ built in 900ms
+##### RESULT build proctor frontend rc=0 seconds=1
+##### ci test.py --race (vet + tests, 7 modules)  [14:39:04]
++ .: go vet ./...
++ .: go test -timeout 20m -race ./...
+?   	exam-platform/cmd/server	[no test files]
+?   	exam-platform/internal/clock	[no test files]
+ok  	exam-platform/internal/config	(cached)
+ok  	exam-platform/internal/domain	(cached)
+ok  	exam-platform/internal/httpapi	62.441s
+ok  	exam-platform/internal/roster	(cached)
+ok  	exam-platform/internal/server	(cached)
+ok  	exam-platform/internal/service	(cached)
+ok  	exam-platform/internal/storage	(cached)
++ shared/calc: go vet ./...
++ shared/calc: go test -timeout 20m -race ./...
+ok  	exam-platform/shared/calc	(cached)
++ shared/clientwire: go vet ./...
++ shared/clientwire: go test -timeout 20m -race ./...
+ok  	exam-platform/shared/clientwire	(cached)
++ shared/examdoc: go vet ./...
++ shared/examdoc: go test -timeout 20m -race ./...
+ok  	exam-platform/shared/examdoc	1.640s
+ok  	exam-platform/shared/examdoc/cmd/examc	1.040s
++ shared/examimage: go vet ./...
++ shared/examimage: go test -timeout 20m -race ./...
+ok  	exam-platform/shared/examimage	(cached)
++ apps/student: go vet ./...
++ apps/student: go test -timeout 20m -race ./...
+ok  	exam-platform/apps/student	(cached)
+?   	exam-platform/apps/student/cmd/student	[no test files]
+ok  	exam-platform/apps/student/internal/client	(cached)
+ok  	exam-platform/apps/student/internal/remotewatch	(cached)
+ok  	exam-platform/apps/student/internal/sessionwatch	(cached)
+ok  	exam-platform/apps/student/internal/spike	(cached)
+?   	exam-platform/apps/student/internal/sysvolume	[no test files]
++ apps/proctor: go vet ./...
++ apps/proctor: go test -timeout 20m -race ./...
+ok  	exam-platform/apps/proctor	(cached)
+?   	exam-platform/apps/proctor/cmd/proctor	[no test files]
+ok  	exam-platform/apps/proctor/internal/dashboard	11.787s
+##### RESULT ci test.py --race (vet + tests, 7 modules) rc=0 seconds=83
+##### student npm test  [14:40:27]
+ℹ tests 45
+ℹ pass 45
+ℹ fail 0
+##### RESULT student npm test rc=0 seconds=0
+##### proctor npm test  [14:40:27]
+ℹ tests 74
+ℹ pass 74
+ℹ fail 0
+##### RESULT proctor npm test rc=0 seconds=0
+##### student playwright  [14:40:27]
+  ✓  130 tests/ui/toasts.spec.js:150:1 › narrow windows and long messages keep the icon, text and close button inside the window (1.2s)
+  ✓  131 tests/ui/toasts.spec.js:171:1 › volume corrections are announced once each, worded by what the app did, and never blame the login adjustment (4.2s)
+
+  131 passed (2.7m)
+##### RESULT student playwright rc=0 seconds=163
+##### proctor playwright  [14:43:10]
+  ✓  293 tests/ui/unlock-dialog.spec.js:206:1 › an exam that someone else unlocked meanwhile is said so, and there is nothing left to unlock (1.7s)
+  ✓  294 tests/ui/unlock-dialog.spec.js:217:1 › the dialog fits a narrow window, with its footer buttons stacked (1.4s)
+
+  294 passed (4.2m)
+##### RESULT proctor playwright rc=0 seconds=252
+##### ALL DONE [14:47:22]
