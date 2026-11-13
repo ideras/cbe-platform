@@ -42,7 +42,6 @@ How the pieces of a workspace exam are set up on the container host, which is al
 On the container host, after `docs/workspace/spike/setup-host.sh` (the `cbe-runner` user, rootless Podman, the XFS volume):
 
 ```sh
-make agent                        # not needed for the runner; the agent goes into the image
 go build -o bin/cbe-runner ./cmd/cbe-runner
 go build -o bin/cbe-quota-helper ./cmd/cbe-quota-helper
 sudo deploy/workspace/install.sh bin       # accounts, folders, both services; safe to run again
@@ -103,7 +102,7 @@ Everything else is 404 or 405. A 401 means the secret was wrong.
 
 - **The exam server restarts:** its sessions are in its database, the containers keep running. At the next login, connection or supervisor round it finds each workspace `ready` and asks the runner for it; nothing is created or restarted.
 - **The runner restarts:** the containers are not its children (`KillMode=process`) and keep running. It reads its files, asks the runtime what exists and connects to each running agent again. The server's connections to the agents drop and the relay reconnects.
-- **The machine reboots:** `cbe-runner` has lingering, so its service and Podman's socket start without a login; the containers are gone with the reboot (rootless containers do not survive it) and `/work` stays. The supervisor sees the missing containers; **it does not make them again yet** (a rebooted exam server during an exam is a Phase 8 case: the owner's ask is to rehearse it, and the report says what is known).
+- **The machine reboots:** `cbe-runner` has lingering, so its service and Podman's socket start without a login. The containers do not survive a boot, but they stay in Podman's storage as stopped containers and `/work` stays on the volume. Once the exam server is running again (its unit starts it after the quota helper), its supervisor finds each session's container ended and brings it back like an agent that ended: it snapshots the files (`agent_loss`), starts the container on the same `/work` and counts the loss. The end-to-end test shows this by restarting the runtime's user manager, which takes every container down as a boot does (phase C); **a real reboot during an exam is still to be rehearsed in Phase 8.** One difference is known: a container that was *paused* (a frozen workspace) when that restart happened is left in a state Podman cannot remove until it refreshes; a real boot clears Podman's runtime state, which is what refreshes it, but that has not been seen yet.
 - **A student's agent ends (they typed `kill -TERM 1`):** the container exits, the supervisor snapshots and starts it again on the same `/work` within a few seconds.
 
 ## Looking at it

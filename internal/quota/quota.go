@@ -116,15 +116,6 @@ func MappedID(file, user string, n int) (int, error) {
 	return 0, fmt.Errorf("quota: no entry for %s in %s", user, file)
 }
 
-// Folder is a folder the helper made.
-type Folder struct {
-	Session string `json:"session"`
-	Path    string `json:"path"`
-	Project int    `json:"project"`
-	SizeMB  int    `json:"size_mb"`
-	Inodes  int    `json:"inodes"`
-}
-
 // Create makes the folder for a session with the given limits. A folder that already exists for the session is returned as it is
 // (it keeps its limits), so a restarted runner can ask again.
 func (h *Helper) Create(session string, sizeMB, inodes int) (Folder, error) {

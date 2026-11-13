@@ -1,3 +1,5 @@
+//go:build linux
+
 // Command cbe-runner is the one service that holds the container runtime's socket (workspace plan, section 4). It runs as the cbe-runner
 // user, as a systemd user unit with lingering, and gives the exam server the operations of Appendix E over a Unix socket, behind a
 // shared secret. See docs/workspace/deployment.md.
