@@ -23,6 +23,7 @@ import (
 
 	"exam-platform/internal/quota"
 	"exam-platform/internal/runner"
+	"exam-platform/internal/runner/dockerrt"
 )
 
 var version = "dev"
@@ -51,7 +52,7 @@ func run(configPath string, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	runtime, err := runner.NewDocker(cfg.RuntimeSocket)
+	runtime, err := dockerrt.New(cfg.RuntimeSocket)
 	if err != nil {
 		return err
 	}

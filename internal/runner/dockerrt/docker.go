@@ -1,4 +1,6 @@
-package runner
+// Package dockerrt is the runner's runner.Runtime for the Docker Engine API: rootless Podman through its compatible API, or Docker. It is the
+// only package that knows the Docker Go SDK, and only cmd/cbe-runner imports it, so the exam server does not carry it.
+package dockerrt
 
 import (
 	"context"
@@ -8,19 +10,20 @@ import (
 	"strings"
 	"time"
 
+	"exam-platform/internal/runner"
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/client"
 )
 
-// Docker is the Runtime that talks the Docker Engine API to rootless Podman (its compatible API) or to Docker. It is the only place
+// Docker is the runner.Runtime that talks the Docker Engine API to rootless Podman (its compatible API) or to Docker. It is the only place
 // in the repository that knows the SDK.
 type Docker struct {
 	cli *client.Client
 }
 
-// NewDocker connects to the runtime at host, such as unix:///run/user/1001/podman/podman.sock.
-func NewDocker(host string) (*Docker, error) {
+// New connects to the runtime at host, such as unix:///run/user/1001/podman/podman.sock.
+func New(host string) (*Docker, error) {
 	cli, err := client.New(client.WithHost(host), client.WithAPIVersionNegotiation())
 	if err != nil {
 		return nil, err
@@ -33,7 +36,7 @@ func (d *Docker) Close() error { return d.cli.Close() }
 
 func notFound(err error) error {
 	if err != nil && cerrdefs.IsNotFound(err) {
-		return ErrNotFound
+		return runner.ErrNotFound
 	}
 	return err
 }
@@ -44,7 +47,7 @@ func (d *Docker) Ping(ctx context.Context) error {
 }
 
 // hostConfig is the whole translation of a spec into the SDK's types, kept apart so a test can look at it.
-func hostConfig(spec ContainerSpec) (*container.Config, *container.HostConfig) {
+func hostConfig(spec runner.ContainerSpec) (*container.Config, *container.HostConfig) {
 	binds := make([]string, 0, len(spec.Binds))
 	for _, bind := range spec.Binds {
 		binds = append(binds, bind.Source+":"+bind.Target)
@@ -70,7 +73,7 @@ func hostConfig(spec ContainerSpec) (*container.Config, *container.HostConfig) {
 	return config, host
 }
 
-func (d *Docker) Create(ctx context.Context, spec ContainerSpec) (string, error) {
+func (d *Docker) Create(ctx context.Context, spec runner.ContainerSpec) (string, error) {
 	config, host := hostConfig(spec)
 	created, err := d.cli.ContainerCreate(ctx, client.ContainerCreateOptions{Name: spec.Name, Config: config, HostConfig: host})
 	return created.ID, err
@@ -102,8 +105,8 @@ func (d *Docker) Remove(ctx context.Context, name string) error {
 	return notFound(err)
 }
 
-func inspected(response container.InspectResponse) Inspected {
-	out := Inspected{ID: response.ID, Name: strings.TrimPrefix(response.Name, "/")}
+func inspected(response container.InspectResponse) runner.Inspected {
+	out := runner.Inspected{ID: response.ID, Name: strings.TrimPrefix(response.Name, "/")}
 	if response.Config != nil {
 		out.Labels = response.Config.Labels
 	}
@@ -111,13 +114,13 @@ func inspected(response container.InspectResponse) Inspected {
 		out.ExitCode = state.ExitCode
 		switch {
 		case state.Paused:
-			out.State = StatePaused
+			out.State = runner.StatePaused
 		case state.Running:
-			out.State = StateRunning
+			out.State = runner.StateRunning
 		case state.Status == "created":
-			out.State = StateCreated
+			out.State = runner.StateCreated
 		default:
-			out.State = StateExited
+			out.State = runner.StateExited
 		}
 		if started, err := time.Parse(time.RFC3339Nano, state.StartedAt); err == nil && started.Year() > 1 {
 			out.StartedAt = started
@@ -126,23 +129,23 @@ func inspected(response container.InspectResponse) Inspected {
 	return out
 }
 
-func (d *Docker) Inspect(ctx context.Context, name string) (Inspected, error) {
+func (d *Docker) Inspect(ctx context.Context, name string) (runner.Inspected, error) {
 	result, err := d.cli.ContainerInspect(ctx, name, client.ContainerInspectOptions{})
 	if err != nil {
-		return Inspected{}, notFound(err)
+		return runner.Inspected{}, notFound(err)
 	}
 	return inspected(result.Container), nil
 }
 
-func (d *Docker) List(ctx context.Context, key, value string) ([]Inspected, error) {
+func (d *Docker) List(ctx context.Context, key, value string) ([]runner.Inspected, error) {
 	list, err := d.cli.ContainerList(ctx, client.ContainerListOptions{All: true, Filters: client.Filters{}.Add("label", key+"="+value)})
 	if err != nil {
 		return nil, err
 	}
-	var out []Inspected
+	var out []runner.Inspected
 	for _, item := range list.Items {
 		one, err := d.Inspect(ctx, item.ID)
-		if errors.Is(err, ErrNotFound) {
+		if errors.Is(err, runner.ErrNotFound) {
 			continue
 		}
 		if err != nil {
@@ -153,17 +156,17 @@ func (d *Docker) List(ctx context.Context, key, value string) ([]Inspected, erro
 	return out, nil
 }
 
-func (d *Docker) Stats(ctx context.Context, name string) (RawStats, error) {
+func (d *Docker) Stats(ctx context.Context, name string) (runner.RawStats, error) {
 	reply, err := d.cli.ContainerStats(ctx, name, client.ContainerStatsOptions{Stream: false, IncludePreviousSample: true})
 	if err != nil {
-		return RawStats{}, notFound(err)
+		return runner.RawStats{}, notFound(err)
 	}
 	defer reply.Body.Close()
 	var sample container.StatsResponse
 	if err := json.NewDecoder(reply.Body).Decode(&sample); err != nil {
-		return RawStats{}, err
+		return runner.RawStats{}, err
 	}
-	out := RawStats{MemoryBytes: sample.MemoryStats.Usage, MemoryLimit: sample.MemoryStats.Limit, Pids: sample.PidsStats.Current}
+	out := runner.RawStats{MemoryBytes: sample.MemoryStats.Usage, MemoryLimit: sample.MemoryStats.Limit, Pids: sample.PidsStats.Current}
 	cpuDelta := float64(sample.CPUStats.CPUUsage.TotalUsage) - float64(sample.PreCPUStats.CPUUsage.TotalUsage)
 	systemDelta := float64(sample.CPUStats.SystemUsage) - float64(sample.PreCPUStats.SystemUsage)
 	if cpuDelta > 0 && systemDelta > 0 {
@@ -192,16 +195,16 @@ func (d *Docker) CopyFrom(ctx context.Context, name, path string) (io.ReadCloser
 	return copied.Content, nil
 }
 
-func (d *Docker) ImageInspect(ctx context.Context, ref string) (ImageInfo, error) {
+func (d *Docker) ImageInspect(ctx context.Context, ref string) (runner.ImageInfo, error) {
 	result, err := d.cli.ImageInspect(ctx, ref)
 	if err != nil {
-		return ImageInfo{}, notFound(err)
+		return runner.ImageInfo{}, notFound(err)
 	}
-	info := ImageInfo{ID: result.ID}
+	info := runner.ImageInfo{ID: result.ID}
 	if result.Config != nil {
 		info.Labels = result.Config.Labels
 	}
 	return info, nil
 }
 
-var _ Runtime = (*Docker)(nil)
+var _ runner.Runtime = (*Docker)(nil)

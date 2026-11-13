@@ -22,6 +22,19 @@ type Config struct {
 	MaxJSONBytes    int64
 	MaxAnswerBytes  int64
 	MaxAnswersBytes int64
+	// RunnerSocket is the socket of cbe-runner. Empty, the server has no workspace exams. RunnerSecretFile holds the shared secret.
+	RunnerSocket     string
+	RunnerSecretFile string
+	// WorkspaceDir is where the starter and grading bundles and the snapshots' blobs are kept.
+	WorkspaceDir string
+	// WorkspaceRetention is how long a frozen workspace's container is kept after its exam ended; its snapshots stay.
+	WorkspaceRetention time.Duration
+	// WorkspaceSnapshotEvery is the periodic snapshot interval of an exam that sets none (decision D8).
+	WorkspaceSnapshotEvery time.Duration
+	// WorkspaceMax are the largest limits an exam may ask for; the runner enforces its own again.
+	WorkspaceMaxCPU      float64
+	WorkspaceMaxMemoryMB int
+	WorkspaceMaxDiskMB   int
 	// ShowVersion asks for the version to be printed instead of starting the server.
 	ShowVersion bool
 	// Version is the server's release, stamped into the binary by the build; it is not a flag.
@@ -40,6 +53,14 @@ func Parse(args []string, output io.Writer) (Config, error) {
 	flags.Int64Var(&cfg.MaxJSONBytes, "max-json-bytes", 1<<20, "maximum exam/answer JSON request bytes")
 	flags.Int64Var(&cfg.MaxAnswerBytes, "max-answer-bytes", 64<<10, "maximum UTF-8 bytes per answer")
 	flags.Int64Var(&cfg.MaxAnswersBytes, "max-answers-bytes", 512<<10, "maximum total UTF-8 answer bytes per snapshot")
+	flags.StringVar(&cfg.RunnerSocket, "runner-socket", "", "cbe-runner's socket; with it the server serves workspace exams (docs/workspace/deployment.md)")
+	flags.StringVar(&cfg.RunnerSecretFile, "runner-secret-file", "", "the file with the secret shared with cbe-runner")
+	flags.StringVar(&cfg.WorkspaceDir, "workspace-dir", "data/workspace", "where workspace bundles and snapshots are kept")
+	flags.DurationVar(&cfg.WorkspaceRetention, "workspace-retention", 48*time.Hour, "how long a finished workspace's container is kept before it is removed (its snapshots stay)")
+	flags.DurationVar(&cfg.WorkspaceSnapshotEvery, "workspace-snapshot-every", 60*time.Second, "the interval of periodic workspace snapshots, for exams that set none")
+	flags.Float64Var(&cfg.WorkspaceMaxCPU, "workspace-max-cpu", 2, "the most cores an exam may ask for each student")
+	flags.IntVar(&cfg.WorkspaceMaxMemoryMB, "workspace-max-memory-mb", 2048, "the most memory (MiB) an exam may ask for each student")
+	flags.IntVar(&cfg.WorkspaceMaxDiskMB, "workspace-max-disk-mb", 500, "the most disk (MiB) an exam may ask for each student")
 	flags.BoolVar(&cfg.ShowVersion, "version", false, "print the version and exit")
 	if err := flags.Parse(args); err != nil {
 		return cfg, err
@@ -71,6 +92,12 @@ func (c Config) Validate() error {
 	n, err := strconv.Atoi(port)
 	if err != nil || n < 1 || n > 65535 {
 		return fmt.Errorf("bind port must be between 1 and 65535")
+	}
+	if (c.RunnerSocket == "") != (c.RunnerSecretFile == "") {
+		return fmt.Errorf("runner-socket and runner-secret-file go together")
+	}
+	if c.RunnerSocket != "" && (c.WorkspaceDir == "" || c.WorkspaceRetention <= 0 || c.WorkspaceSnapshotEvery < 10*time.Second || c.WorkspaceMaxCPU <= 0 || c.WorkspaceMaxMemoryMB < 64 || c.WorkspaceMaxDiskMB < 1) {
+		return fmt.Errorf("the workspace settings are not usable: a folder, a retention, a snapshot interval of at least 10s and limits are needed")
 	}
 	for name, path := range map[string]string{"database": c.Database, "screenshots": c.Screenshots, "admin-token-file": c.AdminTokenFile} {
 		if strings.TrimSpace(path) == "" {

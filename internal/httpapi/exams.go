@@ -26,13 +26,15 @@ type ExamAPI interface {
 }
 
 type Options struct {
-	AdminToken     string
-	Exams          ExamAPI
-	Publisher      PublishAPI
-	Classes        ClassAPI
-	Proctor        ProctorAPI
-	Screenshots    ScreenshotAPI
-	Rules          RulesAPI
+	AdminToken  string
+	Exams       ExamAPI
+	Publisher   PublishAPI
+	Classes     ClassAPI
+	Proctor     ProctorAPI
+	Screenshots ScreenshotAPI
+	Rules       RulesAPI
+	// Workspace serves workspace exams (docs/workspace/); nil when the server has no runner, and then they do not exist.
+	Workspace      WorkspaceAPI
 	MaxJSONBytes   int64
 	MaxRosterBytes int64
 	// Version is the server's release, which the exam catalog reports to the proctor dashboard.

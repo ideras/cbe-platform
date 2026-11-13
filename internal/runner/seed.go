@@ -2,6 +2,7 @@ package runner
 
 import (
 	"archive/tar"
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -127,4 +128,29 @@ func checkSeedLink(name, target string) error {
 		}
 	}
 	return nil
+}
+
+// CheckGrading checks a grading bundle, which stays on the exam server and is only ever given to a grading container: it must pass
+// the same rules as a starter bundle, and hold a file called grade that can be run (plan, 5.3).
+func CheckGrading(r io.Reader) error {
+	var kept bytes.Buffer
+	if _, err := SanitizeSeed(io.TeeReader(r, &kept), io.Discard); err != nil {
+		return err
+	}
+	reader := tar.NewReader(&kept)
+	for {
+		header, err := reader.Next()
+		if errors.Is(err, io.EOF) {
+			return badRequest("the grading bundle has no file called grade")
+		}
+		if err != nil {
+			return badRequest("the grading bundle is not a tar archive")
+		}
+		if strings.TrimSuffix(header.Name, "/") == "grade" {
+			if header.Typeflag != tar.TypeReg || header.Mode&0o111 == 0 {
+				return badRequest("grade in the grading bundle must be a regular file that can be run")
+			}
+			return nil
+		}
+	}
 }
