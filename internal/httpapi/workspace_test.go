@@ -786,3 +786,76 @@ func TestARestartedServerPicksUpWhereItWas(t *testing.T) {
 		t.Errorf("file = %q", got)
 	}
 }
+
+// ---------------------------------------------------------------------------------------------------------------------------------
+// More of what the server keeps an eye on.
+
+func TestAProvisioningNobodyIsFinishingIsTakenUp(t *testing.T) {
+	f := newWorkspaceFixture(t, nil)
+	login := f.loginReady(t, "0012")
+	if err := f.repo.SetState(context.Background(), login.SessionID, workspace.StateProvisioning, "", f.clock.Now()); err != nil {
+		t.Fatal(err)
+	}
+	f.manager.SuperviseOnce(context.Background())
+	if info, _ := f.repo.Session(context.Background(), login.SessionID); info.State != workspace.StateReady {
+		t.Errorf("state = %s", info.State)
+	}
+	if f.runner.Starts(login.SessionID) != 1 {
+		t.Errorf("the container was started %d times", f.runner.Starts(login.SessionID))
+	}
+}
+
+func TestTheSupervisorLoopRunsByItselfAndStops(t *testing.T) {
+	f := newWorkspaceFixture(t, nil)
+	login := f.loginReady(t, "0012")
+	manager := workspace.NewManager(workspace.Options{Repo: f.repo, Runner: f.runner, Blobs: f.blobs, Logger: f.logger, Now: f.clock.Now, Tick: 20 * time.Millisecond,
+		SnapshotEvery: 10 * time.Second, HeartbeatTimeout: 5 * time.Second, ReadyTimeout: 10 * time.Second})
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { manager.Supervise(ctx); close(done) }()
+	eventually(t, "the loop's first snapshot", func() bool {
+		snaps, _ := f.repo.Snapshots(context.Background(), login.SessionID)
+		return len(snaps) == 1
+	})
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the supervisor did not stop")
+	}
+}
+
+func TestTooMuchTypingIsDroppedAndTheStudentIsToldOnce(t *testing.T) {
+	f := newWorkspaceFixture(t, nil)
+	login := f.loginReady(t, "0012")
+	c := f.dial(t, login.SessionToken)
+	shell := uint32(workspacetest.Num(c.Call(map[string]any{"type": "pty.open", "cols": 80, "rows": 24})["term"]))
+	chunk := strings.Repeat("a", 4096)
+	for range 400 { // 1.6 MiB at once: past the burst the limit allows
+		c.Keys(shell, chunk)
+	}
+	eventually(t, "a RATE message", func() bool { return c.Has("RATE") })
+	c.Keys(shell, "\x15") // kill the line the shell was left with
+	time.Sleep(3 * time.Second)
+	if reply := c.Call(map[string]any{"type": "agent.ping"}); !ok(reply) {
+		t.Errorf("after the flood: %v", reply)
+	}
+}
+
+func TestASubmitThatCannotBeTakenSaysSoWithoutTheDetails(t *testing.T) {
+	f := newWorkspaceFixture(t, nil)
+	login := f.loginReady(t, "0012")
+	c := f.dial(t, login.SessionToken)
+	f.runner.FailArchive = fmt.Errorf("dial unix /data/cbe-platform/ipc/runner.sock: the runner is down")
+	reply := c.Call(map[string]any{"type": "submit"})
+	if ok(reply) || code(reply) != "UNAVAILABLE" || strings.Contains(fmt.Sprint(reply), "runner") || strings.Contains(fmt.Sprint(reply), "/data") {
+		t.Errorf("reply = %v", reply)
+	}
+	if !strings.Contains(f.logs.String(), "the runner is down") {
+		t.Error("the failure is not in the server's log")
+	}
+	f.runner.FailArchive = nil
+	if reply := c.Call(map[string]any{"type": "submit"}); !ok(reply) {
+		t.Errorf("the next submit: %v", reply)
+	}
+}

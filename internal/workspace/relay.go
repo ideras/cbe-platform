@@ -490,7 +490,9 @@ func (r *relay) submit(h header, data []byte) {
 	}
 	record, _, err := r.m.Snapshots.Take(r.ctx, r.session, ReasonSubmit)
 	if err != nil {
-		r.refuse(h.ID, h.Type, agentproto.CodeUnavailable, "the snapshot could not be taken: "+err.Error())
+		// What went wrong is the server's business (it may name the runner or a path), not the student's.
+		r.m.opts.Logger.Error("workspace: the snapshot for a submission failed", "session", r.session, "error", err)
+		r.refuse(h.ID, h.Type, agentproto.CodeUnavailable, "the snapshot could not be taken; try again in a moment")
 		return
 	}
 	r.sendJSON(serverReply{ID: h.ID, Type: h.Type, OK: true, Snapshot: record.ID})

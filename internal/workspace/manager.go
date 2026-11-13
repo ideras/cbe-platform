@@ -328,8 +328,9 @@ func (m *Manager) superviseOne(ctx context.Context, session string) {
 	log := m.opts.Logger.With("session", session)
 	switch info.State {
 	case StateProvisioning:
-		// A provisioning that nobody is finishing (the server restarted in the middle of it) is taken up again.
-		if now.Sub(m.provisioningSince(info)) > m.opts.ReadyTimeout+10*time.Second && !info.Over(now) {
+		// A provisioning that nobody is finishing (the server restarted in the middle of it) is taken up again. One that is under way holds
+		// the session's lock, so by the time this round has it, that one is done and the state is no longer provisioning.
+		if !info.Over(now) {
 			if _, err := m.provision(ctx, info); err != nil {
 				log.Error("workspace: provisioning again failed", "error", err)
 			}
@@ -350,13 +351,6 @@ func (m *Manager) superviseOne(ctx context.Context, session string) {
 			log.Info("workspace removed after the retention period")
 		}
 	}
-}
-
-func (m *Manager) provisioningSince(info SessionInfo) time.Time {
-	if info.ReadyAt != nil {
-		return *info.ReadyAt
-	}
-	return time.Time{}
 }
 
 // freeze takes the last snapshot, at the deadline, and pauses the container: its processes stop, its files stay.
