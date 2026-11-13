@@ -14,6 +14,7 @@ everything the runner needs (limits, a hard disk quota, pause, stats, archive) o
 | `quota-helper.sh` | Prototype of the root-owned quota helper: `create <session> <MiB> [files]`, `remove`, `report`. |
 | `main.go` | The driver. `spike check` runs the checks through the moby client; `spike load <mode>` is the workload it starts inside containers. Linux only. |
 | `run-spike.sh` | Builds the driver, makes the quota folders, runs every check as `cbe-runner`, then the reboot simulation. |
+| `reboot-check.sh` | The real-reboot check, in two steps around one reboot that you do yourself: `prep` before, `verify` after. Never reboots, never recreates the session folder. |
 | `sizing.sh` | Task 4: one compile alone, then N containers compiling C++ at the same instant, plus autosave-shaped write latency. |
 | `results/` | The raw output of the runs the report quotes. |
 

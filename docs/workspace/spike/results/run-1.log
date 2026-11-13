@@ -1,0 +1,35 @@
+== build ==
+== quota folders ==
+/data/cbe-platform/work/spike-fill project=100005 bhard=50m ihard=20000
+/data/cbe-platform/work/spike-ino project=100006 bhard=50m ihard=2000
+/data/cbe-platform/work/spike-misc project=100007 bhard=20m ihard=20000
+/data/cbe-platform/work/spike-arch project=100008 bhard=20m ihard=20000
+/data/cbe-platform/work/spike-reboot project=100009 bhard=20m ihard=20000
+== checks ==
+PASS  api            moby client v0.6.3 talks to the compatible API (version 1.41); image inspect and label-filtered list work  (0.0s)
+PASS  delegation     the container sees cpu, cpuset, io, memory and pids, and a cpuset of 0-1 is applied  (0.5s)
+PASS  pids           fork bomb stopped at the limit: pids.peak=64 of 64, fork refused (pids.events: max 34), killed and removed in 393ms  (11.5s)
+FAIL  memory         expected OOMKilled and exit 137, got oom=false exit=137  (0.5s)
+PASS  cpu            4 busy threads held to 1.01 cores of a 1-core limit (throttled in 60 periods)  (6.6s)
+FAIL  disk           expected EDQUOT near 50 MiB, wrote 50.0 MiB, err=open /work/fill/f0005: no space left on device  (0.4s)
+FAIL  inodes         expected EDQUOT near 2000 files, created 1998, err=open /work/ino/f001998: no space left on device  (0.5s)
+PASS  pause          paused in 28ms (cgroup.freeze=0), counter frozen at 15 for 2.5s, resumed to 31 after unpause (29ms)  (6.2s)
+PASS  stats          streamed 5 frames: 1.00 cores, 82 MiB of a 256 MiB limit, 6 pids; a one-shot sample works too  (22.3s)
+FAIL  archive        main.cpp content/size wrong: {Type:49 Mode:420 Size:0 Link:work/hard Hash:}; the archive of the paused container differs from the running one  (0.6s)
+PASS  socket         the host (cbe-runner) talks to a Unix socket made by the container's uid 1000 through a bind-mounted folder; reply "pong:ping"  (0.4s)
+PASS  isolation      a neighbour kept running through the abuse: 49 of ~50 one-second ticks, not OOM-killed
+== quota usage after the run ==
+Project quota on /data/cbe-platform/work (/dev/loop0)
+                        Blocks                            Inodes              
+Project ID   Used   Soft   Hard Warn/Grace     Used   Soft   Hard Warn/Grace  
+---------- --------------------------------- --------------------------------- 
+#0              0      0      0  00 [------]      3      0      0  00 [------]
+#100005       50M      0    50M  00 [------]      7      0    20k  00 [------]
+#100006       88K      0    50M  00 [------]     2k      0     2k  00 [------]
+#100007        8K      0    20M  00 [------]      3      0    20k  00 [------]
+#100008      216K      0    20M  00 [------]     12      0    20k  00 [------]
+#100009         0      0    20M  00 [------]      1      0    20k  00 [------]
+
+== reboot simulation: restart the user manager, as a boot would ==
+PASS  reboot-prep    container with restart policy 'always' is running and has written /work/tick (counter 20)  (2.2s)
+PASS  reboot-verify  after the user manager restarted, the container came back by itself, /work survived and the process started 2 times  (2.2s)

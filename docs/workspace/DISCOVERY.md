@@ -10,7 +10,7 @@ Decisions made along the way are in `DECISIONS.md` (entries `P0-n`).
 
 **Rootless Podman passes all five spike checks, on this machine, in one day.** The plan's preferred runtime (D10) is viable,
 so the rootful Docker fallback is not needed. It also passed the extra checks I added (host-to-agent socket, neighbour
-isolation, logout, a simulated reboot). The runner drives it through the Docker-compatible API with the maintained moby SDK.
+isolation, logout, a simulated reboot and, later the same day, a real one). The runner drives it through the Docker-compatible API with the maintained moby SDK.
 
 The spike also found things the plan has to absorb before Phase 3. The ones that change a design are:
 
@@ -86,7 +86,7 @@ Memory = MemorySwap (no swap)   NanoCPUs   PidsLimit   Labels cbe.spike=1
 | 4 | Live stats | **PASS** | a 5-frame stream reported 1.00 cores, 82 MiB of a 256 MiB limit and 6 pids; a one-shot sample works too |
 | 5 | Archive from a running and a paused container | **PASS, with a gotcha** | `/work/.` gives identical tars (12 entries, content hashes and modes preserved) in both states; `/work` does not (4.3) |
 | - | Containers survive logout | **PASS** | `Linger=yes`; no session exists for `cbe-runner`; the container's `conmon` runs under `user@1001.service/user.slice/libpod-conmon-*.scope`; it stayed up across separate `sudo` calls |
-| - | Containers survive a reboot | **PASS (simulated)** | restarting `user@1001.service` kills every container as a boot does; `podman-restart.service` brought back the container with `RestartPolicy=always`, its `/work` intact and its process started a second time. A real reboot was **not** done (P0-12) |
+| - | Containers survive a reboot | **PASS (simulated, then real)** | Simulated: restarting `user@1001.service` kills every container as a boot does; `podman-restart.service` brought back the container with `RestartPolicy=always`, its `/work` intact and its process started a second time. **Real, done by the owner after this report was first written** (`results/reboot-real-run-1.log`): the boot ID changed; `/data/cbe-platform/work` mounted by itself as XFS with `prjquota`; `user@1001.service` was active with no login session for `cbe-runner`; the container was running again and its start count went from 1 to 2 with `/work` intact. That also covers the fstab line and the boot order (P0-4, 4.5) |
 | - | `delegation` | **PASS** | the container sees `cpu cpuset io memory pids` and a `cpuset` of `0-1` is applied |
 | - | Host reaches an agent socket (D7) | **PASS** | `cbe-runner` talked to a Unix socket made by the container's uid 1000 through a bind-mounted folder |
 | - | Neighbour isolation | **PASS** | a neighbour container (0.5 core, 32 MiB) kept ticking through the fork bomb, memory hog, CPU burner and both quota floods: 49 of 50 one-second ticks, not OOM-killed |
@@ -304,7 +304,7 @@ No test was flaky in this run.
 
 > **Answered on 2026-11-13** (recorded as `P0-17` to `P0-27` in `DECISIONS.md`). D6, D7, D9, D12, D13 and D14 are confirmed as the plan
 > states them; D8 is confirmed with the interval made configurable; D10 is confirmed as rootless Podman. Q1 (real reboot): yes, and the
-> owner does it. Q3: the Go client owns the WebSocket. Q4: the new dependency is accepted. Q6: yes, its own account. Q7: copy the
+> owner did it: it passed (P0-27). Q3: the Go client owns the WebSocket. Q4: the new dependency is accepted. Q6: yes, its own account. Q7: copy the
 > documents (done). Q8: yes, on the Wi-Fi router. **Not answered**: Q2 and Q5 (defaults in `DECISIONS.md`). The questions and the
 > recommendations are kept below as they were asked.
 

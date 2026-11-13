@@ -1,0 +1,15 @@
+# Real reboot of the host, 2026-11-13. `reboot-check.sh prep` ran at 13:56 (boot ID 10543ccb-0e1e-4c25-b9ba-49a68b6d929e, start count 1).
+# The owner rebooted the machine and ran `docs/workspace/spike/reboot-check.sh verify` at 14:06, about two minutes after boot.
+# The output below is the owner's paste, unchanged.
+
+Booted: 2026-11-13 14:04:51   Now: 2026-11-13T14:06:35-06:00
+== the checks ==
+  PASS  the machine rebooted since 'prep' (boot ID changed)
+  PASS  /data/cbe-platform/work is mounted by itself, XFS with prjquota (/dev/loop0)
+  PASS  user@1001.service is active (lingering)
+  PASS  no login session for cbe-runner: the container survived without one
+PASS  reboot-verify  after the user manager restarted, the container came back by itself, /work survived and the process started 2 times  (2.3s)
+  PASS  the container is running again (the spike's own check passed)
+  PASS  its process started again after the reboot (start count 1 -> 2) and /work survived
+
+REAL REBOOT CHECK: PASS

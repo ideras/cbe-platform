@@ -1,8 +1,8 @@
 # Phase 0 report: discovery
 
 **Date:** 2026-11-13. **Branch:** `feat/workspace-phase-0-discovery`. **Plan:** `.agents/WORKSPACE-PLAN.md` v1.1.
-**Status:** **closed on 2026-11-13**, with one task still open that the plan lists but its acceptance does not: the real reboot of the host
-(see "Still open"). The owner confirmed the runtime and the decisions the same day.
+**Status:** **closed on 2026-11-13.** The owner confirmed the runtime and the decisions the same day, and the real reboot of the host
+passed (`spike/results/reboot-real-run-1.log`).
 
 ## What changed
 
@@ -24,9 +24,13 @@ image at `/data/cbe-platform/work.img`, mounted with project quotas, with a line
 
 ## Tests run and results
 
-- **The five spike checks** (limits, disk quota, pause, stats, archive), plus logout, a simulated reboot, the agent socket, neighbour
+- **The five spike checks** (limits, disk quota, pause, stats, archive), plus logout, the agent socket, neighbour
   isolation, controller delegation and the API: **all pass** (final run, `spike/results/run-2.log`). The first run had four
   failures, explained in `DISCOVERY.md` section 3 and kept in `run-1.log`.
+- **The real reboot (P0-12, P0-27), run by the owner at 14:06:** **pass**, all seven lines (`spike/results/reboot-real-run-1.log`). The boot
+  ID changed; the XFS volume mounted by itself with project quotas; `user@1001.service` was up with no login session for `cbe-runner`;
+  the container with `RestartPolicy=always` came back and its start count went from 1 to 2 with `/work` intact. This closes the one
+  Phase 0 task that was still open, and checks the fstab line and the boot order (P0-4).
 - **Sizing:** one compile, 8 and 40 at once, autosave latency, idle density, snapshot cost (`DISCOVERY.md` section 7).
 - **Baseline of the existing code** (`spike/results/baseline-summary.log`): `scripts/ci/test.py --race` over 7 modules **pass**; student unit
   45/45; proctor unit 74/74; student Playwright 131 passed; proctor Playwright 294 passed.
@@ -46,9 +50,6 @@ day. The plan file is not tracked by git (`.agents` is in `.git/info/exclude`), 
 
 ## Still open
 
-- **The real reboot (P0-12, P0-27).** The plan's Phase 0 task asks to confirm containers survive a host reboot. The owner agreed and
-  asked to be the one who reboots. `spike/reboot-check.sh prep` has been run; after the reboot, `spike/reboot-check.sh verify` gives
-  the answer. It is not an acceptance criterion, so it did not hold Phase 0 open, but it is the last check on the fstab line and the
-  boot order (P0-4).
-- **Phase 1 is on hold at the owner's request** until the real reboot has been tested ("Don't start Phase 1, allow me to restart and test").
+- **Phase 1 has not started.** The owner asked it to wait until the real reboot had been tested ("Don't start Phase 1, allow me to
+  restart and test"). The test has passed; Phase 1 starts when the owner says so.
 - **Q2 and Q5 were not answered.** Defaults are in force until the owner says otherwise (`DECISIONS.md`, "Not answered yet").

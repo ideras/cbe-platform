@@ -1,0 +1,22 @@
+
+################ N=8, slice capped at 8 of 12 threads
+== 3a. autosave latency, machine idle ==
+{"max_ms":5.182,"n":300,"p50_ms":3.081,"p95_ms":4.236,"p99_ms":4.884}
+== 2. 8 containers press make at the same instant ==
+== results: 8 concurrent compiles ==
+all 8 finished in 6.1s wall (slowest container 4.9s, median 4.8s), failures: 0
+CPU per compile: 4.69s (user+system); host average 6.5 cores busy during the storm
+biggest single process: median 162 MiB, max 162 MiB; the user slice peaked at 1624 MiB for 8 containers
+autosave latency while the storm ran: {"max_ms":10.818,"n":300,"p50_ms":3.059,"p95_ms":4.686,"p99_ms":6.327}
+== host after: load 14.35 15.43 7.78, free 49622 MiB available ==
+
+################ N=40, slice capped at 8 of 12 threads
+== 3a. autosave latency, machine idle ==
+{"max_ms":4.836,"n":300,"p50_ms":3.176,"p95_ms":4.271,"p99_ms":4.775}
+== 2. 40 containers press make at the same instant ==
+== results: 40 concurrent compiles ==
+all 40 finished in 30.4s wall (slowest container 28.6s, median 24.1s), failures: 0
+CPU per compile: 5.60s (user+system); host average 7.7 cores busy during the storm
+biggest single process: median 162 MiB, max 162 MiB; the user slice peaked at 4194 MiB for 40 containers
+autosave latency while the storm ran: {"max_ms":48.079,"n":300,"p50_ms":3.955,"p95_ms":32.742,"p99_ms":42.583}
+== host after: load 22.18 16.81 8.74, free 49254 MiB available ==
