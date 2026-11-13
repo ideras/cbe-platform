@@ -1,0 +1,3 @@
+HIDDEN-CASES-MARKER-4f1c9a
+push_front 1 2 3 -> 3 2 1
+insert_sorted 5 1 3 -> 1 3 5

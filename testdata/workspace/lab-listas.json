@@ -1,0 +1,49 @@
+{
+  "kind": "workspace",
+  "title": "Laboratorio 2 – Listas enlazadas",
+  "duration_seconds": 7200,
+  "grace_seconds": 120,
+  "workspace": {
+    "image": "cbe/cpp20",
+    "terminal": true,
+    "run": "make run",
+    "check": "make check",
+    "submit": [
+      "src/**",
+      "include/**",
+      "tests/**",
+      "Makefile"
+    ],
+    "ignore": [
+      "build/**",
+      "**/*.o"
+    ],
+    "resources": {
+      "cpu": 1,
+      "memory_mb": 1024,
+      "disk_mb": 100
+    }
+  },
+  "content": {
+    "instructions": "<p>Build with <code>make</code>. Run the sample tests with <code>make check</code>.</p>",
+    "todos": [
+      {
+        "id": "t1",
+        "text_html": "Implement <code>push_front</code> in <code>src/list.cpp</code>",
+        "points": 10
+      },
+      {
+        "id": "t2",
+        "text_html": "Implement <code>insert_sorted</code>",
+        "points": 15
+      },
+      {
+        "id": "t3",
+        "text_html": "Add <code>tests/mine.cpp</code> with at least three cases of your own",
+        "points": 15
+      }
+    ]
+  },
+  "starter_bundle": "sha256:a8f8de6852f158a361635469e3cb4c7e1dae2dc827e93dd591a9be328b102672",
+  "grading_bundle": "sha256:2d95f25b97b456ea0d774df37750f731b153876fce000895db6fdc6943888fcd"
+}
