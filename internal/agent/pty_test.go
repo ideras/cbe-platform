@@ -3,6 +3,7 @@
 package agent
 
 import (
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -171,6 +172,56 @@ func TestAtMostFourTerminals(t *testing.T) {
 	doFails(t, c, &agentproto.PTYClose{Header: agentproto.Header{Type: agentproto.TypePTYClose}, Term: terms[0]}, agentproto.CodeNotFound)
 	doFails(t, c, &agentproto.PTYResize{Header: agentproto.Header{Type: agentproto.TypePTYResize}, Term: 99, Cols: 80, Rows: 24}, agentproto.CodeNotFound)
 	doFails(t, c, &agentproto.PTYAttach{Header: agentproto.Header{Type: agentproto.TypePTYAttach}, Term: 99}, agentproto.CodeNotFound)
+}
+
+func listTerminals(t *testing.T, c *agentproto.Client) []agentproto.TermInfo {
+	t.Helper()
+	return do(t, c, &agentproto.PTYList{Header: agentproto.Header{Type: agentproto.TypePTYList}}).Terminals
+}
+
+// The Run and Check buttons each leave a terminal behind whose program has ended; those never keep the student from opening another.
+func TestFinishedTerminalsMakeRoomForNewOnes(t *testing.T) {
+	r := startAgent(t, nil)
+	c := r.dial(t)
+	var first uint32
+	for i := range agentproto.MaxTerminals + 10 {
+		term := open(t, c, fmt.Sprintf("echo done-%d", i))
+		if i == 0 {
+			first = term
+		}
+		output(t, c, term, fmt.Sprintf("done-%d", i))
+		exited(t, c, term)
+	}
+	if got := len(listTerminals(t, c)); got != agentproto.MaxTerminals {
+		t.Errorf("%d terminals are open", got)
+	}
+	// The oldest are gone, the newest are there.
+	doFails(t, c, &agentproto.PTYAttach{Header: agentproto.Header{Type: agentproto.TypePTYAttach}, Term: first}, agentproto.CodeNotFound)
+	// Terminals that are running are never the ones that make room: three running and one finished, and a fifth takes the finished one's place.
+	for _, term := range listTerminals(t, c) {
+		doClose(t, c, term.Term)
+	}
+	var running []uint32
+	for range agentproto.MaxTerminals - 1 {
+		running = append(running, open(t, c, "sleep 30"))
+	}
+	short := open(t, c, "true")
+	exited(t, c, short)
+	_ = open(t, c, "sleep 30")
+	have := map[uint32]bool{}
+	for _, term := range listTerminals(t, c) {
+		have[term.Term] = true
+	}
+	for _, term := range running {
+		if !have[term] {
+			t.Errorf("running terminal %d was dropped", term)
+		}
+	}
+	if have[short] || len(have) != agentproto.MaxTerminals {
+		t.Errorf("terminals = %v: the finished one should have been replaced", have)
+	}
+	// With four running, the fifth is refused.
+	doFails(t, c, &agentproto.PTYOpen{Header: agentproto.Header{Type: agentproto.TypePTYOpen}, Cols: 80, Rows: 24}, agentproto.CodeLimit)
 }
 
 func TestAClosedTerminalKillsAProgramThatIgnoresHangup(t *testing.T) {

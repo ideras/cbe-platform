@@ -17,6 +17,7 @@ import (
 
 	"exam-platform/internal/service"
 	"exam-platform/internal/workspace"
+	"exam-platform/internal/workspace/workspacetest"
 )
 
 // ---------------------------------------------------------------------------------------------------------------------------------
@@ -194,66 +195,68 @@ func TestTheRelayWorksTheFilesAndRunsTheButtons(t *testing.T) {
 	f := newWorkspaceFixture(t, nil)
 	login := f.loginReady(t, "0012")
 	c := f.dial(t, login.SessionToken)
-	status := c.wait("ws.status", c.ofType("ws.status"))
+	status := c.Wait("ws.status", c.OfType("ws.status"))
 	if status["state"] != "running" || status["terminal"] != true {
 		t.Errorf("status = %v", status)
 	}
 	// Files.
-	list := c.call(map[string]any{"type": "fs.list", "path": ""})
+	list := c.Call(map[string]any{"type": "fs.list", "path": ""})
 	if !ok(list) || len(list["entries"].([]any)) != 4 {
 		t.Fatalf("list = %v", list)
 	}
-	read := c.call(map[string]any{"type": "fs.read", "path": "notes.txt"})
+	read := c.Call(map[string]any{"type": "fs.read", "path": "notes.txt"})
 	if !ok(read) || read["content"] != starterFiles["notes.txt"] {
 		t.Fatalf("read = %v", read)
 	}
-	wrote := c.call(map[string]any{"type": "fs.write", "path": "notes.txt", "content": "changed\n", "base_version": read["version"]})
+	wrote := c.Call(map[string]any{"type": "fs.write", "path": "notes.txt", "content": "changed\n", "base_version": read["version"]})
 	if !ok(wrote) {
 		t.Fatalf("write = %v", wrote)
 	}
 	if got := readFile(t, filepath.Join(f.runner.Work(login.SessionID), "notes.txt")); got != "changed\n" {
 		t.Errorf("the file = %q", got)
 	}
-	if stale := c.call(map[string]any{"type": "fs.write", "path": "notes.txt", "content": "stale", "base_version": read["version"]}); code(stale) != "CONFLICT" {
+	if stale := c.Call(map[string]any{"type": "fs.write", "path": "notes.txt", "content": "stale", "base_version": read["version"]}); code(stale) != "CONFLICT" {
 		t.Errorf("a stale write = %v", stale)
 	}
 	for _, message := range []map[string]any{{"type": "fs.mkdir", "path": "dir"}, {"type": "fs.create", "path": "dir/new.c", "content": "int x;"}, {"type": "fs.rename", "path": "dir/new.c", "to": "dir/old.c"}} {
-		if reply := c.call(message); !ok(reply) {
+		if reply := c.Call(message); !ok(reply) {
 			t.Fatalf("%v = %v", message, reply)
 		}
 	}
-	if event := c.wait("an fs.event", func(m map[string]any) bool { return m["type"] == "fs.event" && m["path"] == "dir/old.c" }); event["kind"] != "rename" && event["kind"] != "create" {
+	if event := c.Wait("an fs.event", func(m map[string]any) bool { return m["type"] == "fs.event" && m["path"] == "dir/old.c" }); event["kind"] != "rename" && event["kind"] != "create" {
 		t.Errorf("event = %v", event)
 	}
-	if reply := c.call(map[string]any{"type": "fs.delete", "path": "dir"}); !ok(reply) {
+	if reply := c.Call(map[string]any{"type": "fs.delete", "path": "dir"}); !ok(reply) {
 		t.Fatal(reply)
 	}
 	// The Run and Check buttons run the exam's commands; the student has no say in what they are.
-	run := c.call(map[string]any{"type": "run.start", "which": "run", "cols": 80, "rows": 24})
+	run := c.Call(map[string]any{"type": "run.start", "which": "run", "cols": 80, "rows": 24})
 	if !ok(run) {
 		t.Fatalf("run.start = %v", run)
 	}
 	term := uint32(run["term"].(float64))
-	c.waitOutput(term, "running")
-	if exit := c.wait("pty.exit", func(m map[string]any) bool { return m["type"] == "pty.exit" && uint32(uint64OrZero(m["term"])) == term }); exit["exit_code"] != float64(0) {
+	c.WaitOutput(term, "running")
+	if exit := c.Wait("pty.exit", func(m map[string]any) bool {
+		return m["type"] == "pty.exit" && uint32(workspacetest.Num(m["term"])) == term
+	}); exit["exit_code"] != float64(0) {
 		t.Errorf("run exit = %v", exit)
 	}
-	check := c.call(map[string]any{"type": "run.start", "which": "check"})
+	check := c.Call(map[string]any{"type": "run.start", "which": "check"})
 	checkTerm := uint32(check["term"].(float64))
-	c.waitOutput(checkTerm, "checking")
-	if exit := c.wait("pty.exit", func(m map[string]any) bool {
-		return m["type"] == "pty.exit" && uint32(uint64OrZero(m["term"])) == checkTerm
+	c.WaitOutput(checkTerm, "checking")
+	if exit := c.Wait("pty.exit", func(m map[string]any) bool {
+		return m["type"] == "pty.exit" && uint32(workspacetest.Num(m["term"])) == checkTerm
 	}); exit["exit_code"] != float64(3) {
 		t.Errorf("check exit = %v", exit)
 	}
 	// A terminal of their own: keystrokes go in and the output comes back.
-	open := c.call(map[string]any{"type": "pty.open", "cols": 80, "rows": 24})
+	open := c.Call(map[string]any{"type": "pty.open", "cols": 80, "rows": 24})
 	if !ok(open) {
 		t.Fatalf("pty.open = %v", open)
 	}
 	shell := uint32(open["term"].(float64))
-	c.keys(shell, "echo typed-$((6*7))\n")
-	c.waitOutput(shell, "typed-42")
+	c.Keys(shell, "echo typed-$((6*7))\n")
+	c.WaitOutput(shell, "typed-42")
 	// Something the student cannot do is refused, and the connection goes on.
 	for name, test := range map[string]struct {
 		message map[string]any
@@ -268,23 +271,23 @@ func TestTheRelayWorksTheFilesAndRunsTheButtons(t *testing.T) {
 		"a run of something else":  {map[string]any{"type": "run.start", "which": "rm"}, "BAD_REQUEST"},
 		"a todo that is not there": {map[string]any{"type": "todo.set", "item": "t9", "done": true}, "NOT_FOUND"},
 	} {
-		if reply := c.call(test.message); ok(reply) || code(reply) != test.want {
+		if reply := c.Call(test.message); ok(reply) || code(reply) != test.want {
 			t.Errorf("%s: %v, want %s", name, reply, test.want)
 		}
 	}
-	c.sendRaw(`not json`)
-	if reply := c.wait("an error", c.ofType("ws.error")); code(reply) != "BAD_REQUEST" {
+	c.SendRaw(`not json`)
+	if reply := c.Wait("an error", c.OfType("ws.error")); code(reply) != "BAD_REQUEST" {
 		t.Errorf("garbage: %v", reply)
 	}
 	// Progress is self-reported and kept.
-	if reply := c.call(map[string]any{"type": "todo.set", "item": "t1", "done": true}); !ok(reply) {
+	if reply := c.Call(map[string]any{"type": "todo.set", "item": "t1", "done": true}); !ok(reply) {
 		t.Fatalf("todo.set = %v", reply)
 	}
 	if done, err := f.repo.Todo(context.Background(), login.SessionID); err != nil || !done["t1"] || done["t2"] {
 		t.Errorf("todo = %v, %v", done, err)
 	}
 	// Submit takes a snapshot and answers with its number.
-	submitted := c.call(map[string]any{"type": "submit"})
+	submitted := c.Call(map[string]any{"type": "submit"})
 	if !ok(submitted) || submitted["snapshot"] == nil {
 		t.Fatalf("submit = %v", submitted)
 	}
@@ -292,7 +295,7 @@ func TestTheRelayWorksTheFilesAndRunsTheButtons(t *testing.T) {
 	if len(snaps) != 1 || snaps[0].Reason != "submit" {
 		t.Errorf("snapshots = %+v", snaps)
 	}
-	if reply := c.call(map[string]any{"type": "agent.ping"}); !ok(reply) {
+	if reply := c.Call(map[string]any{"type": "agent.ping"}); !ok(reply) {
 		t.Errorf("the connection did not survive the refusals: %v", reply)
 	}
 }
@@ -301,15 +304,15 @@ func TestAnExamWithoutATerminalHasOnlyTheButtons(t *testing.T) {
 	f := newWorkspaceFixture(t, func(d *workspace.Document) { d.Workspace.Terminal = false })
 	login := f.loginReady(t, "0012")
 	c := f.dial(t, login.SessionToken)
-	if reply := c.call(map[string]any{"type": "pty.open", "cols": 80, "rows": 24}); code(reply) != "DENIED" {
+	if reply := c.Call(map[string]any{"type": "pty.open", "cols": 80, "rows": 24}); code(reply) != "DENIED" {
 		t.Errorf("a terminal: %v", reply)
 	}
-	run := c.call(map[string]any{"type": "run.start", "which": "run"})
+	run := c.Call(map[string]any{"type": "run.start", "which": "run"})
 	if !ok(run) {
 		t.Fatalf("run.start = %v", run)
 	}
-	c.waitOutput(uint32(run["term"].(float64)), "running")
-	if status := c.wait("ws.status", c.ofType("ws.status")); status["terminal"] != false {
+	c.WaitOutput(uint32(run["term"].(float64)), "running")
+	if status := c.Wait("ws.status", c.OfType("ws.status")); status["terminal"] != false {
 		t.Errorf("status = %v", status)
 	}
 }
@@ -318,7 +321,7 @@ func TestAnExamWithoutACheckCommand(t *testing.T) {
 	f := newWorkspaceFixture(t, func(d *workspace.Document) { d.Workspace.Check = "" })
 	login := f.loginReady(t, "0012")
 	c := f.dial(t, login.SessionToken)
-	if reply := c.call(map[string]any{"type": "run.start", "which": "check"}); code(reply) != "NOT_FOUND" {
+	if reply := c.Call(map[string]any{"type": "run.start", "which": "check"}); code(reply) != "NOT_FOUND" {
 		t.Errorf("check: %v", reply)
 	}
 	if view := decoded[workspace.StudentView](t, request(f.router, "GET", "/workspace", "", "Bearer "+login.SessionToken).Body.Bytes()); view.CanCheck || !view.CanRun {
@@ -330,31 +333,31 @@ func TestAReconnectingStudentFindsTheirTerminals(t *testing.T) {
 	f := newWorkspaceFixture(t, nil)
 	login := f.loginReady(t, "0012")
 	first := f.dial(t, login.SessionToken)
-	open := first.call(map[string]any{"type": "pty.open", "cols": 80, "rows": 24})
+	open := first.Call(map[string]any{"type": "pty.open", "cols": 80, "rows": 24})
 	if !ok(open) {
 		t.Fatalf("pty.open = %v", open)
 	}
 	shell := uint32(open["term"].(float64))
-	first.keys(shell, "echo before-the-drop\n")
-	first.waitOutput(shell, "before-the-drop")
+	first.Keys(shell, "echo before-the-drop\n")
+	first.WaitOutput(shell, "before-the-drop")
 	// A second connection of the same student takes over; the first is closed.
 	second := f.dial(t, login.SessionToken)
 	select {
-	case <-first.closed:
+	case <-first.Closed:
 	case <-time.After(10 * time.Second):
 		t.Fatal("the first connection was not closed")
 	}
-	list := second.call(map[string]any{"type": "pty.list"})
+	list := second.Call(map[string]any{"type": "pty.list"})
 	terms, _ := list["terminals"].([]any)
 	if !ok(list) || len(terms) != 1 {
 		t.Fatalf("list = %v", list)
 	}
-	if reply := second.call(map[string]any{"type": "pty.attach", "term": shell}); !ok(reply) {
+	if reply := second.Call(map[string]any{"type": "pty.attach", "term": shell}); !ok(reply) {
 		t.Fatal(reply)
 	}
-	second.waitOutput(shell, "before-the-drop")
-	second.keys(shell, "echo after-the-drop\n")
-	second.waitOutput(shell, "after-the-drop")
+	second.WaitOutput(shell, "before-the-drop")
+	second.Keys(shell, "echo after-the-drop\n")
+	second.WaitOutput(shell, "after-the-drop")
 	if f.runner.Starts(login.SessionID) != 1 {
 		t.Errorf("the container was started %d times", f.runner.Starts(login.SessionID))
 	}
@@ -393,31 +396,22 @@ func TestFloodsAreHeldBack(t *testing.T) {
 	login := f.loginReady(t, "0012")
 	c := f.dial(t, login.SessionToken)
 	for range 600 {
-		c.send(map[string]any{"type": "agent.ping"})
+		c.Send(map[string]any{"type": "agent.ping"})
 	}
-	eventually(t, "a RATE reply", func() bool {
-		c.mu.Lock()
-		defer c.mu.Unlock()
-		for _, m := range c.texts {
-			if m["code"] == "RATE" {
-				return true
-			}
-		}
-		return false
-	})
+	eventually(t, "a RATE reply", func() bool { return c.Has("RATE") })
 	// And the student can go on after a moment.
 	time.Sleep(1200 * time.Millisecond)
-	if reply := c.call(map[string]any{"type": "agent.ping"}); !ok(reply) {
+	if reply := c.Call(map[string]any{"type": "agent.ping"}); !ok(reply) {
 		t.Errorf("after the flood: %v", reply)
 	}
 	// Terminal output is throttled, not unbounded: a program that prints a lot is read at a bounded rate.
-	run := c.call(map[string]any{"type": "pty.open", "cols": 80, "rows": 24})
+	run := c.Call(map[string]any{"type": "pty.open", "cols": 80, "rows": 24})
 	shell := uint32(run["term"].(float64))
-	c.keys(shell, "yes | head -c 6000000\n")
+	c.Keys(shell, "yes | head -c 6000000\n")
 	started := time.Now()
-	eventually(t, "output", func() bool { return len(c.outputOf(shell)) > 100000 })
+	eventually(t, "output", func() bool { return len(c.OutputOf(shell)) > 100000 })
 	time.Sleep(2 * time.Second)
-	if got := len(c.outputOf(shell)); got > int(outputBudget(time.Since(started))) {
+	if got := len(c.OutputOf(shell)); got > int(outputBudget(time.Since(started))) {
 		t.Errorf("%d bytes of output in %v is faster than the limit", got, time.Since(started))
 	}
 }
@@ -476,7 +470,7 @@ func TestSnapshotsAreTakenAtTheMomentsOfD8(t *testing.T) {
 	}
 	// The other moments: a submission, a lost agent and the deadline each leave a row with their reason, changed or not.
 	c := f.dial(t, login.SessionToken)
-	c.call(map[string]any{"type": "submit"})
+	c.Call(map[string]any{"type": "submit"})
 	f.runner.Kill(login.SessionID)
 	f.superviseAt(start.Add(130 * time.Second))
 	f.superviseAt(start.Add(time.Hour + 3*time.Minute))
@@ -675,7 +669,7 @@ func TestALostAgentIsSnapshottedAndTheContainerRestartedOnTheSameVolume(t *testi
 	f := newWorkspaceFixture(t, nil)
 	login := f.loginReady(t, "0012")
 	c := f.dial(t, login.SessionToken)
-	c.wait("ws.status", c.ofType("ws.status"))
+	c.Wait("ws.status", c.OfType("ws.status"))
 	writeWork(t, f, login.SessionID, "work-in-progress.c", "int not_lost;\n")
 	f.runner.Kill(login.SessionID)
 	if f.runner.State(login.SessionID) != "exited" {
@@ -693,9 +687,9 @@ func TestALostAgentIsSnapshottedAndTheContainerRestartedOnTheSameVolume(t *testi
 		t.Errorf("session = %+v", info)
 	}
 	// The files are still there, and the student's connection is told and carries on.
-	c.wait("ws.agent_restarted", c.ofType("ws.agent_restarted"))
+	c.Wait("ws.agent_restarted", c.OfType("ws.agent_restarted"))
 	eventually(t, "the relay to reach the new agent", func() bool {
-		reply := c.call(map[string]any{"type": "fs.read", "path": "work-in-progress.c"})
+		reply := c.Call(map[string]any{"type": "fs.read", "path": "work-in-progress.c"})
 		return ok(reply) && reply["content"] == "int not_lost;\n"
 	})
 	// An agent that is there but silent is treated the same, after a few rounds.
@@ -712,7 +706,7 @@ func TestTheDeadlineFreezesTheContainerAndRetentionRemovesIt(t *testing.T) {
 	f := newWorkspaceFixture(t, nil)
 	login := f.loginReady(t, "0012")
 	c := f.dial(t, login.SessionToken)
-	c.wait("ws.status", c.ofType("ws.status"))
+	c.Wait("ws.status", c.OfType("ws.status"))
 	start := f.clock.Now()
 	writeWork(t, f, login.SessionID, "last-minute.txt", "in time")
 	// Inside the grace period nothing is frozen.
@@ -734,7 +728,7 @@ func TestTheDeadlineFreezesTheContainerAndRetentionRemovesIt(t *testing.T) {
 		t.Errorf("the final snapshot lacks the last file: %v", err)
 	}
 	select {
-	case <-c.closed:
+	case <-c.Closed:
 	case <-time.After(10 * time.Second):
 		t.Error("the student's connection was not closed at the deadline")
 	}
