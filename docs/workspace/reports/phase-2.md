@@ -1,7 +1,7 @@
 # Phase 2 report: course image and agent
 
 **Date:** 2026-11-13. **Branch:** `feat/workspace-phase-2-image-agent` (from `feat/workspace-phase-1-package-format`, which is pushed). **Plan:** `.agents/WORKSPACE-PLAN.md` v1.1.
-**Status:** done; all five acceptance items are met. Decisions `P2-1` to `P2-15` are recorded and wait for the owner. **Not pushed.**
+**Status:** done; all five acceptance items are met. The owner confirmed decisions `P2-1` to `P2-15` as written (P2-16). The branch is pushed.
 
 ## What changed
 
