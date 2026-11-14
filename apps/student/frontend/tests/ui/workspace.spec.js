@@ -654,3 +654,66 @@ test('the toolbar\'s A+ and the editor\'s A+ add up: the editor is the larger of
   await page.getByRole('button', { name: 'Larger code text' }).click();
   expect(await code()).toBeGreaterThan(withToolbar);
 });
+
+// ---- the editor holds still ----
+// The editor was drawn again from the start (and its scroll lost) at every snapshot of the model: the first keystroke of a file, every
+// autosave, a tick, a terminal opening. These tests mark the lines the editor has drawn and see that they are the same ones afterwards.
+const bigFile = Array.from({ length: 300 }, (_, i) => `line ${i} of the big file`).join('\n') + '\n';
+async function inTheMiddleOfABigFile(page) {
+  await start(page, { files: { ...project, 'big.txt': bigFile } }, { width: 1366, height: 768 });
+  const editor = await openFile(page, 'big.txt');
+  await editor.click();
+  await page.keyboard.press('Control+Home');
+  for (let i = 0; i < 120; i += 1) await page.keyboard.press('ArrowDown');
+  await expect(page.getByRole('group', { name: 'Workspace status' })).toContainText('Nothing to save');
+  await page.evaluate(() => document.querySelectorAll('.cm-line').forEach(line => { line.__drawn = true; }));
+  return editor;
+}
+const held = page => page.evaluate(() => {
+  const lines = [...document.querySelectorAll('.cm-line')];
+  return { scroll: Math.round(document.querySelector('.cm-scroller').scrollTop), lines: lines.length, same: lines.filter(line => line.__drawn).length,
+    focused: document.activeElement?.classList.contains('cm-content') ?? false };
+});
+
+test('an autosave does not draw the editor again, move its scroll, or move what is around it', async ({ page }) => {
+  const editor = await inTheMiddleOfABigFile(page);
+  const status = page.getByRole('group', { name: 'Workspace status' });
+  const place = () => page.evaluate(() => ({ time: Math.round(document.querySelector('header.toolbar [aria-label="Remaining time"]').getBoundingClientRect().left), tab: Math.round(document.querySelector('.tab.front').getBoundingClientRect().width), save: Math.round(document.querySelector('header.toolbar .save').getBoundingClientRect().width) }));
+  const before = { ...(await held(page)), ...(await place()) };
+  expect(before.scroll).toBeGreaterThan(1000);
+
+  await page.keyboard.type('x');
+  await expect(status).toContainText('Unsaved changes');
+  const typing = { ...(await held(page)), ...(await place()) };
+  await expect(status).toContainText(/Saved \d/);
+  const saved = { ...(await held(page)), ...(await place()) };
+
+  // Only the line that was typed in may be a new element; the scroll and the focus are where they were.
+  for (const now of [typing, saved]) {
+    expect(now.scroll).toBe(before.scroll);
+    expect(now.lines).toBe(before.lines);
+    expect(now.same).toBeGreaterThanOrEqual(before.lines - 1);
+    expect(now.focused).toBe(true);
+    // The time, the tab and the save text keep their size and place from a clean file to an unsaved one to a saved one.
+    expect(now.time).toBe(before.time);
+    expect(now.tab).toBe(before.tab);
+    expect(now.save).toBe(before.save);
+  }
+  expect(await editor.innerText()).toContain('x');
+  expect(await server(page, 'server.requests.filter(r => r.type === "fs.write").length')).toBe(1);
+});
+
+test('nor do the other changes the page shows: a TODO tick, a terminal opening, a file made elsewhere', async ({ page }) => {
+  await inTheMiddleOfABigFile(page);
+  const before = await held(page);
+  await page.getByRole('checkbox', { name: /Implement push_front/ }).check();
+  await page.getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'Run output' })).toContainText('list: 3 2 1');
+  await page.evaluate(() => window.__studentHarness.workspaceServer.externalWrite('made_elsewhere.txt', 'hello\n'));
+  await expect(page.getByRole('treeitem', { name: 'made_elsewhere.txt' })).toBeVisible();
+  const after = await held(page);
+  // The panel took part of the editor's height, so lines at its foot may have gone; the lines still there are the ones that were.
+  expect(after.scroll).toBe(before.scroll);
+  expect(after.same).toBeGreaterThan(before.lines / 2);
+  expect(after.same).toBe(after.lines);
+});

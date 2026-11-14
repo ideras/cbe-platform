@@ -96,7 +96,11 @@
     view.dispatch({ effects: access.reconfigure(accessConfig(readOnly)) });
     shownId = tab.id;
   }
-  $effect(() => { active?.id; active?.state; if (view) untrack(show); });
+  // What decides it are the tab's id and state, read through values of their own: `active` is a new object at every snapshot of the model
+  // (a save, a tick, a terminal's output), and an effect that read it would redraw the whole editor and lose its scroll each time.
+  const activeId = $derived(active?.id ?? null);
+  const activeState = $derived(active?.state ?? null);
+  $effect(() => { activeId; activeState; if (view) untrack(show); });
 
   // What the model keeps are the tabs that exist: the state of one that was closed goes with it.
   $effect(() => {
@@ -135,7 +139,7 @@
       {#each tabs as tab, index (tab.id)}
         <button type="button" role="tab" class="tab" class:front={tab.path === activePath} id="file-tab-{tab.id}" aria-selected={tab.path === activePath} aria-controls="editor-panel"
           tabindex={tab.path === activePath ? 0 : -1} title={tab.path} onclick={() => model.activate(tab.path)} onkeydown={event => tabKeys(event, index)}>
-          {label(tab)}{#if tab.dirty}<span class="dot" role="img" aria-label="unsaved changes">●</span>{/if}
+          {label(tab)}<span class="mark">{#if tab.dirty}<span class="dot" role="img" aria-label="unsaved changes">●</span>{/if}</span>
           <!-- The mouse's way to close a tab; the keyboard's are Delete and Ctrl+W on the tab, and the button next to the tabs. -->
           <span class="close" aria-hidden="true" onclick={event => { event.stopPropagation(); onClose(tab.path); }}><Icon name="close" size={14} /></span>
         </button>
@@ -182,6 +186,8 @@
   .close:hover { color: var(--alert-text); background: var(--hover-fill); }
   .close-active { flex: none; margin: 0; border: 0; border-radius: 0; background: var(--transparent); box-shadow: none; color: var(--text-main); }
   .dot { color: var(--warn-text); font-size: .7em; }
+  /* The place of the dot is kept when there is none, so the tab does not widen and move the ones after it at every edit and every save. */
+  .mark { display: inline-block; width: .8em; text-align: center; }
   .none { padding: .5rem .75rem; color: var(--text-muted); font-size: var(--text-sm); }
   .panel { position: relative; display: flex; flex-direction: column; min-height: 0; }
   .host { flex: 1 1 0; min-height: 0; overflow: hidden; }
