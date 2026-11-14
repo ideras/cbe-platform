@@ -54,6 +54,7 @@ export class WorkspaceModel {
     this.retries = new Map(); // what is asked again while the workspace is starting: key -> { count, timer }
     this.closed = false;
     this.revision = 0;
+    this.viewKey = '';
   }
 
   // ----- what the page reads -----------------------------------------------------------------------------------------------------
@@ -80,6 +81,9 @@ export class WorkspaceModel {
   // The page tells the model what the application's view says, on every snapshot of it. When a connection is made, the workspace is
   // read again: what a student sees is always what the container holds, whoever changed it while they were away.
   setView(view) {
+    const key = [view.connection, view.note, view.terminal, view.can_run, view.can_check, view.generation].join('|');
+    if (key === this.viewKey) return; // the application sends its view every half second; most of the time nothing in it is new
+    this.viewKey = key;
     this.terminalAllowed = view.terminal !== false;
     this.canRun = !!view.can_run;
     this.canCheck = !!view.can_check;

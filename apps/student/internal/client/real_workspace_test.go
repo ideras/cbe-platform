@@ -63,6 +63,13 @@ type page struct {
 	mu     sync.Mutex
 	output map[uint32]*strings.Builder
 	exits  map[uint32]float64
+	// events are the file events the server told the page of, with the time each arrived.
+	events []fileEvent
+}
+
+type fileEvent struct {
+	kind, path string
+	at         time.Time
 }
 
 func (p *page) options() WorkspaceOptions {
@@ -80,11 +87,19 @@ func (p *page) options() WorkspaceOptions {
 				Type     string  `json:"type"`
 				Term     uint32  `json:"term"`
 				ExitCode float64 `json:"exit_code"`
+				Kind     string  `json:"kind"`
+				Path     string  `json:"path"`
 			}
-			if json.Unmarshal([]byte(message), &m) == nil && m.Type == "pty.exit" {
-				p.mu.Lock()
+			if json.Unmarshal([]byte(message), &m) != nil {
+				return
+			}
+			p.mu.Lock()
+			defer p.mu.Unlock()
+			switch m.Type {
+			case "pty.exit":
 				p.exits[m.Term] = m.ExitCode
-				p.mu.Unlock()
+			case "fs.event":
+				p.events = append(p.events, fileEvent{m.Kind, m.Path, time.Now()})
 			}
 		},
 		CallTimeout: 60 * time.Second,
@@ -168,6 +183,37 @@ func TestRealWorkspaceFinishTheExamplePackage(t *testing.T) {
 	}
 	if strings.Join(names, ",") != "Makefile,include,src,tests" {
 		t.Fatalf("the project folder holds %v", names)
+	}
+	// A file made in a terminal reaches the page's tree within a second (plan, Phase 4 acceptance).
+	shell := call("pty.open", map[string]any{"cols": 100, "rows": 30})
+	if !okay(shell) {
+		t.Fatalf("pty.open = %v", shell)
+	}
+	term := int(shell["term"].(float64))
+	time.Sleep(300 * time.Millisecond) // the prompt
+	typed := time.Now()
+	if err := s.WorkspaceInput(term, "touch made_in_the_terminal.txt\n"); err != nil {
+		t.Fatal(err)
+	}
+	var seen time.Time
+	waitFor(t, "the file event of the terminal's touch", func() bool {
+		student.mu.Lock()
+		defer student.mu.Unlock()
+		for _, e := range student.events {
+			if e.path == "made_in_the_terminal.txt" && (e.kind == "create" || e.kind == "modify") {
+				seen = e.at
+				return true
+			}
+		}
+		return false
+	})
+	if delay := seen.Sub(typed); delay > time.Second {
+		t.Errorf("the file made in the terminal took %v to be told", delay)
+	} else {
+		t.Logf("a file made in the terminal was told to the page after %v", delay.Round(time.Millisecond))
+	}
+	if closed := call("pty.close", map[string]any{"term": term}); !okay(closed) {
+		t.Errorf("pty.close = %v", closed)
 	}
 	// The checks fail: the two functions are not written.
 	if code, out := program("check"); code == 0 || !strings.Contains(out, "FAILED") {
