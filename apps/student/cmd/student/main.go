@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -122,6 +123,11 @@ func main() {
 	}
 	defaults.Monitoring.OnAlert = func(incident client.Incident) { nativeApp.Event.Emit("exam:unfocus-alert", incident) }
 	defaults.Monitoring.OnIncident = func(incident client.Incident) { nativeApp.Event.Emit("exam:unfocus-hook", incident) }
+	// A workspace exam's terminal output and the server's messages reach the page as events; the page never has a connection of its own.
+	defaults.Workspace.OnOutput = func(term uint32, data []byte) {
+		nativeApp.Event.Emit("workspace:output", map[string]any{"term": term, "data": base64.StdEncoding.EncodeToString(data)})
+	}
+	defaults.Workspace.OnMessage = func(message string) { nativeApp.Event.Emit("workspace:message", message) }
 	examClient, err := client.New(defaults)
 	if err != nil {
 		logger.Error("student configuration invalid", "error", err)

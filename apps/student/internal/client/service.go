@@ -24,6 +24,8 @@ type Options struct {
 	Sound                                                        SoundOptions
 	Debounce, Periodic, Poll, RequestTimeout, RetryMin, RetryMax time.Duration
 	HTTPClient                                                   *http.Client
+	// Workspace is how a workspace exam's page is told what its container does (terminal output and messages).
+	Workspace WorkspaceOptions
 	// Version is the application's release, stamped into the binary by the build ("v0.15.0"); "dev" when it was not.
 	Version string
 }
@@ -41,19 +43,21 @@ func DefaultOptions() Options {
 }
 
 type View struct {
-	StatusAgeMillis      int64             `json:"status_age_millis"`
-	StatusObservation    uint64            `json:"status_observation"`
-	TimeNotices          []TimeNotice      `json:"time_notices,omitempty"`
-	RulesAccepted        bool              `json:"rules_accepted"`
-	Monitoring           MonitoringView    `json:"monitoring"`
-	Capture              CaptureView       `json:"capture"`
-	Sound                SoundReport       `json:"sound"`
-	SoundNotice          *SoundNotice      `json:"sound_notice,omitempty"`
-	Observation          uint64            `json:"observation"`
-	Phase                string            `json:"phase"`
-	Server               string            `json:"server"`
-	Account              string            `json:"account"`
-	Exam                 *Exam             `json:"exam,omitempty"`
+	StatusAgeMillis   int64          `json:"status_age_millis"`
+	StatusObservation uint64         `json:"status_observation"`
+	TimeNotices       []TimeNotice   `json:"time_notices,omitempty"`
+	RulesAccepted     bool           `json:"rules_accepted"`
+	Monitoring        MonitoringView `json:"monitoring"`
+	Capture           CaptureView    `json:"capture"`
+	Sound             SoundReport    `json:"sound"`
+	SoundNotice       *SoundNotice   `json:"sound_notice,omitempty"`
+	Observation       uint64         `json:"observation"`
+	Phase             string         `json:"phase"`
+	Server            string         `json:"server"`
+	Account           string         `json:"account"`
+	Exam              *Exam          `json:"exam,omitempty"`
+	// Workspace is the student's workspace when the exam is a workspace exam, in place of its exercises.
+	Workspace            *WorkspaceView    `json:"workspace,omitempty"`
 	Answers              map[string]string `json:"answers,omitempty"`
 	Revision             int64             `json:"revision"`
 	AcknowledgedRevision int64             `json:"acknowledged_revision"`
@@ -126,6 +130,8 @@ type Service struct {
 	monitor                        *monitor
 	capture                        *captureManager
 	sound                          *soundManager
+	// workspace is the connection to the student's workspace, when the exam is a workspace exam; it does nothing otherwise.
+	workspace *workspaceLink
 	// calcAns is the scientific panel's last result, a number, a vector or a matrix, in memory only (D10); the
 	// panel serves scientific and neural mode (Phase 7). It is cleared when the exam ends.
 	calcAns calc.Quantity
@@ -215,6 +221,7 @@ func New(options Options) (*Service, error) {
 	}
 	s.monitor = newMonitor(s.ctx, s.http, monitoring, options.RetryMin, options.RetryMax, s.pollNow)
 	s.tools = newToolQueue(s.ctx, s.http, options.RetryMin, options.RetryMax)
+	s.workspace = newWorkspaceLink(s.ctx, s.http, options.Workspace, options.RetryMin, options.RetryMax)
 	s.wg.Add(4)
 	go s.writeLoop()
 	go s.pollLoop()
@@ -230,6 +237,7 @@ func (s *Service) ServiceShutdown() error {
 	_ = s.sound.restore()
 	s.monitor.close()
 	s.capture.close()
+	s.workspace.close()
 	s.cancel()
 	s.wg.Wait()
 	s.http.CloseIdleConnections()
@@ -243,6 +251,7 @@ func signal(ch chan struct{}) {
 }
 func (s *Service) viewLocked(loaded bool) View {
 	s.observation++
+	s.syncWorkspace()
 	v := View{Capture: s.capture.view(), Sound: s.sound.report(), SoundNotice: s.sound.latestNotice(), RulesAccepted: s.rulesAccepted, Monitoring: s.monitor.view(), Observation: s.observation, Phase: s.phase, Server: s.server, Account: s.account, Revision: s.revision, AcknowledgedRevision: s.acknowledged, TimingStale: s.stale, SaveError: s.saveError, StatusError: s.statusError, SubmitError: s.submitError, Submitting: s.pendingSubmit != nil, Exercise: s.exercise, Advancing: s.pendingAdvance != nil, AdvanceError: s.advanceError, SaveState: "not_saved", UnlockNote: s.unlockNote, AddedSeconds: s.addedSeconds}
 	if s.saved != nil {
 		copy := *s.saved
@@ -287,6 +296,7 @@ func (s *Service) viewLocked(loaded bool) View {
 		// The note of an earlier unlock is over once the exam is locked again.
 		v.UnlockNote, v.AddedSeconds = "", 0
 	}
+	v.Workspace = s.workspace.view()
 	if loaded && s.exam != nil {
 		// The exam never changes once loaded, so the copy may share its content.
 		copy := *s.exam
@@ -416,6 +426,12 @@ func (s *Service) load(ctx context.Context) (View, error) {
 	if statusErr == nil {
 		statusErr = validateStatus(status)
 	}
+	// An exam with no exercises is a workspace exam, or a mistake: the server says which.
+	var work *workspaceReply
+	var workErr error
+	if examErr == nil && statusErr == nil && len(reply.Content.Exercises) == 0 {
+		work, workErr = s.fetchWorkspace(ctx, base, token)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if statusErr != nil {
@@ -451,6 +467,26 @@ func (s *Service) load(ctx context.Context) (View, error) {
 		return s.viewLocked(true), examErr
 	}
 	exercises := len(reply.Content.Exercises)
+	if workErr != nil {
+		return s.viewLocked(true), workErr
+	}
+	if work != nil && reply.ID != "" && exercises == 0 {
+		s.exam = &reply.Exam
+		s.answers = map[string]string{}
+		s.saved = nil
+		s.phase = "exam"
+		s.lastAttempt = time.Now()
+		s.workspace.configure(base, token, work)
+		if finalStatus(status.State) {
+			s.phase = "complete"
+			s.calcAns, s.calcAnsProgrammer = calc.Quantity{}, calc.Value{}
+		}
+		if s.locked != nil {
+			s.phase = "locked"
+		}
+		signal(s.pollNow)
+		return s.viewLocked(true), nil
+	}
 	if reply.ID == "" || exercises == 0 || reply.Answers == nil || reply.Navigation != "free" && reply.Navigation != "forward_only" || reply.CurrentExercise < 0 || reply.CurrentExercise >= exercises {
 		return s.viewLocked(true), errors.New("Exam response is invalid. Retry loading the session.")
 	}
@@ -803,6 +839,7 @@ func (s *Service) pollOnce() {
 	s.monitor.setNetworkLocksLeft(status.NetworkLocksLeft)
 	s.stale = false
 	s.statusError = ""
+	defer s.syncWorkspace()
 	// The server only ever moves a student forward, so a status read before an advance was confirmed cannot move them back.
 	if s.exam != nil && s.exam.forwardOnly() && status.CurrentExercise < len(s.exam.Content.Exercises) {
 		s.exercise = max(s.exercise, status.CurrentExercise)

@@ -40,6 +40,24 @@
   --syntax-variable: var(--warn-text);
   --syntax-label: color-mix(in srgb, var(--success-badge) 90%, var(--text-main));
   --syntax-type: var(--action-hover);
+  /* The terminal of a workspace exam. xterm.js draws with real colors, so the page reads these tokens and hands it the values. The eight
+     ANSI colors are the palette's own text colors, which read on the paper panel; the bright ones are the same, a little deeper. */
+  --terminal-black: var(--text-main);
+  --terminal-red: var(--alert-text);
+  --terminal-green: var(--ok-text);
+  --terminal-yellow: var(--warn-text);
+  --terminal-blue: var(--action-hover);
+  --terminal-magenta: color-mix(in srgb, var(--alert-text) 50%, var(--action-hover));
+  --terminal-cyan: var(--success-badge);
+  --terminal-white: var(--text-muted);
+  --terminal-bright-black: color-mix(in srgb, var(--terminal-black) 80%, var(--text-muted));
+  --terminal-bright-red: color-mix(in srgb, var(--terminal-red) 80%, var(--text-main));
+  --terminal-bright-green: color-mix(in srgb, var(--terminal-green) 80%, var(--text-main));
+  --terminal-bright-yellow: color-mix(in srgb, var(--terminal-yellow) 80%, var(--text-main));
+  --terminal-bright-blue: color-mix(in srgb, var(--terminal-blue) 80%, var(--text-main));
+  --terminal-bright-magenta: color-mix(in srgb, var(--terminal-magenta) 80%, var(--text-main));
+  --terminal-bright-cyan: color-mix(in srgb, var(--terminal-cyan) 80%, var(--text-main));
+  --terminal-bright-white: color-mix(in srgb, var(--terminal-white) 80%, var(--text-main));
 
   /* Proctor sidebar */
   --side-bg: linear-gradient(180deg, #0a2342 0%, #061a3a 55%, #03045e 100%);
