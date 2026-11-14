@@ -19,6 +19,8 @@ import (
 const (
 	maxJSONBody = 4 << 10
 	maxSeedBody = MaxSeedBytes + MaxSeedFiles*1024 + 1<<20
+	// maxGradeBody is a grading request: the submission, the bundle and the framing.
+	maxGradeBody = MaxSubmissionBytes + MaxSeedFiles*1024 + maxSeedBody + 1<<20
 )
 
 // UpgradeProtocol is what agent.connect upgrades the connection to: from then on it is the agent's own socket.
@@ -36,7 +38,8 @@ const UpgradeProtocol = "cbe-agent/1"
 //	GET  /v1/containers/{session}/archive?path=    container.archive  a tar stream of /work/. or a path under /work
 //	GET  /v1/containers/{session}/agent            agent.connect      upgrades to a raw connection to the agent
 //	GET  /v1/images?name=                          image.inspect
-//	POST /v1/grading, POST /v1/images/build        grading.run and image.build: Phases 6 and 7, answered 501 until then
+//	POST /v1/grading                               grading.run        multipart: request (JSON), submission (a tar), grading (a tar); answers the run's result
+//	POST /v1/images/build                          image.build: Phase 7, answered 501 until then
 //
 // Every request carries the shared secret as a bearer token. Anything else is 404 or 405; bodies are strict JSON, and a field that
 // is not in the request is refused, so there is no way to ask for a mount, a capability or a network.
@@ -176,9 +179,63 @@ func Handler(svc *Service, secret string, logger *slog.Logger) http.Handler {
 			write(w, http.StatusNotImplemented, map[string]string{"error": operation + " is built in " + phase + "; this runner does not have it yet"})
 		}
 	}
-	mux.HandleFunc("POST /v1/grading", notYet("grading.run", "Phase 6"))
+	mux.HandleFunc("POST /v1/grading", func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, maxGradeBody)
+		reader, err := r.MultipartReader()
+		if err != nil {
+			fail(w, "grading.run", badRequest("grading.run takes multipart/form-data with the parts request, submission and grading"))
+			return
+		}
+		// The request comes first, so that it is checked before the two archives are read.
+		first, err := reader.NextPart()
+		if err != nil || first.FormName() != "request" {
+			fail(w, "grading.run", badRequest("the first part of grading.run is request"))
+			return
+		}
+		var req GradeRequest
+		decoder := json.NewDecoder(io.LimitReader(first, maxJSONBody))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&req); err != nil || decoder.More() {
+			fail(w, "grading.run", badRequest("the request is not the JSON grading.run takes (grading, exam, image, timeout_seconds, resources)"))
+			return
+		}
+		// The two archives are read in turn, each when the service asks for it, and in the order the plan names them.
+		next := func(name string) func() (io.Reader, error) {
+			return func() (io.Reader, error) {
+				part, err := reader.NextPart()
+				if err != nil || part.FormName() != name {
+					return nil, badRequest("the next part of grading.run is %s", name)
+				}
+				return part, nil
+			}
+		}
+		result, err := svc.Grade(r.Context(), req, &lazyPart{open: next("submission")}, &lazyPart{open: next("grading")})
+		if err != nil {
+			fail(w, "grading.run", err)
+			return
+		}
+		write(w, http.StatusOK, result)
+	})
 	mux.HandleFunc("POST /v1/images/build", notYet("image.build", "Phase 7"))
 	return authenticate(secret, mux, logger)
+}
+
+// lazyPart reads a part of a multipart request when it is first read, so that the parts are taken in order and none is read before it is
+// wanted.
+type lazyPart struct {
+	open func() (io.Reader, error)
+	r    io.Reader
+	err  error
+}
+
+func (l *lazyPart) Read(p []byte) (int, error) {
+	if l.r == nil && l.err == nil {
+		l.r, l.err = l.open()
+	}
+	if l.err != nil {
+		return 0, l.err
+	}
+	return l.r.Read(p)
 }
 
 // authenticate lets through only requests that carry the shared secret. The comparison takes the same time whatever the secret

@@ -58,21 +58,15 @@ func (c Config) Check(req CreateRequest) (Resources, string, error) {
 	return r, reference, nil
 }
 
-// BuildSpec is the only place a container's options are decided. The request supplies an exam, a session, an approved image and
-// limits within the maximums; everything else is here and does not depend on the request: no network, a read-only root file system,
-// a small tmpfs at /tmp without exec, no capabilities, no new privileges, the student user, a limit on processes, no swap, and
-// exactly two mounts, the student's /work and the agent's socket folder. The runtime's default seccomp profile is left on.
-func BuildSpec(c Config, req CreateRequest, resources Resources, reference string) ContainerSpec {
+// hardened is the part of a container's options that every container has, whatever it is for: the student user, a limit on processes, no
+// network, a read-only root file system, a small tmpfs at /tmp without exec, no capabilities, no new privileges, no swap, and the
+// limits of memory and processor. The runtime's default seccomp profile is left on. A student's container and a grading container are
+// both made from it, so that a grading run cannot be given what a student's cannot.
+func hardened(c Config, resources Resources, reference string) ContainerSpec {
 	return ContainerSpec{
-		Name:    ContainerName(req.Exam, req.Session),
-		Image:   reference,
-		User:    fmt.Sprintf("%d:%d", StudentUID, StudentGID),
-		WorkDir: WorkPath,
-		Labels:  map[string]string{LabelManaged: "1", LabelSession: req.Session, LabelExam: req.Exam, LabelImage: req.Image},
-		Binds: []Bind{
-			{Source: filepath.Join(c.WorkRoot, req.Session), Target: WorkPath},
-			{Source: filepath.Join(c.RunRoot, req.Session), Target: SocketPath},
-		},
+		Image:          reference,
+		User:           fmt.Sprintf("%d:%d", StudentUID, StudentGID),
+		WorkDir:        WorkPath,
 		Tmpfs:          map[string]string{"/tmp": fmt.Sprintf("rw,noexec,nosuid,nodev,size=%dm,mode=1777", c.TmpMB)},
 		NetworkMode:    "none",
 		ReadonlyRootfs: true,
@@ -84,4 +78,18 @@ func BuildSpec(c Config, req CreateRequest, resources Resources, reference strin
 		NanoCPUs:       int64(resources.CPU * 1e9),
 		StopTimeout:    c.StopTimeout(),
 	}
+}
+
+// BuildSpec is the only place a student's container's options are decided. The request supplies an exam, a session, an approved image
+// and limits within the maximums; everything else is in hardened and here and does not depend on the request: exactly two mounts, the
+// student's /work and the agent's socket folder.
+func BuildSpec(c Config, req CreateRequest, resources Resources, reference string) ContainerSpec {
+	spec := hardened(c, resources, reference)
+	spec.Name = ContainerName(req.Exam, req.Session)
+	spec.Labels = map[string]string{LabelManaged: "1", LabelSession: req.Session, LabelExam: req.Exam, LabelImage: req.Image}
+	spec.Binds = []Bind{
+		{Source: filepath.Join(c.WorkRoot, req.Session), Target: WorkPath},
+		{Source: filepath.Join(c.RunRoot, req.Session), Target: SocketPath},
+	}
+	return spec
 }

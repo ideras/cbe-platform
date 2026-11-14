@@ -38,6 +38,13 @@ type Config struct {
 	TmpMB  int `json:"tmp_mb"`
 	// StopSeconds is how long a stop waits for the agent to end before it kills it.
 	StopSeconds int `json:"stop_seconds"`
+	// GradeRoot is where the runner puts a grading bundle for the time of a run (private to the runner, like RunRoot). GradeParallel is
+	// how many gradings run at once, GradeMaxSeconds the longest a run an exam asks for may last, and GradeOutputBytes the most of each of
+	// a run's two output streams that is kept (Phase 6).
+	GradeRoot        string `json:"grade_root"`
+	GradeParallel    int    `json:"grade_parallel"`
+	GradeMaxSeconds  int    `json:"grade_max_seconds"`
+	GradeOutputBytes int    `json:"grade_output_bytes"`
 }
 
 // DefaultConfig is the configuration of the plan: the limits of its Appendix A, and the maximums of the Phase 0 sizing.
@@ -50,6 +57,7 @@ func DefaultConfig() Config {
 		Max:     Resources{CPU: 2, MemoryMB: 2048, DiskMB: 500},
 		Default: Resources{CPU: 1, MemoryMB: 1024, DiskMB: 100},
 		Pids:    256, Inodes: 20000, TmpMB: 64, StopSeconds: 5,
+		GradeRoot: "/data/cbe-platform/grading", GradeParallel: 2, GradeMaxSeconds: 1800, GradeOutputBytes: 256 << 10,
 	}
 }
 
@@ -99,13 +107,17 @@ func LoadConfig(path string) (Config, error) {
 	set("inodes", func() { merged.Inodes = overlay.Inodes })
 	set("tmp_mb", func() { merged.TmpMB = overlay.TmpMB })
 	set("stop_seconds", func() { merged.StopSeconds = overlay.StopSeconds })
+	set("grade_root", func() { merged.GradeRoot = overlay.GradeRoot })
+	set("grade_parallel", func() { merged.GradeParallel = overlay.GradeParallel })
+	set("grade_max_seconds", func() { merged.GradeMaxSeconds = overlay.GradeMaxSeconds })
+	set("grade_output_bytes", func() { merged.GradeOutputBytes = overlay.GradeOutputBytes })
 	return merged, merged.Validate()
 }
 
 // Validate checks that the configuration can be used.
 func (c Config) Validate() error {
 	for name, value := range map[string]string{"socket": c.Socket, "secret_file": c.SecretFile, "runtime_socket": c.RuntimeSocket, "quota_socket": c.QuotaSocket,
-		"work_root": c.WorkRoot, "run_root": c.RunRoot, "state_root": c.StateRoot} {
+		"work_root": c.WorkRoot, "run_root": c.RunRoot, "state_root": c.StateRoot, "grade_root": c.GradeRoot} {
 		if strings.TrimSpace(value) == "" {
 			return fmt.Errorf("runner config: %s is required", name)
 		}
@@ -128,6 +140,9 @@ func (c Config) Validate() error {
 	}
 	if c.Pids < 16 || c.Inodes < 100 || c.TmpMB < 1 || c.StopSeconds < 1 {
 		return errors.New("runner config: pids, inodes, tmp_mb and stop_seconds are too small")
+	}
+	if c.GradeParallel < 1 || c.GradeParallel > 32 || c.GradeMaxSeconds < 10 || c.GradeOutputBytes < 1<<10 || c.GradeOutputBytes > 4<<20 {
+		return errors.New("runner config: grade_parallel is 1 to 32, grade_max_seconds at least 10 and grade_output_bytes 1 KiB to 4 MiB")
 	}
 	return nil
 }

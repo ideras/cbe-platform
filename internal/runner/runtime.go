@@ -6,10 +6,11 @@ import (
 	"time"
 )
 
-// Bind mounts a host folder into the container.
+// Bind mounts a host folder into the container; ReadOnly makes the mount read-only (the grading bundle is).
 type Bind struct {
-	Source string
-	Target string
+	Source   string
+	Target   string
+	ReadOnly bool
 }
 
 // ContainerSpec is everything the runtime is told about a container. It is built in one place (BuildSpec), from a validated request
@@ -22,6 +23,11 @@ type ContainerSpec struct {
 	WorkDir string
 	Labels  map[string]string
 	Binds   []Bind
+	// Entrypoint, Cmd and Env are set only for a grading container, which runs /grading/grade instead of the image's agent; a student's
+	// container keeps the image's own entrypoint.
+	Entrypoint []string
+	Cmd        []string
+	Env        []string
 	// Tmpfs maps a path to its mount options.
 	Tmpfs          map[string]string
 	NetworkMode    string
@@ -44,6 +50,16 @@ type Inspected struct {
 	State     string
 	ExitCode  int
 	StartedAt time.Time
+	// OOMKilled says the runtime killed the container for using more memory than its limit.
+	OOMKilled bool
+}
+
+// Output is what a container printed, each stream cut at the limit the caller gave.
+type Output struct {
+	Stdout          []byte
+	Stderr          []byte
+	StdoutTruncated bool
+	StderrTruncated bool
 }
 
 // RawStats is one sample of a container's use.
@@ -78,6 +94,10 @@ type Runtime interface {
 	// CopyTo extracts a tar archive into a folder of the container; CopyFrom reads a path of the container as a tar archive.
 	CopyTo(ctx context.Context, name, folder string, archive io.Reader) error
 	CopyFrom(ctx context.Context, name, path string) (io.ReadCloser, error)
+	// Wait blocks until the container is not running and returns its exit code; it ends with ctx.
+	Wait(ctx context.Context, name string) (exitCode int, err error)
+	// Logs returns what a container printed (a grading container is read after it ended), at most limit bytes of each stream.
+	Logs(ctx context.Context, name string, limit int64) (Output, error)
 	// ImageInspect returns ErrNotFound when the runtime does not have the image.
 	ImageInspect(ctx context.Context, ref string) (ImageInfo, error)
 }

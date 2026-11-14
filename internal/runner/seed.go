@@ -25,21 +25,49 @@ const (
 // (uid and gid 1000), which is why the bundle is rewritten rather than passed on. Modification times are kept. It returns how many
 // files the bundle had.
 func SanitizeSeed(r io.Reader, w io.Writer) (int, error) {
+	files, _, err := sanitize(r, w, sanitizeLimits{bytes: MaxSeedBytes, files: MaxSeedFiles, what: "starter bundle"}, false)
+	return files, err
+}
+
+// sanitizeLimits are how much a bundle may hold, and what to call it in a message.
+type sanitizeLimits struct {
+	bytes int64
+	files int
+	what  string
+}
+
+// maxSkippedNames is how many of the entries a lenient pass left out are named in what it returns.
+const maxSkippedNames = 20
+
+// sanitize is SanitizeSeed with limits of its own. A lenient pass is for what a student made: an entry it cannot give to a container (a
+// link that leaves /work, a name with a control character, a device file) is left out and named, instead of making the whole archive
+// unusable; the size and the file count are still limits. A strict pass refuses the archive at the first such entry.
+func sanitize(r io.Reader, w io.Writer, limits sanitizeLimits, lenient bool) (int, []string, error) {
 	in := tar.NewReader(r)
 	out := tar.NewWriter(w)
 	files := 0
 	var total int64
+	var skipped []string
+	left := func(name string) {
+		if len(skipped) < maxSkippedNames {
+			skipped = append(skipped, name)
+		}
+	}
 	for {
 		header, err := in.Next()
 		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
-			return files, fmt.Errorf("%w: the bundle is not a tar archive: %v", ErrBadRequest, err)
+			return files, skipped, fmt.Errorf("%w: the %s is not a tar archive: %v", ErrBadRequest, limits.what, err)
 		}
 		name := strings.TrimSuffix(header.Name, "/")
 		if err := checkSeedName(name); err != nil {
-			return files, err
+			if lenient {
+				left(name)
+				continue
+			}
+			return files, skipped, err
 		}
 		clean := &tar.Header{Name: name, ModTime: header.ModTime.UTC().Truncate(1e9), Uid: StudentUID, Gid: StudentGID, Format: tar.FormatPAX}
 		switch header.Typeflag {
@@ -47,35 +75,43 @@ func SanitizeSeed(r io.Reader, w io.Writer) (int, error) {
 			clean.Typeflag, clean.Name, clean.Mode = tar.TypeDir, name+"/", 0o755
 		case tar.TypeReg:
 			files++
-			if total += header.Size; total > MaxSeedBytes || header.Size < 0 {
-				return files, badRequest("the starter bundle holds more than %d MiB", MaxSeedBytes>>20)
+			if total += header.Size; total > limits.bytes || header.Size < 0 {
+				return files, skipped, badRequest("the %s holds more than %d MiB", limits.what, limits.bytes>>20)
 			}
 			clean.Typeflag, clean.Size, clean.Mode = tar.TypeReg, header.Size, 0o644
 			if header.Mode&0o111 != 0 {
 				clean.Mode = 0o755
 			}
 		case tar.TypeSymlink:
-			files++
 			if err := checkSeedLink(name, header.Linkname); err != nil {
-				return files, err
+				if lenient {
+					left(name)
+					continue
+				}
+				return files, skipped, err
 			}
+			files++
 			clean.Typeflag, clean.Linkname, clean.Mode = tar.TypeSymlink, header.Linkname, 0o777
 		default:
-			return files, badRequest("%s: a starter bundle may hold only folders, files and links (this is type %q)", name, string(header.Typeflag))
+			if lenient {
+				left(name)
+				continue
+			}
+			return files, skipped, badRequest("%s: a %s may hold only folders, files and links (this is type %q)", name, limits.what, string(header.Typeflag))
 		}
-		if files > MaxSeedFiles {
-			return files, badRequest("the starter bundle holds more than %d files", MaxSeedFiles)
+		if files > limits.files {
+			return files, skipped, badRequest("the %s holds more than %d files", limits.what, limits.files)
 		}
 		if err := out.WriteHeader(clean); err != nil {
-			return files, err
+			return files, skipped, err
 		}
 		if clean.Typeflag == tar.TypeReg {
 			if n, err := io.CopyN(out, in, header.Size); err != nil || n != header.Size {
-				return files, badRequest("%s: the bundle ends in the middle of a file", name)
+				return files, skipped, badRequest("%s: the %s ends in the middle of a file", name, limits.what)
 			}
 		}
 	}
-	return files, out.Close()
+	return files, skipped, out.Close()
 }
 
 func checkSeedName(name string) error {

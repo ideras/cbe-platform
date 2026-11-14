@@ -12,6 +12,7 @@ import (
 
 	"exam-platform/internal/runner"
 	cerrdefs "github.com/containerd/errdefs"
+	"github.com/moby/moby/api/pkg/stdcopy"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/client"
 )
@@ -50,10 +51,14 @@ func (d *Docker) Ping(ctx context.Context) error {
 func hostConfig(spec runner.ContainerSpec) (*container.Config, *container.HostConfig) {
 	binds := make([]string, 0, len(spec.Binds))
 	for _, bind := range spec.Binds {
-		binds = append(binds, bind.Source+":"+bind.Target)
+		entry := bind.Source + ":" + bind.Target
+		if bind.ReadOnly {
+			entry += ":ro"
+		}
+		binds = append(binds, entry)
 	}
 	pids := spec.PidsLimit
-	config := &container.Config{Image: spec.Image, User: spec.User, WorkingDir: spec.WorkDir, Labels: spec.Labels}
+	config := &container.Config{Image: spec.Image, User: spec.User, WorkingDir: spec.WorkDir, Labels: spec.Labels, Entrypoint: spec.Entrypoint, Cmd: spec.Cmd, Env: spec.Env}
 	timeout := int(spec.StopTimeout / time.Second)
 	config.StopTimeout = &timeout
 	host := &container.HostConfig{
@@ -112,6 +117,7 @@ func inspected(response container.InspectResponse) runner.Inspected {
 	}
 	if state := response.State; state != nil {
 		out.ExitCode = state.ExitCode
+		out.OOMKilled = state.OOMKilled
 		switch {
 		case state.Paused:
 			out.State = runner.StatePaused
@@ -193,6 +199,57 @@ func (d *Docker) CopyFrom(ctx context.Context, name, path string) (io.ReadCloser
 		return nil, notFound(err)
 	}
 	return copied.Content, nil
+}
+
+// Wait blocks until the container is not running (it may already not be) and returns its exit code.
+func (d *Docker) Wait(ctx context.Context, name string) (int, error) {
+	waited := d.cli.ContainerWait(ctx, name, client.ContainerWaitOptions{Condition: container.WaitConditionNotRunning})
+	select {
+	case result := <-waited.Result:
+		if result.Error != nil {
+			return 0, errors.New(result.Error.Message)
+		}
+		return int(result.StatusCode), nil
+	case err := <-waited.Error:
+		return 0, notFound(err)
+	case <-ctx.Done():
+		return 0, ctx.Err()
+	}
+}
+
+// capped keeps the first limit bytes written to it and counts the rest as cut: it still takes everything, so the stream is read to its end.
+type capped struct {
+	limit     int64
+	data      []byte
+	truncated bool
+}
+
+func (c *capped) Write(p []byte) (int, error) {
+	room := c.limit - int64(len(c.data))
+	switch {
+	case room >= int64(len(p)):
+		c.data = append(c.data, p...)
+	case room > 0:
+		c.data = append(c.data, p[:room]...)
+		c.truncated = true
+	default:
+		c.truncated = true
+	}
+	return len(p), nil
+}
+
+// Logs reads what the container printed. The runtime sends the two streams in one, tagged; stdcopy tells them apart.
+func (d *Docker) Logs(ctx context.Context, name string, limit int64) (runner.Output, error) {
+	stream, err := d.cli.ContainerLogs(ctx, name, client.ContainerLogsOptions{ShowStdout: true, ShowStderr: true})
+	if err != nil {
+		return runner.Output{}, notFound(err)
+	}
+	defer stream.Close()
+	out, errs := &capped{limit: limit}, &capped{limit: limit}
+	if _, err := stdcopy.StdCopy(out, errs, stream); err != nil && !errors.Is(err, io.EOF) {
+		return runner.Output{}, err
+	}
+	return runner.Output{Stdout: out.data, Stderr: errs.data, StdoutTruncated: out.truncated, StderrTruncated: errs.truncated}, nil
 }
 
 func (d *Docker) ImageInspect(ctx context.Context, ref string) (runner.ImageInfo, error) {
