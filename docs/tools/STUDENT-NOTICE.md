@@ -21,39 +21,25 @@ have no calculator.
 
 # Student notice: a workspace exam is recorded
 
-A second paragraph, for an exam where students work in the platform's workspace (an editor and a terminal, D4).
-It is longer than the calculator's because more is recorded, and every item in it is something the platform
-really keeps (see `docs/workspace/student-ide.md` and `docs/workspace/reports/phase-5.md`). **The owner reviews
-this wording before any exam uses it.** If the platform records more, or less, than this says, the wording is
-wrong and must change with it, not the other way round.
+A second notice, for an exam where students work in the platform's workspace (an editor and a terminal, D4). The wording is the owner's
+(2026-11-14), kept short on purpose: students read it before an exam, and a long notice is a notice nobody reads. Every item in it is
+something the platform really keeps (see `docs/workspace/student-ide.md` and `docs/workspace/reports/phase-5.md`). If the platform records
+more, or less, than this says, the wording is wrong and must change with it, not the other way round. The button it calls **Save** is the
+one that took a snapshot and was called Submit until the owner renamed it (P5-16); the exam's own **Finish exam** is a different button.
 
 ---
 
-**Your workspace is recorded.** In this exam your files live on the exam server, not on your computer, and
-your instructor can read what you did there. The platform keeps:
+**Your exam workspace is recorded.** Your files are stored on the exam server, and your instructor can review activity there. The platform keeps:
 
-- **Your files.** Copies of everything in your workspace are taken about every minute, when you press
-  Submit, and at the end of the exam, and they are kept with the exam. Your submission is the files the exam
-  asks for (your instructor chose which); the rest, such as programs you compiled, are kept but are not
-  part of the submission.
-- **What you changed.** Each time you save, create, rename or delete a file, the platform records which file
-  and how large it became, with the time. It does not record each key you press.
-- **Your terminals.** Everything a terminal shows, with timing, is kept as a recording your instructor can
-  replay. It is what appears on the screen: the output of your programs, and also what you type, because the
-  terminal shows it as you type it. What you type where nothing is shown, such as a password, is not shown
-  and so is not recorded.
-- **Your runs.** When you press Run or Check, the platform records that you did and how it ended.
-- **Your TODO list.** The ticks you make are recorded. They are what you say you have done; nobody checks
-  them for you, and they are not a grade.
-- **Pastes that were blocked.** You can copy and paste inside the workspace, between your files and your
-  terminals. Pasting, or dropping, text or files that you did not copy there is blocked, and the platform
-  records that you tried, where (editor, terminal or elsewhere in the window) and how large the text was. It
-  does not record the text.
-- **Your connection.** When your workspace opened, when you were disconnected, and when you reconnected.
+- **Files:** Snapshots are saved about every minute, when you submit, and when the exam ends. Only the required files are submitted; other files are retained but not graded.
+- **File changes:** Saving, creating, renaming, or deleting a file records its name, size, and time—not individual keystrokes.
+- **Terminal recordings:** Everything visible in a terminal, including commands and program output, is recorded and can be replayed. Hidden input, such as passwords, is not recorded.
+- **Runs and checks:** The platform records when you use Run or Check and their result.
+- **TODO list:** Your checkmarks are recorded, but are not verified or graded.
+- **Blocked pastes:** You may paste content copied within the workspace. Attempts to paste or drop external content are blocked and recorded by location and size—not by content.
+- **Connection events:** Opening, disconnection, and reconnection times are recorded.
 
-If you press **Finish exam** or your time runs out, what is in your workspace at that moment is submitted. You
-do not need to press Submit for your work to count. Use the workspace the way you would show your work on
-paper.
+When you select **Finish exam** or time expires, the current workspace is submitted automatically. You do not need to press **Save** for your work to count. Treat the workspace as you would your written exam paper.
 
 ---
 

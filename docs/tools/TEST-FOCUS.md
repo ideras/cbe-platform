@@ -79,7 +79,7 @@ Setup, on the container host (the one with the runner and the course image, docs
    Hide the panel with the **⌄** in its tab row and show it again with **Terminal**. In the editor, press **A+**, **A−** (in the editor's
    tab row) and **Ctrl** with **+**, **−** and **0**: the text of the code changes size, and the window must keep its focus.
 4. Create a file and a folder from the file tree, rename one, delete one (confirm the dialog), then press **Ctrl+S**.
-5. Tick a TODO item. Press **Submit**.
+5. Tick a TODO item. Press **Save** (it saves and takes a copy; it does not end the exam).
 6. Try to paste text copied from outside the application (another window's text) into the editor and into the terminal: it must be
    refused with a notice, and the exam window must keep its focus.
 7. Open the dialogs (new file, delete, and **Finish exam…**, Phase 5) and close them with Escape or **Keep working**.
@@ -111,6 +111,6 @@ the server for the policy's time, the exam locks, as for any exam; that is the m
 Automated coverage (Playwright, `tests/ui/calculator.spec.js`): opening, evaluating and closing call no native
 method other than the `Calc*` ones (Snapshot entries are the app's own poll timer), and `window.open` is never
 called. `tests/ui/programmer.spec.js` checks the same for switching the programmer tabs and the Encode | Decode
-control (Phase 6A). `tests/ui/workspace.spec.js` checks that using the IDE (editing, terminals, Run, Check, the TODO list, Submit) calls no native
+control (Phase 6A). `tests/ui/workspace.spec.js` checks that using the IDE (editing, terminals, Run, Check, the TODO list, Save) calls no native
 method other than `WorkspaceRequest`, `WorkspaceInput` and the poll's `Snapshot`. Focus detection itself is native and cannot be exercised in the
 browser harness.
