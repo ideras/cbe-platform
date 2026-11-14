@@ -281,7 +281,8 @@ func TestARunThatGoesWrongFailsWithItsReasonAndNoOtherStudentWaits(t *testing.T)
 		"crash": func() (runner.GradeResult, error) {
 			return runner.GradeResult{ExitCode: 139, Stderr: "Segmentation fault"}, nil
 		},
-		"oom": func() (runner.GradeResult, error) { return runner.GradeResult{OOMKilled: true, ExitCode: 137}, nil },
+		"oom":    func() (runner.GradeResult, error) { return runner.GradeResult{OOMKilled: true, ExitCode: 137}, nil },
+		"killed": func() (runner.GradeResult, error) { return runner.GradeResult{ExitCode: 137}, nil },
 		"runner": func() (runner.GradeResult, error) {
 			return runner.GradeResult{}, &runner.APIError{Status: 503, Message: "busy"}
 		},
@@ -300,11 +301,15 @@ func TestARunThatGoesWrongFailsWithItsReasonAndNoOtherStudentWaits(t *testing.T)
 	login := f.submitted(t, "0012", "x\n")
 	for reason := range outcomes {
 		which.Store(reason)
+		expected := reason
+		if reason == "killed" {
+			expected = workspace.FailCrash // exit code 137: a crash, with the memory limit named in its words
+		}
 		if code, body := f.post(t, "/admin/workspace/session/"+login.SessionID+"/grade", ""); code != http.StatusAccepted {
 			t.Fatalf("%s: grade = %d %s", reason, code, body)
 		}
 		got := f.gradedWith(t, login.SessionID)
-		if got.State != workspace.GradingFailed || got.Failure != reason || got.FailureText == "" || got.Points != nil || got.Confirmed {
+		if got.State != workspace.GradingFailed || got.Failure != expected || got.FailureText == "" || got.Points != nil || got.Confirmed {
 			t.Errorf("%s: %+v", reason, got)
 		}
 		full := decoded[workspace.AdminGrading](t, request(f.router, "GET", fmt.Sprintf("/admin/workspace/grading/%d", got.ID), "", "Bearer "+testAdminToken).Body.Bytes())
@@ -316,6 +321,10 @@ func TestARunThatGoesWrongFailsWithItsReasonAndNoOtherStudentWaits(t *testing.T)
 		case "crash":
 			if full.Stderr != "Segmentation fault" || full.ExitCode == nil || *full.ExitCode != 139 {
 				t.Errorf("a crash keeps what was printed: %+v", full)
+			}
+		case "killed":
+			if !strings.Contains(full.FailureText, "256 MiB") {
+				t.Errorf("a kill names the memory limit: %+v", full)
 			}
 		case "malformed":
 			if !strings.Contains(full.FailureText, "not one JSON object") || !strings.Contains(full.Stdout, "entering directory") {

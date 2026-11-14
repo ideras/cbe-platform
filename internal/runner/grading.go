@@ -175,6 +175,12 @@ func (s *Service) Grade(ctx context.Context, req GradeRequest, submission, bundl
 	if err := s.rt.CopyTo(ctx, name, WorkPath, &work); err != nil {
 		return GradeResult{}, fmt.Errorf("putting the submission in /work: %w", err)
 	}
+	// What it prints is read from the moment it starts, to the end of its output.
+	collector, err := s.rt.Attach(ctx, name, int64(s.cfg.GradeOutputBytes))
+	if err != nil {
+		return GradeResult{}, fmt.Errorf("attaching to the grading container: %w", err)
+	}
+	defer collector.Close()
 	if err := s.rt.Start(ctx, name); err != nil {
 		return GradeResult{}, fmt.Errorf("starting the grading container: %w", err)
 	}
@@ -205,9 +211,13 @@ func (s *Service) Grade(ctx context.Context, req GradeRequest, submission, bundl
 			result.ExitCode = found.ExitCode
 		}
 	}
-	out, err := s.rt.Logs(bg, name, int64(s.cfg.GradeOutputBytes))
+	// The container has ended, so its output ends with it. A stream that does not end in a little while (the runtime lost the end of it) gives
+	// what was read, and the run is judged by that.
+	reading, stopReading := context.WithTimeout(bg, 20*time.Second)
+	out, err := collector.Collect(reading)
+	stopReading()
 	if err != nil {
-		return GradeResult{}, fmt.Errorf("reading what the grading container printed: %w", err)
+		s.logger.Warn("what a grading container printed was not read to its end", "grading", req.Grading, "error", err)
 	}
 	result.Stdout, result.Stderr = strings.ToValidUTF8(string(out.Stdout), "�"), strings.ToValidUTF8(string(out.Stderr), "�")
 	result.StdoutTruncated, result.StderrTruncated = out.StdoutTruncated, out.StderrTruncated

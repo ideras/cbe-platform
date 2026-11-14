@@ -289,6 +289,10 @@ func (g *Grader) settle(record GradingRecord, exam ExamRecord, timeout time.Dura
 	case result.OOMKilled:
 		done(record, FailOOM, "grade ran out of memory and was stopped", &result)
 		return
+	case result.ExitCode == 137:
+		// SIGKILL. The runtime does not always say it was for memory, which is what ends a program that grows past the run's limit.
+		done(record, FailCrash, fmt.Sprintf("grade was killed (exit code 137): most likely it used more memory than the run's limit of %d MiB", exam.Document.Workspace.Resources.MemoryMB), &result)
+		return
 	case result.ExitCode != 0:
 		done(record, FailCrash, fmt.Sprintf("grade ended with exit code %d (it must end with 0 after printing its JSON)", result.ExitCode), &result)
 		return

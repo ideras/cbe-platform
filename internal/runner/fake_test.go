@@ -128,22 +128,40 @@ func (f *fakeRuntime) Wait(ctx context.Context, name string) (int, error) {
 	return exit, nil
 }
 
-func (f *fakeRuntime) Logs(_ context.Context, name string, limit int64) (Output, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.note("logs " + name)
-	c, err := f.get(name)
+// fakeCollector hands back what the container printed, cut at the limit, once the container has ended.
+type fakeCollector struct {
+	f     *fakeRuntime
+	name  string
+	limit int64
+}
+
+func (c *fakeCollector) Collect(context.Context) (Output, error) {
+	c.f.mu.Lock()
+	defer c.f.mu.Unlock()
+	c.f.note("collect " + c.name)
+	container, err := c.f.get(c.name)
 	if err != nil {
 		return Output{}, err
 	}
-	out := c.out
-	if int64(len(out.Stdout)) > limit {
-		out.Stdout, out.StdoutTruncated = out.Stdout[:limit], true
+	out := container.out
+	if int64(len(out.Stdout)) > c.limit {
+		out.Stdout, out.StdoutTruncated = out.Stdout[:c.limit], true
 	}
-	if int64(len(out.Stderr)) > limit {
-		out.Stderr, out.StderrTruncated = out.Stderr[:limit], true
+	if int64(len(out.Stderr)) > c.limit {
+		out.Stderr, out.StderrTruncated = out.Stderr[:c.limit], true
 	}
 	return out, nil
+}
+func (c *fakeCollector) Close() error { return nil }
+
+func (f *fakeRuntime) Attach(_ context.Context, name string, limit int64) (Collector, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.note("attach " + name)
+	if _, err := f.get(name); err != nil {
+		return nil, err
+	}
+	return &fakeCollector{f: f, name: name, limit: limit}, nil
 }
 func (f *fakeRuntime) Pause(_ context.Context, name string) error {
 	return f.transition(name, "pause", StateRunning, StatePaused)
