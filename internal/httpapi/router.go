@@ -45,6 +45,14 @@ func New(clock clock.Clock, sessions SessionAPI, logger *slog.Logger, options ..
 		admin.Handle("POST /admin/class/{id}/workspace-exam", importWorkspaceHandler(cfg.Workspace, logger))
 		admin.Handle("GET /admin/workspace/session/{id}", workspaceAdminHandler(cfg.Workspace, logger))
 		admin.Handle("GET /admin/workspace/snapshot/{id}/tar", workspaceSnapshotHandler(cfg.Workspace, logger))
+		admin.Handle("GET /admin/workspace/exam/{id}/roster", workspaceRosterHandler(cfg.Workspace, logger))
+		admin.Handle("GET /admin/workspace/snapshot/{id}/tree", workspaceTreeHandler(cfg.Workspace, logger, false))
+		admin.Handle("GET /admin/workspace/snapshot/{id}/file", workspaceFileHandler(cfg.Workspace, logger, false))
+		admin.Handle("GET /admin/workspace/submission/{id}/tree", workspaceTreeHandler(cfg.Workspace, logger, true))
+		admin.Handle("GET /admin/workspace/submission/{id}/file", workspaceFileHandler(cfg.Workspace, logger, true))
+		admin.Handle("GET /admin/workspace/submission/{id}/zip", workspaceZipHandler(cfg.Workspace, logger))
+		admin.Handle("GET /admin/workspace/session/{id}/report", workspaceReportHandler(cfg.Workspace, logger))
+		admin.Handle("GET /admin/workspace/terminal/{id}/cast", workspaceCastHandler(cfg.Workspace, logger))
 	}
 	if cfg.Screenshots != nil {
 		mux.Handle("POST /screenshot", StudentAuth(sessions, logger, screenshotUploadHandler(cfg.Screenshots, logger)))

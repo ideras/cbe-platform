@@ -1,0 +1,175 @@
+{
+ "comment": "The glob dialect of docs/workspace-format.md (P1-12): the compiler (shared/examdoc) and the server (internal/workspace) each have a matcher, and both tests read this table, so the two cannot drift apart.",
+ "cases": [
+  {
+   "pattern": "build/**",
+   "name": "build/a.o",
+   "want": true
+  },
+  {
+   "pattern": "build/**",
+   "name": "build/x/y/z",
+   "want": true
+  },
+  {
+   "pattern": "build/**",
+   "name": "build",
+   "want": false
+  },
+  {
+   "pattern": "build/**",
+   "name": "src/build/a",
+   "want": false
+  },
+  {
+   "pattern": "**/*.o",
+   "name": "a.o",
+   "want": true
+  },
+  {
+   "pattern": "**/*.o",
+   "name": "src/a.o",
+   "want": true
+  },
+  {
+   "pattern": "**/*.o",
+   "name": "src/deep/er/a.o",
+   "want": true
+  },
+  {
+   "pattern": "**/*.o",
+   "name": "a.cpp",
+   "want": false
+  },
+  {
+   "pattern": "**/*.o",
+   "name": "a.o/b",
+   "want": false
+  },
+  {
+   "pattern": "**/__pycache__/**",
+   "name": "__pycache__/x.pyc",
+   "want": true
+  },
+  {
+   "pattern": "**/__pycache__/**",
+   "name": "a/b/__pycache__/x.pyc",
+   "want": true
+  },
+  {
+   "pattern": "**/__pycache__/**",
+   "name": "a/__pycache__",
+   "want": false
+  },
+  {
+   "pattern": ".cache/**",
+   "name": ".cache/x",
+   "want": true
+  },
+  {
+   "pattern": "src/**",
+   "name": "src/a.cpp",
+   "want": true
+  },
+  {
+   "pattern": "src/**",
+   "name": "tests/a.cpp",
+   "want": false
+  },
+  {
+   "pattern": "Makefile",
+   "name": "Makefile",
+   "want": true
+  },
+  {
+   "pattern": "Makefile",
+   "name": "src/Makefile",
+   "want": false
+  },
+  {
+   "pattern": "*.cpp",
+   "name": "a.cpp",
+   "want": true
+  },
+  {
+   "pattern": "*.cpp",
+   "name": "src/a.cpp",
+   "want": false
+  },
+  {
+   "pattern": "src/?.c",
+   "name": "src/a.c",
+   "want": true
+  },
+  {
+   "pattern": "src/?.c",
+   "name": "src/ab.c",
+   "want": false
+  },
+  {
+   "pattern": "src/[ab].c",
+   "name": "src/b.c",
+   "want": true
+  },
+  {
+   "pattern": "src/[ab].c",
+   "name": "src/c.c",
+   "want": false
+  },
+  {
+   "pattern": "a/**/b",
+   "name": "a/b",
+   "want": true
+  },
+  {
+   "pattern": "a/**/b",
+   "name": "a/x/y/b",
+   "want": true
+  },
+  {
+   "pattern": "a/**/b",
+   "name": "a/x/c",
+   "want": false
+  },
+  {
+   "pattern": "**",
+   "name": "a",
+   "want": true
+  },
+  {
+   "pattern": "**",
+   "name": "a/b",
+   "want": true
+  },
+  {
+   "pattern": "x/**/y",
+   "name": "x/y",
+   "want": true
+  },
+  {
+   "pattern": "x/**/y",
+   "name": "x/a/b/y",
+   "want": true
+  },
+  {
+   "pattern": "**/a/**",
+   "name": "a/b",
+   "want": true
+  },
+  {
+   "pattern": "**/a/**",
+   "name": "x/a",
+   "want": false
+  },
+  {
+   "pattern": "src/*/a.c",
+   "name": "src/x/a.c",
+   "want": true
+  },
+  {
+   "pattern": "src/*/a.c",
+   "name": "src/a.c",
+   "want": false
+  }
+ ]
+}

@@ -31,6 +31,8 @@ const (
 	ReasonSubmit    = "submit"
 	ReasonAgentLoss = "agent_loss"
 	ReasonDeadline  = "deadline"
+	// ReasonFinal is the snapshot taken when the exam ended before its time: the student finished it, or a proctor did.
+	ReasonFinal = "final"
 )
 
 // Resources are a container's limits, as the exam document states them.
@@ -158,6 +160,62 @@ type SnapshotRecord struct {
 	Skipped      int
 }
 
+// The kinds of submission: the student pressing Save (called Submit until 2026-11-14), and the one made when the exam ends.
+const (
+	SubmissionSubmit = "submit"
+	SubmissionFinal  = "final"
+)
+
+// SubmissionRecord is a row of the submission list. The submission's files are the manifest named by ManifestHash.
+type SubmissionRecord struct {
+	ID           int64
+	SessionID    string
+	SnapshotID   int64
+	Kind         string
+	SubmittedAt  time.Time
+	ManifestHash string
+	Files        int
+	Bytes        int64
+}
+
+// The kinds of terminal a transcript is of.
+const (
+	TerminalShell   = "shell"
+	TerminalRun     = "run"
+	TerminalCheck   = "check"
+	TerminalProgram = "program"
+)
+
+// TerminalRecord is a row of the transcript list; CastFile is the transcript's name under the workspace folder's transcripts.
+type TerminalRecord struct {
+	ID        int64
+	SessionID string
+	Term      uint32
+	Kind      string
+	StartedAt time.Time
+	EndedAt   *time.Time
+	ExitCode  *int
+	Bytes     int64
+	Truncated bool
+	CastFile  string
+}
+
+// RosterRow is what the proctor's roster knows of a student's workspace.
+type RosterRow struct {
+	SessionID      string
+	Account        string
+	State          string
+	AgentRestarts  int
+	LastSnapshotAt *time.Time
+	Todo           map[string]bool
+	// Submissions counts the submissions made; LastSubmission is the latest one's time and Final says it was made at the end.
+	Submissions    int
+	LastSubmission *time.Time
+	Final          bool
+	// LastEvent is when the latest workspace event of the session was recorded.
+	LastEvent *time.Time
+}
+
 // Repository is what the exam server's database does for workspace exams; internal/storage implements it.
 type Repository interface {
 	// CreateExam stores a workspace exam in its class: the exams row (kind workspace, no exercises) and the workspace row.
@@ -182,4 +240,17 @@ type Repository interface {
 	// Todo reads and writes the TODO state a student ticked: a JSON object of TODO ID to done.
 	Todo(ctx context.Context, sessionID string) (map[string]bool, error)
 	SetTodo(ctx context.Context, sessionID string, todo map[string]bool) error
+	// RecordEvent writes a record in the session's history, the same one the monitoring writes to (event_log).
+	RecordEvent(ctx context.Context, sessionID, eventType string, at time.Time, detail any) error
+	RecordSubmission(ctx context.Context, submission SubmissionRecord) (int64, error)
+	Submission(ctx context.Context, id int64) (SubmissionRecord, error)
+	// Submissions lists a session's submissions, oldest first.
+	Submissions(ctx context.Context, sessionID string) ([]SubmissionRecord, error)
+	RecordTerminal(ctx context.Context, terminal TerminalRecord) (int64, error)
+	// EndTerminal records how a terminal ended and how much of it was written.
+	EndTerminal(ctx context.Context, id int64, endedAt time.Time, exitCode *int, bytes int64, truncated bool) error
+	Terminal(ctx context.Context, id int64) (TerminalRecord, error)
+	Terminals(ctx context.Context, sessionID string) ([]TerminalRecord, error)
+	// Roster lists the students of a workspace exam, the ones who have logged in.
+	Roster(ctx context.Context, examID string) ([]RosterRow, error)
 }

@@ -96,6 +96,8 @@ type View struct {
 	Error       string     `json:"error"`
 	LastSuccess *time.Time `json:"last_success"`
 	Roster      Roster     `json:"roster"`
+	// Workspace is the roster of the monitored exam's workspaces, when the exam is a workspace exam; nil otherwise.
+	Workspace *WorkspaceRoster `json:"workspace"`
 	// Catalog is every exam the server stores; CatalogLoaded is false until the first answer.
 	Catalog       Catalog `json:"catalog"`
 	CatalogLoaded bool    `json:"catalog_loaded"`
@@ -137,7 +139,9 @@ type Service struct {
 	autoSelect bool
 	// picking is set while a native file dialog is open; pendingExam and pendingClass hold what a preview showed. The exam was
 	// previewed for the class pendingExamClass, which is the one it is imported into.
-	picking          bool
+	picking bool
+	// notWorkspace remembers the exams the server said are not workspace exams, so their roster is not asked for again.
+	notWorkspace     map[string]bool
 	pendingExam      *examdoc.Exam
 	pendingExamClass string
 	pendingClass     *pendingFile
@@ -171,7 +175,7 @@ func New(opts Options) (*Service, error) {
 		return nil, errors.New("Exam ID must be a canonical UUID.")
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	s := &Service{opts: opts, client: clientwire.NewHTTPClient(opts.Timeout), ctx: ctx, cancel: cancel, wake: make(chan struct{}, 1), images: make(chan struct{}, 2)}
+	s := &Service{opts: opts, client: clientwire.NewHTTPClient(opts.Timeout), ctx: ctx, cancel: cancel, wake: make(chan struct{}, 1), images: make(chan struct{}, 2), notWorkspace: map[string]bool{}}
 	s.view = View{Server: server, ExamID: opts.ExamID, CredentialAvailable: opts.Token != "", Stale: true}
 	s.loadRemembered()
 	s.wg.Add(1)
@@ -418,6 +422,7 @@ func (s *Service) selectLocked(examID string) {
 	s.autoSelect = false
 	s.view.ExamID = examID
 	s.view.Roster = Roster{}
+	s.view.Workspace = nil
 	s.view.Loaded, s.view.Loading, s.view.Stale = false, true, true
 }
 func (s *Service) Refresh() { s.signal() }
@@ -471,6 +476,8 @@ func (s *Service) refresh() {
 	}
 	var roster Roster
 	rosterLoaded := false
+	var workspaces *WorkspaceRoster
+	workspacesLoaded := false
 	if id != "" && (catalogErr != nil || selectedKnown) {
 		err := getJSON(ctx, s.client, base, token, http.MethodGet, "/admin/sessions?exam_id="+id, nil, &roster)
 		if err == nil {
@@ -478,6 +485,15 @@ func (s *Service) refresh() {
 		}
 		rosterLoaded = err == nil
 		failures = append(failures, err)
+		// A workspace exam's students also have workspaces; whether the exam is one is the server's answer, asked once.
+		if rosterLoaded {
+			var isWorkspace bool
+			workspaces, isWorkspace, err = s.workspaceRoster(ctx, base, token, id)
+			workspacesLoaded = err == nil
+			if isWorkspace {
+				failures = append(failures, err)
+			}
+		}
 	}
 	failure := joinDistinct(failures...)
 	s.mu.Lock()
@@ -502,6 +518,9 @@ func (s *Service) refresh() {
 	}
 	if rosterLoaded {
 		s.view.Roster, s.view.Loaded = roster, true
+	}
+	if workspacesLoaded {
+		s.view.Workspace = workspaces
 	}
 	if failure != nil {
 		s.view.Stale = true

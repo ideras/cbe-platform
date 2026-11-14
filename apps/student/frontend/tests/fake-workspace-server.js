@@ -25,6 +25,7 @@ export class FakeWorkspaceServer {
     this.nextTerm = 1;
     this.todo = {};
     this.submits = [];
+    this.pastes = [];
     this.requests = [];
     this.typed = []; // every keystroke that reached a terminal
     this.online = true;
@@ -152,6 +153,9 @@ export class FakeWorkspaceServer {
       case 'todo.set':
         if (!['t1', 't2', 't3'].includes(f.item)) return this.fail('NOT_FOUND');
         this.todo[f.item] = !!f.done;
+        return { ok: true };
+      case 'paste.blocked':
+        this.pastes.push({ target: f.target, bytes: f.bytes });
         return { ok: true };
       case 'submit':
         this.submits.push(new Map(this.files));

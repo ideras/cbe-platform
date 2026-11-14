@@ -105,27 +105,33 @@ func validLink(target string) bool {
 // changed since the last one adds nothing (the last one is touched); the other reasons always leave a row, because they say why.
 // created says whether a new row was made.
 func (s *Snapshots) Take(ctx context.Context, session, reason string) (record SnapshotRecord, created bool, err error) {
+	record, _, created, err = s.TakeManifest(ctx, session, reason)
+	return record, created, err
+}
+
+// TakeManifest is Take, and gives the manifest too, for what is made of the snapshot at once (a submission).
+func (s *Snapshots) TakeManifest(ctx context.Context, session, reason string) (record SnapshotRecord, manifest Manifest, created bool, err error) {
 	stream, err := s.runner.Archive(ctx, session, "/work/.")
 	if err != nil {
-		return SnapshotRecord{}, false, err
+		return SnapshotRecord{}, Manifest{}, false, err
 	}
 	defer stream.Close()
 	manifest, bytes, skipped, err := s.ingest(stream)
 	if err != nil {
-		return SnapshotRecord{}, false, err
+		return SnapshotRecord{}, Manifest{}, false, err
 	}
 	encoded, err := json.Marshal(manifest)
 	if err != nil {
-		return SnapshotRecord{}, false, err
+		return SnapshotRecord{}, Manifest{}, false, err
 	}
 	hash, err := s.blobs.PutBytes(encoded)
 	if err != nil {
-		return SnapshotRecord{}, false, err
+		return SnapshotRecord{}, Manifest{}, false, err
 	}
 	now := s.now().UTC()
 	if reason == ReasonPeriodic {
 		if latest, err := s.repo.LatestSnapshot(ctx, session); err == nil && latest.ManifestHash == hash {
-			return latest, false, s.repo.TouchSnapshot(ctx, session, now)
+			return latest, manifest, false, s.repo.TouchSnapshot(ctx, session, now)
 		}
 	}
 	files := 0
@@ -136,9 +142,9 @@ func (s *Snapshots) Take(ctx context.Context, session, reason string) (record Sn
 	}
 	record = SnapshotRecord{SessionID: session, Reason: reason, TakenAt: now, ManifestHash: hash, Files: files, Bytes: bytes, Skipped: skipped}
 	if record.ID, err = s.repo.RecordSnapshot(ctx, record); err != nil {
-		return SnapshotRecord{}, false, err
+		return SnapshotRecord{}, Manifest{}, false, err
 	}
-	return record, true, nil
+	return record, manifest, true, nil
 }
 
 // ingest reads the tar of a student's files into the blob store and returns the manifest. The tar comes from a filesystem the student

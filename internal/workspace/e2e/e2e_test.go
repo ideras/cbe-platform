@@ -14,6 +14,7 @@ package e2e
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -25,6 +26,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -66,6 +68,7 @@ type rig struct {
 	pkgDir    string
 	state     state
 	statePath string
+	bind      string // the address to listen on, for the manual phase; empty is any free port on 127.0.0.1
 }
 
 func env(t *testing.T, name string) string {
@@ -114,12 +117,15 @@ func (r *rig) load() {
 // start runs the server on this rig's folder and waits for it to answer.
 func (r *rig) start() {
 	r.t.Helper()
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		r.t.Fatal(err)
+	addr := r.bind
+	if addr == "" {
+		listener, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			r.t.Fatal(err)
+		}
+		addr = listener.Addr().String()
+		listener.Close()
 	}
-	addr := listener.Addr().String()
-	listener.Close()
 	logFile, err := os.OpenFile(filepath.Join(r.dir, "server.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		r.t.Fatal(err)
@@ -128,6 +134,11 @@ func (r *rig) start() {
 		"-admin-token-file", filepath.Join(r.dir, "admin-token"), "-runner-socket", env(r.t, "CBE_RUNNER_SOCKET"), "-runner-secret-file", env(r.t, "CBE_RUNNER_SECRET_FILE"),
 		"-workspace-dir", filepath.Join(r.dir, "workspace"), "-workspace-snapshot-every", "10s", "-worker-interval", "500ms")
 	r.cmd.Stdout, r.cmd.Stderr = logFile, logFile
+	if r.bind != "" {
+		// The manual phase is stopped with Ctrl+C, which reaches the whole foreground group: the server must outlive it, to be asked for
+		// the students' workspaces and stopped in order.
+		r.cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	}
 	if err := r.cmd.Start(); err != nil {
 		r.t.Fatal(err)
 	}
@@ -225,6 +236,31 @@ func (r *rig) importExam(classID, title string, duration, grace int64) string {
 		r.t.Fatalf("import answer: %v", err)
 	}
 	return created.ID
+}
+
+// removeWorkspaces removes the containers and folders of the workspaces an exam's students made through the application's own client or
+// by hand, which the rig did not make itself and so does not have in its state. The server must be running.
+func (r *rig) removeWorkspaces(examID string) {
+	r.t.Helper()
+	status, data := r.do("GET", "/admin/workspace/exam/"+examID+"/roster", "", adminTokn, nil)
+	if status != 200 {
+		r.t.Errorf("the roster for the clean-up = %d: %s", status, data)
+		return
+	}
+	var roster struct {
+		Students []struct {
+			SessionID string `json:"session_id"`
+		} `json:"students"`
+	}
+	if err := json.Unmarshal(data, &roster); err != nil {
+		r.t.Errorf("the roster for the clean-up: %v", err)
+		return
+	}
+	for _, student := range roster.Students {
+		if err := r.runner.Remove(context.Background(), student.SessionID); err != nil {
+			r.t.Errorf("removing %s: %v", student.SessionID, err)
+		}
+	}
 }
 
 func (r *rig) login(account string) sessionState {
@@ -343,6 +379,8 @@ func TestRealServer(t *testing.T) {
 		phaseC(t, r)
 	case "D":
 		phaseD(t, r)
+	case "M":
+		phaseManual(t, r)
 	case "cleanup":
 		// Whatever the other phases made, whether or not they got to the end: the containers and their folders go.
 		r.load()
@@ -352,7 +390,7 @@ func TestRealServer(t *testing.T) {
 			}
 		}
 	default:
-		t.Fatalf("CBE_E2E_PHASE must be A, B, C, D or cleanup, not %q", phase)
+		t.Fatalf("CBE_E2E_PHASE must be A, B, C, D, M or cleanup, not %q", phase)
 	}
 }
 
@@ -843,6 +881,8 @@ func phaseD(t *testing.T, r *rig) {
 	}
 	examID := r.importExam(class.Class.ID, "Finish the example", 0, 0)
 	r.admin("POST", "/admin/exam/"+examID+"/publish", "application/json", strings.NewReader(`{"expected_current":""}`), 200)
+	// The student's container is made by the application's client, not by the rig: it is removed however this ends, while the server still runs.
+	defer r.removeWorkspaces(examID)
 
 	command := exec.Command(studentTest, "-test.run", "^TestRealWorkspaceFinishTheExamplePackage$", "-test.v", "-test.timeout", "5m")
 	command.Env = append(os.Environ(), "CBE_E2E_SERVER_URL="+r.base, "CBE_E2E_ACCOUNT=0001", "CBE_E2E_PIN="+pin)
@@ -852,7 +892,7 @@ func phaseD(t *testing.T, r *rig) {
 		t.Fatalf("the student could not finish the package: %v", err)
 	}
 
-	// The proctor's side: the session, its snapshots, what the student ticked, and the files of the submission.
+	// The proctor's side: the session, its history, its snapshots and submissions, its transcripts, the downloads and the roster.
 	var list struct {
 		Sessions []struct {
 			ID      string `json:"session_id"`
@@ -873,15 +913,40 @@ func phaseD(t *testing.T, r *rig) {
 	}
 	r.state.Sessions["student"] = student
 	r.save()
-	var admin struct {
-		adminSession
-		Done map[string]bool `json:"done"`
+	type adminView struct {
+		State     string          `json:"state"`
+		Done      map[string]bool `json:"done"`
+		Snapshots []struct {
+			ID     int64  `json:"id"`
+			Reason string `json:"reason"`
+		} `json:"snapshots"`
+		Submissions []struct {
+			ID         int64 `json:"id"`
+			SnapshotID int64 `json:"snapshot"`
+			Final      bool  `json:"final"`
+		} `json:"submissions"`
+		Terminals []struct {
+			ID       int64  `json:"id"`
+			Kind     string `json:"kind"`
+			ExitCode *int   `json:"exit_code"`
+			Bytes    int64  `json:"bytes"`
+			EndedAt  string `json:"ended_at"`
+		} `json:"terminals"`
 	}
-	if err := json.Unmarshal(r.admin("GET", "/admin/workspace/session/"+student.ID, "", nil, 200), &admin); err != nil {
-		t.Fatal(err)
-	}
+	var admin adminView
+	// The student finished: within a round of the supervisor the last snapshot and the final submission are made.
+	workspacetest.Eventually(t, 30*time.Second, "the final submission", func() bool {
+		admin = adminView{}
+		if err := json.Unmarshal(r.admin("GET", "/admin/workspace/session/"+student.ID, "", nil, 200), &admin); err != nil {
+			t.Fatal(err)
+		}
+		return admin.State == "frozen" && len(admin.Submissions) > 0 && admin.Submissions[len(admin.Submissions)-1].Final
+	})
 	if !admin.Done["t1"] || !admin.Done["t2"] || !admin.Done["t3"] {
 		t.Errorf("the TODO ticks: %v", admin.Done)
+	}
+	if len(admin.Submissions) != 2 || admin.Submissions[0].Final {
+		t.Fatalf("submissions = %+v (the student's Submit, then the end of the exam)", admin.Submissions)
 	}
 	var submit int64
 	for _, snap := range admin.Snapshots {
@@ -889,25 +954,218 @@ func phaseD(t *testing.T, r *rig) {
 			submit = snap.ID
 		}
 	}
-	if submit == 0 {
-		t.Fatalf("no submission: %+v", admin)
+	if submit == 0 || admin.Snapshots[len(admin.Snapshots)-1].Reason != "final" {
+		t.Fatalf("snapshots = %+v", admin.Snapshots)
 	}
+	// A snapshot is everything, build products too; a submission is what the exam submits.
 	files := r.snapshotFiles(submit)
-	if !strings.Contains(files["src/list.cpp"], "head_ = new Node{value, head_};") || !strings.Contains(files["src/list.cpp"], "insert_sorted") {
-		t.Errorf("the submission's list.cpp: %q", files["src/list.cpp"])
+	if !strings.Contains(files["src/list.cpp"], "head_ = new Node{value, head_};") || !strings.Contains(files["tests/mine.cpp"], "mine: ok") {
+		t.Errorf("the snapshot's files: list.cpp %q", files["src/list.cpp"])
 	}
-	if !strings.Contains(files["tests/mine.cpp"], "mine: ok") {
-		t.Errorf("the student's own test is not in the submission: %q", files["tests/mine.cpp"])
-	}
-	for _, name := range []string{"Makefile", "include/list.hpp", "src/main.cpp", "tests/sample_test.cpp", "build/list_demo", "build/sample_test"} {
+	for _, name := range []string{"Makefile", "include/list.hpp", "src/main.cpp", "tests/sample_test.cpp", "build/list_demo", "build/sample_test", "made_in_the_terminal.txt"} {
 		if _, found := files[name]; !found {
+			t.Errorf("%s is not in the snapshot", name)
+		}
+	}
+	final := admin.Submissions[1]
+	var tree struct {
+		Entries []struct {
+			Path string `json:"path"`
+			Type string `json:"type"`
+		} `json:"entries"`
+	}
+	if err := json.Unmarshal(r.admin("GET", fmt.Sprintf("/admin/workspace/submission/%d/tree", final.ID), "", nil, 200), &tree); err != nil {
+		t.Fatal(err)
+	}
+	submitted := map[string]bool{}
+	for _, entry := range tree.Entries {
+		if entry.Type == "file" {
+			submitted[entry.Path] = true
+		}
+		if strings.HasPrefix(entry.Path, "build") || strings.HasSuffix(entry.Path, ".o") {
+			t.Errorf("%s is in the submission, and the exam ignores it", entry.Path)
+		}
+	}
+	for _, name := range []string{"Makefile", "include/list.hpp", "src/list.cpp", "src/main.cpp", "tests/sample_test.cpp", "tests/mine.cpp"} {
+		if !submitted[name] {
 			t.Errorf("%s is not in the submission", name)
 		}
 	}
+	// The example package submits src/, include/, tests/ and the Makefile: a file the student made elsewhere is in the snapshot, not the submission.
+	if submitted["made_in_the_terminal.txt"] {
+		t.Error("made_in_the_terminal.txt is in the submission, and the exam's submit list does not name it")
+	}
 	for name := range files {
 		if strings.Contains(name, "hidden") || strings.Contains(files[name], "HIDDEN-CASES-MARKER") {
-			t.Errorf("the submission has something of the grading bundle: %s", name)
+			t.Errorf("the snapshot has something of the grading bundle: %s", name)
 		}
 	}
-	r.stop()
+	// The zip of the submission is the submission: the same files, with the same bytes.
+	zipData := r.admin("GET", fmt.Sprintf("/admin/workspace/submission/%d/zip", final.ID), "", nil, 200)
+	archive, err := zip.NewReader(bytes.NewReader(zipData), int64(len(zipData)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	inZip := map[string]string{}
+	for _, entry := range archive.File {
+		file, _ := entry.Open()
+		data, _ := io.ReadAll(file)
+		file.Close()
+		inZip[entry.Name] = string(data)
+	}
+	if len(inZip) != len(submitted) {
+		t.Errorf("the zip has %d files, the submission %d", len(inZip), len(submitted))
+	}
+	for name := range submitted {
+		if inZip[name] != files[name] {
+			t.Errorf("%s in the zip is not what the snapshot has", name)
+		}
+	}
+	// The report has the work, the ticks, and says whose ticks they are.
+	report := string(r.admin("GET", "/admin/workspace/session/"+student.ID+"/report", "", nil, 200))
+	for _, want := range []string{"## Instructions", "self-reported", "- [x] Implement `push_front`", "head_ = new Node{value, head_};", "### `tests/mine.cpp`"} {
+		if !strings.Contains(report, want) {
+			t.Errorf("the report lacks %q", want)
+		}
+	}
+	if strings.Contains(report, "HIDDEN-CASES-MARKER") || strings.Contains(report, "### `build/") {
+		t.Error("the report has what it must not")
+	}
+	// The transcripts: the first Check fails, the second passes, the Run printed the list, and every one replays.
+	casts := map[string][]string{}
+	for _, term := range admin.Terminals {
+		data := r.admin("GET", fmt.Sprintf("/admin/workspace/terminal/%d/cast", term.ID), "", nil, 200)
+		lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+		if len(lines) < 1 || !strings.HasPrefix(lines[0], `{"version":2`) {
+			t.Fatalf("transcript %d has no header: %q", term.ID, lines[:1])
+		}
+		var text strings.Builder
+		last := -1.0
+		for _, line := range lines[1:] {
+			var event []any
+			if err := json.Unmarshal([]byte(line), &event); err != nil || len(event) != 3 || event[1] != "o" || event[0].(float64) < last {
+				t.Fatalf("transcript %d: %q does not replay (%v)", term.ID, line, err)
+			}
+			last = event[0].(float64)
+			text.WriteString(event[2].(string))
+		}
+		casts[term.Kind] = append(casts[term.Kind], text.String())
+		if term.EndedAt == "" || term.Bytes == 0 {
+			t.Errorf("transcript %d is not closed: %+v", term.ID, term)
+		}
+	}
+	if len(casts["check"]) != 2 || !strings.Contains(casts["check"][0], "FAILED") || !strings.Contains(casts["check"][1], "push_front: ok") || len(casts["run"]) != 1 ||
+		!strings.Contains(casts["run"][0], "1 2 3") || !strings.Contains(casts["run"][0], "g++") || len(casts["shell"]) != 1 || !strings.Contains(casts["shell"][0], "touch made_in_the_terminal.txt") {
+		t.Errorf("transcripts: %d checks, %d runs, %d shells: %q", len(casts["check"]), len(casts["run"]), len(casts["shell"]), casts)
+	}
+	// The history, as the proctor's window reads it.
+	var kinds []string
+	var exits []any
+	cursor := ""
+	for {
+		path := "/admin/session/" + student.ID + "/timeline?limit=200"
+		if cursor != "" {
+			path += "&cursor=" + cursor
+		}
+		var page struct {
+			Items []struct {
+				Event *struct {
+					Type   string         `json:"event_type"`
+					Detail map[string]any `json:"detail"`
+				} `json:"event"`
+			} `json:"items"`
+			Next *string `json:"next_cursor"`
+		}
+		if err := json.Unmarshal(r.admin("GET", path, "", nil, 200), &page); err != nil {
+			t.Fatal(err)
+		}
+		for _, item := range page.Items {
+			if item.Event == nil {
+				continue
+			}
+			switch kind := item.Event.Type; {
+			case strings.HasPrefix(kind, "workspace.") || strings.HasPrefix(kind, "file.") || strings.HasPrefix(kind, "pty.") || strings.HasPrefix(kind, "run.") || kind == "todo.set":
+				kinds = append(kinds, kind)
+				if kind == "run.started" {
+					exits = append(exits, item.Event.Detail["which"], item.Event.Detail["exit_code"])
+				}
+			}
+		}
+		if page.Next == nil {
+			break
+		}
+		cursor = *page.Next
+	}
+	joined := strings.Join(kinds, " ")
+	for _, want := range []string{"workspace.opened", "pty.opened", "run.started", "file.saved", "file.created", "todo.set", "workspace.submitted", "workspace.disconnected"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("the history lacks %s: %s", want, joined)
+		}
+	}
+	if strings.Count(joined, "workspace.submitted") != 2 || strings.Count(joined, "todo.set") != 3 || !strings.HasSuffix(joined, "workspace.submitted") && !strings.HasSuffix(joined, "workspace.disconnected") {
+		t.Errorf("history: %s", joined)
+	}
+	// make says 2 when a recipe fails, and the first Check's test returns 1.
+	if fmt.Sprint(exits) != "[check 2 check 0 run 0]" {
+		t.Errorf("how the runs ended: %v", exits)
+	}
+	// The roster, with the TODO progress, which the proctor is told is the student's own.
+	var roster struct {
+		Students []struct {
+			Account   string `json:"account_number"`
+			Done      int    `json:"todo_done"`
+			Total     int    `json:"todo_total"`
+			Final     bool   `json:"submitted_final"`
+			Submitted int    `json:"submissions"`
+		} `json:"students"`
+	}
+	if err := json.Unmarshal(r.admin("GET", "/admin/workspace/exam/"+examID+"/roster", "", nil, 200), &roster); err != nil || len(roster.Students) != 1 || roster.Students[0].Done != 3 || roster.Students[0].Total != 3 || !roster.Students[0].Final || roster.Students[0].Submitted != 2 {
+		t.Errorf("roster = %+v, %v", roster, err)
+	}
+}
+
+// phaseManual is not a test: it is a throwaway workspace exam server for a person to try the application against (the focus-loss script,
+// docs/tools/TEST-FOCUS.md). It starts the server on CBE_E2E_BIND (127.0.0.1:8090 unless told otherwise), makes a class of three students
+// (accounts 0001 to 0003), imports and publishes the example package, says how to connect, and runs until it is interrupted. Whatever
+// containers the students made are removed at the end (deploy/workspace/test-server.sh --manual).
+func phaseManual(t *testing.T, r *rig) {
+	dir, err := os.MkdirTemp(env(t, "CBE_E2E_STATE"), "manual-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.dir, r.bind = dir, os.Getenv("CBE_E2E_BIND")
+	if err := os.WriteFile(filepath.Join(dir, "admin-token"), []byte(adminTokn+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r.state.Dir = dir
+	r.save()
+	r.start()
+	var class struct {
+		Class struct {
+			ID string `json:"class_id"`
+		} `json:"class"`
+	}
+	if err := json.Unmarshal(r.admin("POST", "/admin/classes?name=Manual+test", "text/csv", strings.NewReader(classCSV), 201), &class); err != nil || class.Class.ID == "" {
+		t.Fatalf("class: %v", err)
+	}
+	examID := r.importExam(class.Class.ID, "Manual test: the example package", 7200, 120)
+	r.admin("POST", "/admin/exam/"+examID+"/publish", "application/json", strings.NewReader(`{"expected_current":""}`), 200)
+	fmt.Printf("\n"+`A throwaway workspace exam server is running. Nothing in it is real: it has its own database, and it is removed when you stop it.
+
+  server         %s
+  exam           Manual test: the example package (2 hours)
+  PIN            %s
+  accounts       0001 (Ada), 0002 (Grace), 0003 (Joan)
+  admin token    %s   (the proctor application wants it in a file: echo '%s' > ~/manual-admin-token)
+
+Student application:  cbe-portal-student -server %s   (then log in with an account and the PIN)
+Proctor application:  Server connection > the server above, and the token file above.
+
+Press Ctrl+C here when you are done.
+`+"\n", r.base, pin, adminTokn, adminTokn, r.base)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	<-ctx.Done()
+	fmt.Println("\nStopping and removing what the students made...")
+	r.removeWorkspaces(examID)
 }

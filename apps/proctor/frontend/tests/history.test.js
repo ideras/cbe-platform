@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { historyRows, lockDetail, remoteDetail } from '../src/history.js';
+import { historyRows, lockDetail, remoteDetail, workspaceDetail, isWorkspaceEvent, groups, label } from '../src/history.js';
 import { localTime } from '../src/dates.js';
 
 const AT = '2035-01-01T00:00:00Z';
@@ -130,4 +130,37 @@ test('a report of remote access says what was found, and that nothing is any mor
   assert.equal(odd.note, gone.note);
   assert.equal(remoteDetail({ client: { active: 'x' } }), gone.note);
   assert.equal(remoteDetail({ client: { active: [{ kind: 'remote_tool', name: '<b>x</b>' }] } }), 'Found on the student\'s computer: <b>x</b>.');
+});
+
+test('a workspace\'s events are told in words, with sizes and paths and never the text of a file or a paste', () => {
+  const at = '2035-01-01T00:00:00Z';
+  const item = (id, type, detail) => ({ id: String(id), kind: 'event', occurred_at: at, event: { event_log_id: id, event_type: type, detail, screenshots: [] } });
+  const rows = historyRows([
+    item(1, 'workspace.opened', null), item(2, 'file.saved', { path: 'src/a.c', bytes: 120, delta_bytes: 16 }), item(3, 'file.saved', { path: 'b.c', bytes: 5, delta_bytes: -7 }), item(4, 'file.saved', { path: 'c.c', bytes: 9 }),
+    item(5, 'file.created', { path: 'dir', dir: true }), item(6, 'file.renamed', { path: 'a.c', to: 'b.c' }), item(7, 'file.deleted', { path: 'x' }), item(8, 'pty.opened', { id: 2, kind: 'check' }),
+    item(9, 'pty.closed', { id: 2 }), item(10, 'run.started', { which: 'run', exit_code: 0 }), item(11, 'todo.set', { id: 't1', done: true }), item(12, 'paste.blocked', { target: 'editor', bytes: 30 }),
+    item(13, 'workspace.submitted', { final: true, snapshot: 9, files: 4 }), item(14, 'workspace.agent_restarted', null), item(15, 'login', { resumed: false }),
+  ]);
+  const notes = Object.fromEntries(rows.map(row => [row.event.event_log_id, row.note]));
+  assert.equal(notes[2], 'src/a.c · 120 bytes (+16)');
+  assert.equal(notes[3], 'b.c · 5 bytes (-7)');
+  assert.equal(notes[4], 'c.c · 9 bytes');
+  assert.equal(notes[5], 'dir (folder)');
+  assert.equal(notes[6], 'a.c → b.c');
+  assert.equal(notes[8], 'Check 2');
+  assert.equal(notes[10], 'Run ended with code 0');
+  assert.equal(notes[11], 't1 marked done (self-reported)');
+  assert.equal(notes[12], 'Blocked a paste into the editor (30 bytes)');
+  assert.equal(notes[13], 'Final submission · snapshot 9 · 4 files');
+  assert.deepEqual(rows.map(row => row.group), [...Array(14).fill('workspace'), 'other']);
+  assert.deepEqual(rows.slice(0, 3).map(row => row.title), ['Workspace opened', 'File saved', 'File saved']);
+  assert.equal(label('todo.set'), 'TODO changed');
+  assert.ok(groups.some(group => group.id === 'workspace'));
+});
+
+test('only the events a workspace writes are a workspace\'s', () => {
+  for (const type of ['workspace.opened', 'file.saved', 'pty.closed', 'run.started', 'todo.set', 'paste.blocked']) assert.ok(isWorkspaceEvent(type), type);
+  for (const type of ['login', 'focus_lost', 'calc_opened', 'submitted', 'locked', 'workspacefoo', 'files']) assert.ok(!isWorkspaceEvent(type), type);
+  assert.equal(workspaceDetail('login', {}), '');
+  assert.equal(workspaceDetail('file.saved', undefined).includes('undefined'), true, 'a record with no detail does not throw');
 });

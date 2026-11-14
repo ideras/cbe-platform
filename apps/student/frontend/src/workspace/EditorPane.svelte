@@ -1,5 +1,5 @@
 <script>
-  import { onMount, untrack } from 'svelte';
+  import { onMount, tick, untrack } from 'svelte';
   import { EditorState, Compartment, Annotation } from '@codemirror/state';
   import { EditorView, keymap, lineNumbers, highlightActiveLineGutter, highlightSpecialChars, drawSelection, dropCursor } from '@codemirror/view';
   import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
@@ -21,6 +21,13 @@
   const extensionsOf = new Map(); // tab id -> the language's extension, for a state made again
   const outside = Annotation.define();
   const access = new Compartment();
+  // The size of the code is part of the editor's theme, and a change of it is dispatched as a change of the theme. CodeMirror measures its
+  // lines (the height it believes each has, which moving the cursor up and down and finding the line under the mouse go by) when its
+  // content changes height or its theme changes, and in no other case: a size that came from the page's CSS alone (the toolbar's A− and
+  // A+, ours below) left it with the old heights when the code did not fill the editor, and the arrow keys then skipped lines.
+  const sizing = new Compartment();
+  const sizeTheme = () => EditorView.theme({ '&': { fontSize: 'calc(var(--text-sm) * var(--code-zoom, 1))' } });
+  function resize() { view?.dispatch({ effects: sizing.reconfigure(sizeTheme()) }); }
   let shownId = $state(null);
   const buffers = new Map(); // tab id -> the buffer registered with the model
 
@@ -28,6 +35,16 @@
   const showing = $derived(active?.state === 'ready');
   // Two tabs with the same name say which folder they are in.
   const label = tab => tabs.some(other => other.id !== tab.id && basename(other.path) === basename(tab.path)) ? `${basename(tab.path)} (${dirname(tab.path) || '/'})` : basename(tab.path);
+
+  // The size of the code text, on top of the application's A− and A+ (which size the whole workspace, files and buttons too): a student
+  // who wants bigger code need not make everything else bigger, which would take the room the code needs. Ctrl and + − 0 do it from the
+  // keyboard, as in a code editor. It is kept while the application runs and is not written anywhere.
+  const ZOOMS = [0.85, 1, 1.15, 1.3, 1.5, 1.75, 2];
+  let zoomIndex = $state(1);
+  const zoom = delta => { zoomIndex = delta === 0 ? 1 : Math.max(0, Math.min(ZOOMS.length - 1, zoomIndex + delta)); };
+  $effect(() => { zoomIndex; if (view) tick().then(resize); });
+  // A click leaves the focus where the student was working (the editor); a key press on the button keeps it on the button.
+  const zoomClick = (delta, event) => { zoom(delta); if (event.detail > 0) view?.focus(); };
 
   const accessConfig = locked => [EditorState.readOnly.of(locked), EditorView.contentAttributes.of(locked ? { 'aria-readonly': 'true' } : {})];
 
@@ -38,11 +55,14 @@
       syntaxHighlighting(highlightColors), language,
       keymap.of([
         { key: 'Mod-s', preventDefault: true, run: () => { model.save(model.tabs.find(item => item.id === tab.id)?.path ?? tab.path).catch(() => {}); return true; } },
+        { key: 'Mod-=', run: () => { zoom(1); return true; } }, { key: 'Mod-+', run: () => { zoom(1); return true; } },
+        { key: 'Mod--', run: () => { zoom(-1); return true; } }, { key: 'Mod-0', run: () => { zoom(0); return true; } },
         indentWithTab, ...closeBracketsKeymap, ...defaultKeymap, ...searchKeymap, ...historyKeymap, ...foldKeymap,
       ]),
       EditorView.contentAttributes.of({ 'aria-label': `Editor for ${tab.path}`, spellcheck: 'false' }),
       access.of(accessConfig(readOnly)),
       editorTheme('0'),
+      sizing.of(sizeTheme()),
       EditorView.updateListener.of(update => {
         if (update.docChanged && !update.transactions.some(t => t.annotation(outside))) model.editedById(tab.id);
       }),
@@ -81,10 +101,14 @@
     const state = await ensure(tab);
     if (ticket !== wanted) return;
     view.setState(state);
-    view.dispatch({ effects: access.reconfigure(accessConfig(readOnly)) });
+    view.dispatch({ effects: [access.reconfigure(accessConfig(readOnly)), sizing.reconfigure(sizeTheme())] });
     shownId = tab.id;
   }
-  $effect(() => { active?.id; active?.state; if (view) untrack(show); });
+  // What decides it are the tab's id and state, read through values of their own: `active` is a new object at every snapshot of the model
+  // (a save, a tick, a terminal's output), and an effect that read it would redraw the whole editor and lose its scroll each time.
+  const activeId = $derived(active?.id ?? null);
+  const activeState = $derived(active?.state ?? null);
+  $effect(() => { activeId; activeState; if (view) untrack(show); });
 
   // What the model keeps are the tabs that exist: the state of one that was closed goes with it.
   $effect(() => {
@@ -99,11 +123,10 @@
   $effect(() => { const locked = readOnly; if (view) view.dispatch({ effects: access.reconfigure(accessConfig(locked)) }); });
 
   onMount(() => {
-    view = new EditorView({ parent: host, state: EditorState.create({ doc: '', extensions: [editorTheme('0')] }) });
+    view = new EditorView({ parent: host, state: EditorState.create({ doc: '', extensions: [editorTheme('0'), sizing.of(sizeTheme())] }) });
     show();
-    const measure = () => view.requestMeasure();
-    window.addEventListener('exam-text-size', measure);
-    return () => { window.removeEventListener('exam-text-size', measure); view.destroy(); view = null; };
+    window.addEventListener('exam-text-size', resize);
+    return () => { window.removeEventListener('exam-text-size', resize); view.destroy(); view = null; };
   });
 
   export function focus() { view?.focus(); }
@@ -117,18 +140,23 @@
     else if (event.key === 'Delete' || (event.key === 'w' && (event.ctrlKey || event.metaKey))) { event.preventDefault(); onClose(tabs[index].path); }
   }
 </script>
-<section class="editor" aria-label="Editor">
+<section class="editor" aria-label="Editor" style:--code-zoom={ZOOMS[zoomIndex]}>
   <div class="tabbar">
     <div class="tabs" role="tablist" aria-label="Open files">
       {#each tabs as tab, index (tab.id)}
         <button type="button" role="tab" class="tab" class:front={tab.path === activePath} id="file-tab-{tab.id}" aria-selected={tab.path === activePath} aria-controls="editor-panel"
           tabindex={tab.path === activePath ? 0 : -1} title={tab.path} onclick={() => model.activate(tab.path)} onkeydown={event => tabKeys(event, index)}>
-          {label(tab)}{#if tab.dirty}<span class="dot" role="img" aria-label="unsaved changes">●</span>{/if}
+          {label(tab)}<span class="mark">{#if tab.dirty}<span class="dot" role="img" aria-label="unsaved changes">●</span>{/if}</span>
           <!-- The mouse's way to close a tab; the keyboard's are Delete and Ctrl+W on the tab, and the button next to the tabs. -->
           <span class="close" aria-hidden="true" onclick={event => { event.stopPropagation(); onClose(tab.path); }}><Icon name="close" size={14} /></span>
         </button>
       {/each}
       {#if tabs.length === 0}<span class="none">No file open. Open one from the file tree.</span>{/if}
+    </div>
+    <!-- The names start with what is drawn on the buttons, as WCAG's "label in name" asks (a person who says "A plus" to a voice control must reach it). -->
+    <div class="zoom" role="group" aria-label="Code text size">
+      <button type="button" aria-label="A− Smaller code text" title="Smaller code text (Ctrl and −)" disabled={zoomIndex === 0} onclick={event => zoomClick(-1, event)}>A−</button>
+      <button type="button" aria-label="A+ Larger code text" title="Larger code text (Ctrl and +)" disabled={zoomIndex === ZOOMS.length - 1} onclick={event => zoomClick(1, event)}>A+</button>
     </div>
     {#if active}<button type="button" class="close-active" aria-label="Close {label(active)}" title="Close this file" onclick={() => onClose(active.path)}><Icon name="close" size={14} /></button>{/if}
   </div>
@@ -156,15 +184,21 @@
   .tabs { display: flex; flex: 1 1 auto; align-items: stretch; gap: 1px; min-width: 0; overflow-x: auto; }
   .tab { display: inline-flex; align-items: center; flex: none; gap: .25rem; margin: 0; padding: .35rem .5rem .35rem .7rem; border: 0; border-bottom: 3px solid var(--transparent); border-radius: 0; background: var(--bg-secondary); box-shadow: none; color: var(--text-main); font-family: var(--font-mono); font-size: var(--text-sm); }
   .tab.front { background: var(--bg-raised); border-bottom-color: var(--action-primary); font-weight: 700; }
+  .zoom { display: flex; flex: none; align-items: stretch; }
+  .zoom button { margin: 0; padding: .25rem .5rem; border: 0; border-radius: 0; background: var(--transparent); box-shadow: none; color: var(--text-main); font-size: var(--text-sm); font-weight: 700; }
+  .zoom button:disabled { opacity: .45; }
+  .zoom button:focus-visible { outline: 2px solid var(--action-primary); outline-offset: -2px; }
   .tab:focus-visible, .close-active:focus-visible { outline: 2px solid var(--action-primary); outline-offset: -2px; }
   .close { display: inline-flex; padding: .1rem; border-radius: 4px; color: var(--text-muted); }
   .close:hover { color: var(--alert-text); background: var(--hover-fill); }
   .close-active { flex: none; margin: 0; border: 0; border-radius: 0; background: var(--transparent); box-shadow: none; color: var(--text-main); }
   .dot { color: var(--warn-text); font-size: .7em; }
+  /* The place of the dot is kept when there is none, so the tab does not widen and move the ones after it at every edit and every save. */
+  .mark { display: inline-block; width: .8em; text-align: center; }
   .none { padding: .5rem .75rem; color: var(--text-muted); font-size: var(--text-sm); }
   .panel { position: relative; display: flex; flex-direction: column; min-height: 0; }
   .host { flex: 1 1 0; min-height: 0; overflow: hidden; }
-  .host :global(.cm-editor) { height: 100%; font-size: var(--text-sm); }
+  .host :global(.cm-editor) { height: 100%; }
   .host:focus-within { box-shadow: inset 0 0 0 2px var(--focus-halo); }
   .notice { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); padding: .45rem .75rem; background: var(--warn-fill); color: var(--warn-text); border-bottom: 1px solid var(--border-subtle); font-size: var(--text-sm); }
   .notice.conflict { background: var(--alert-fill); color: var(--alert-text); }

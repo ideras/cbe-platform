@@ -4,8 +4,9 @@
   import { MAX_TERMINALS } from './model.js';
 
   // The terminals: a tab for each (up to four), and for each the program's output. Run and Check open a tab of their own, which ends
-  // with the program; an exam without a terminal has only those, with no keyboard.
-  let { model, terminals, activeTerm, terminalAllowed, readOnly } = $props();
+  // with the program; an exam without a terminal has only those, with no keyboard. The page shows this panel only while there is a
+  // terminal in it, and the student can hide it (the terminals go on).
+  let { model, terminals, activeTerm, terminalAllowed, readOnly, onHide } = $props();
   let refs = $state({});
   const active = $derived(terminals.find(item => item.term === activeTerm) ?? null);
   const running = $derived(terminals.filter(item => !item.exited).length);
@@ -29,12 +30,12 @@
           <span class="close" aria-hidden="true" onclick={event => { event.stopPropagation(); model.closeTerminal(item.term); }}><Icon name="close" size={14} /></span>
         </button>
       {/each}
-      {#if terminals.length === 0}<span class="none">{terminalAllowed ? 'No terminal open. Use + to open one, or Run and Check above.' : 'Run and Check show their output here.'}</span>{/if}
     </div>
     {#if terminalAllowed}
       <button type="button" class="tool" disabled={readOnly || running >= MAX_TERMINALS} onclick={() => model.openTerminal()} aria-label="New terminal" title={running >= MAX_TERMINALS ? `${MAX_TERMINALS} terminals are open` : 'New terminal'}><Icon name="plus" size={16} /></button>
     {/if}
     {#if active}<button type="button" class="tool" aria-label="Close {active.title}" title="Close this terminal" onclick={() => model.closeTerminal(active.term)}><Icon name="close" size={16} /></button>{/if}
+    <button type="button" class="tool hide" aria-label="Hide the terminals" title="Hide the terminals: they keep running, and the Terminal button shows them again" onclick={onHide}><Icon name="chevron" size={16} /></button>
   </div>
   <div class="views">
     {#each terminals as item (item.term)}
@@ -58,7 +59,7 @@
   .tool:disabled { opacity: .45; }
   .mark { margin-left: .35rem; color: var(--ok-text); }
   .mark.bad { color: var(--alert-text); }
-  .none { padding: .5rem .75rem; color: var(--text-muted); font-size: var(--text-sm); }
+  .hide :global(svg) { transform: rotate(90deg); }
   .views, .slot { min-height: 0; height: 100%; }
   .ended { margin: 0; padding: .3rem .75rem; border-top: 1px solid var(--border-subtle); color: var(--text-muted); font-size: var(--text-sm); }
 </style>

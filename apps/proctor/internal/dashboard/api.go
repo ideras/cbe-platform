@@ -311,12 +311,15 @@ var (
 	errUnreachable  = errors.New("Server unreachable or request timed out. Data or action outcome is unconfirmed; refresh before retrying.")
 )
 
+// errMissing is the server saying a record, an image or a route is not there.
+var errMissing = errors.New("Requested record or image is unavailable, missing or purged.")
+
 func apiError(status int) error {
 	switch status {
 	case 401, 403:
 		return errUnauthorized
 	case 404, 410:
-		return errors.New("Requested record or image is unavailable, missing or purged.")
+		return errMissing
 	case 400, 413, 415:
 		return errors.New("The server rejected the request. Check the selected exam and input.")
 	}

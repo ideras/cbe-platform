@@ -612,6 +612,31 @@ func TestValidGlob(t *testing.T) {
 	}
 }
 
+// The table the server's matcher is held to as well (internal/workspace/glob_test.go reads the same file).
+func TestGlobMatchSharedTable(t *testing.T) {
+	data, err := os.ReadFile("../../testdata/workspace/glob-cases.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var table struct {
+		Cases []struct {
+			Pattern, Name string
+			Want          bool
+		} `json:"cases"`
+	}
+	if err := json.Unmarshal(data, &table); err != nil || len(table.Cases) < 30 {
+		t.Fatalf("the table: %v, %d cases", err, len(table.Cases))
+	}
+	for _, test := range table.Cases {
+		if validGlob(test.Pattern) != "" {
+			t.Errorf("%q is not a valid pattern", test.Pattern)
+		}
+		if got := GlobMatch(test.Pattern, test.Name); got != test.Want {
+			t.Errorf("GlobMatch(%q, %q) = %v, want %v", test.Pattern, test.Name, got, test.Want)
+		}
+	}
+}
+
 func TestGlobMatch(t *testing.T) {
 	for _, test := range []struct {
 		pattern, name string

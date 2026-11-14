@@ -148,7 +148,8 @@ func newWorkspaceFixture(t *testing.T, change func(*workspace.Document)) *worksp
 	}
 	f.repo = f.store.Workspaces()
 	f.manager = workspace.NewManager(workspace.Options{Repo: f.repo, Runner: f.runner, Blobs: f.blobs, Logger: f.logger, Now: f.clock.Now, SnapshotEvery: 60 * time.Second,
-		HeartbeatTimeout: 5 * time.Second, ReadyTimeout: 10 * time.Second, Retention: time.Hour})
+		HeartbeatTimeout: 5 * time.Second, ReadyTimeout: 10 * time.Second, Retention: time.Hour, TranscriptDir: f.dir + "/transcripts"})
+	t.Cleanup(f.manager.Close)
 	f.service = &workspace.Service{Manager: f.manager, Repo: f.repo, Importer: &workspace.Importer{Repo: f.repo, Runner: f.runner, Blobs: f.blobs, Now: f.clock.Now,
 		Max: workspace.Resources{CPU: 2, MemoryMB: 2048, DiskMB: 500}, DefaultGrace: f.sessions.DefaultGraceSeconds}}
 	f.options = Options{AdminToken: testAdminToken, Workspace: f.service, Proctor: f.sessions, Rules: f.sessions}
