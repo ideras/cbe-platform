@@ -1,0 +1,56 @@
+##### go version  [21:22:29]
+##### RESULT go version rc=0 seconds=0
+##### git commit  [21:22:29]
+##### RESULT git commit rc=0 seconds=0
+##### build server (scratch)  [21:22:29]
+##### RESULT build server (scratch) rc=0 seconds=1
+##### build student frontend  [21:22:30]
+##### RESULT build student frontend rc=0 seconds=1
+##### build proctor frontend  [21:22:31]
+##### RESULT build proctor frontend rc=0 seconds=1
+##### ci test.py --race (vet + tests, 7 modules)  [21:22:32]
+ok  	exam-platform/cmd/cbe-agent-cli	(cached)
+ok  	exam-platform/internal/agent	(cached)
+ok  	exam-platform/internal/agentproto	(cached)
+ok  	exam-platform/internal/config	(cached)
+ok  	exam-platform/internal/domain	(cached)
+ok  	exam-platform/internal/httpapi	108.038s
+ok  	exam-platform/internal/quota	(cached)
+ok  	exam-platform/internal/roster	(cached)
+ok  	exam-platform/internal/runner	(cached)
+ok  	exam-platform/internal/runner/dockerrt	(cached)
+ok  	exam-platform/internal/server	2.688s
+ok  	exam-platform/internal/service	171.375s
+ok  	exam-platform/internal/storage	35.161s
+ok  	exam-platform/internal/workspace	1.029s
+ok  	exam-platform/internal/workspace/e2e	1.015s
+ok  	exam-platform/shared/calc	(cached)
+ok  	exam-platform/shared/clientwire	(cached)
+ok  	exam-platform/shared/examdoc	1.669s
+ok  	exam-platform/shared/examdoc/cmd/examc	(cached)
+ok  	exam-platform/shared/examimage	(cached)
+ok  	exam-platform/apps/student	1.026s
+ok  	exam-platform/apps/student/internal/client	40.750s
+ok  	exam-platform/apps/student/internal/remotewatch	(cached)
+ok  	exam-platform/apps/student/internal/sessionwatch	(cached)
+ok  	exam-platform/apps/student/internal/spike	(cached)
+ok  	exam-platform/apps/proctor	1.027s
+ok  	exam-platform/apps/proctor/internal/dashboard	8.431s
+##### RESULT ci test.py --race (vet + tests, 7 modules) rc=0 seconds=234
+##### student npm test  [21:26:26]
+ℹ tests 95
+ℹ pass 95
+ℹ fail 0
+##### RESULT student npm test rc=0 seconds=1
+##### proctor npm test  [21:26:27]
+ℹ tests 85
+ℹ pass 85
+ℹ fail 0
+##### RESULT proctor npm test rc=0 seconds=0
+##### student playwright  [21:26:27]
+  158 passed (3.4m)
+##### RESULT student playwright rc=0 seconds=205
+##### proctor playwright  [21:29:52]
+  306 passed (4.5m)
+##### RESULT proctor playwright rc=0 seconds=271
+##### ALL DONE [21:34:23]

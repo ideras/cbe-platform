@@ -93,7 +93,7 @@
 {#if workspace}
   <Panel label="Workspace" title="Workspace">
     <dl class="summary">
-      <dt>Container</dt><dd><strong>{workspace.state}</strong>{#if workspace.agent_restarts} · restarted {workspace.agent_restarts} time{workspace.agent_restarts === 1 ? '' : 's'}{/if}</dd>
+      <dt>Container</dt><dd><strong>{workspace.state}</strong>{#if workspace.agent_restarts}{' · restarted '}{workspace.agent_restarts} time{workspace.agent_restarts === 1 ? '' : 's'}{/if}</dd>
       <dt>TODO ({todoNote})</dt><dd>{#if ticked.length}{ticked.join(', ')} ticked by the student{:else}nothing ticked{/if}. Nothing checked these ticks.</dd>
       <dt>Submissions</dt><dd>{#if latestSubmission}{workspace.submissions.length} · latest {latestSubmission.final ? 'is the final one' : 'was made by the student pressing Submit'}, {localDateTime(latestSubmission.submitted_at)}{:else}none yet{/if}</dd>
     </dl>
