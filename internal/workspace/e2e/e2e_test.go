@@ -26,6 +26,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -67,6 +68,7 @@ type rig struct {
 	pkgDir    string
 	state     state
 	statePath string
+	bind      string // the address to listen on, for the manual phase; empty is any free port on 127.0.0.1
 }
 
 func env(t *testing.T, name string) string {
@@ -115,12 +117,15 @@ func (r *rig) load() {
 // start runs the server on this rig's folder and waits for it to answer.
 func (r *rig) start() {
 	r.t.Helper()
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		r.t.Fatal(err)
+	addr := r.bind
+	if addr == "" {
+		listener, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			r.t.Fatal(err)
+		}
+		addr = listener.Addr().String()
+		listener.Close()
 	}
-	addr := listener.Addr().String()
-	listener.Close()
 	logFile, err := os.OpenFile(filepath.Join(r.dir, "server.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		r.t.Fatal(err)
@@ -129,6 +134,11 @@ func (r *rig) start() {
 		"-admin-token-file", filepath.Join(r.dir, "admin-token"), "-runner-socket", env(r.t, "CBE_RUNNER_SOCKET"), "-runner-secret-file", env(r.t, "CBE_RUNNER_SECRET_FILE"),
 		"-workspace-dir", filepath.Join(r.dir, "workspace"), "-workspace-snapshot-every", "10s", "-worker-interval", "500ms")
 	r.cmd.Stdout, r.cmd.Stderr = logFile, logFile
+	if r.bind != "" {
+		// The manual phase is stopped with Ctrl+C, which reaches the whole foreground group: the server must outlive it, to be asked for
+		// the students' workspaces and stopped in order.
+		r.cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	}
 	if err := r.cmd.Start(); err != nil {
 		r.t.Fatal(err)
 	}
@@ -226,6 +236,31 @@ func (r *rig) importExam(classID, title string, duration, grace int64) string {
 		r.t.Fatalf("import answer: %v", err)
 	}
 	return created.ID
+}
+
+// removeWorkspaces removes the containers and folders of the workspaces an exam's students made through the application's own client or
+// by hand, which the rig did not make itself and so does not have in its state. The server must be running.
+func (r *rig) removeWorkspaces(examID string) {
+	r.t.Helper()
+	status, data := r.do("GET", "/admin/workspace/exam/"+examID+"/roster", "", adminTokn, nil)
+	if status != 200 {
+		r.t.Errorf("the roster for the clean-up = %d: %s", status, data)
+		return
+	}
+	var roster struct {
+		Students []struct {
+			SessionID string `json:"session_id"`
+		} `json:"students"`
+	}
+	if err := json.Unmarshal(data, &roster); err != nil {
+		r.t.Errorf("the roster for the clean-up: %v", err)
+		return
+	}
+	for _, student := range roster.Students {
+		if err := r.runner.Remove(context.Background(), student.SessionID); err != nil {
+			r.t.Errorf("removing %s: %v", student.SessionID, err)
+		}
+	}
 }
 
 func (r *rig) login(account string) sessionState {
@@ -344,6 +379,8 @@ func TestRealServer(t *testing.T) {
 		phaseC(t, r)
 	case "D":
 		phaseD(t, r)
+	case "M":
+		phaseManual(t, r)
 	case "cleanup":
 		// Whatever the other phases made, whether or not they got to the end: the containers and their folders go.
 		r.load()
@@ -353,7 +390,7 @@ func TestRealServer(t *testing.T) {
 			}
 		}
 	default:
-		t.Fatalf("CBE_E2E_PHASE must be A, B, C, D or cleanup, not %q", phase)
+		t.Fatalf("CBE_E2E_PHASE must be A, B, C, D, M or cleanup, not %q", phase)
 	}
 }
 
@@ -844,6 +881,8 @@ func phaseD(t *testing.T, r *rig) {
 	}
 	examID := r.importExam(class.Class.ID, "Finish the example", 0, 0)
 	r.admin("POST", "/admin/exam/"+examID+"/publish", "application/json", strings.NewReader(`{"expected_current":""}`), 200)
+	// The student's container is made by the application's client, not by the rig: it is removed however this ends, while the server still runs.
+	defer r.removeWorkspaces(examID)
 
 	command := exec.Command(studentTest, "-test.run", "^TestRealWorkspaceFinishTheExamplePackage$", "-test.v", "-test.timeout", "5m")
 	command.Env = append(os.Environ(), "CBE_E2E_SERVER_URL="+r.base, "CBE_E2E_ACCOUNT=0001", "CBE_E2E_PIN="+pin)
@@ -1083,5 +1122,50 @@ func phaseD(t *testing.T, r *rig) {
 	if err := json.Unmarshal(r.admin("GET", "/admin/workspace/exam/"+examID+"/roster", "", nil, 200), &roster); err != nil || len(roster.Students) != 1 || roster.Students[0].Done != 3 || roster.Students[0].Total != 3 || !roster.Students[0].Final || roster.Students[0].Submitted != 2 {
 		t.Errorf("roster = %+v, %v", roster, err)
 	}
-	r.stop()
+}
+
+// phaseManual is not a test: it is a throwaway workspace exam server for a person to try the application against (the focus-loss script,
+// docs/tools/TEST-FOCUS.md). It starts the server on CBE_E2E_BIND (127.0.0.1:8090 unless told otherwise), makes a class of three students
+// (accounts 0001 to 0003), imports and publishes the example package, says how to connect, and runs until it is interrupted. Whatever
+// containers the students made are removed at the end (deploy/workspace/test-server.sh --manual).
+func phaseManual(t *testing.T, r *rig) {
+	dir, err := os.MkdirTemp(env(t, "CBE_E2E_STATE"), "manual-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.dir, r.bind = dir, os.Getenv("CBE_E2E_BIND")
+	if err := os.WriteFile(filepath.Join(dir, "admin-token"), []byte(adminTokn+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r.state.Dir = dir
+	r.save()
+	r.start()
+	var class struct {
+		Class struct {
+			ID string `json:"class_id"`
+		} `json:"class"`
+	}
+	if err := json.Unmarshal(r.admin("POST", "/admin/classes?name=Manual+test", "text/csv", strings.NewReader(classCSV), 201), &class); err != nil || class.Class.ID == "" {
+		t.Fatalf("class: %v", err)
+	}
+	examID := r.importExam(class.Class.ID, "Manual test: the example package", 7200, 120)
+	r.admin("POST", "/admin/exam/"+examID+"/publish", "application/json", strings.NewReader(`{"expected_current":""}`), 200)
+	fmt.Printf("\n"+`A throwaway workspace exam server is running. Nothing in it is real: it has its own database, and it is removed when you stop it.
+
+  server         %s
+  exam           Manual test: the example package (2 hours)
+  PIN            %s
+  accounts       0001 (Ada), 0002 (Grace), 0003 (Joan)
+  admin token    %s   (the proctor application wants it in a file: echo '%s' > ~/manual-admin-token)
+
+Student application:  cbe-portal-student -server %s   (then log in with an account and the PIN)
+Proctor application:  Server connection > the server above, and the token file above.
+
+Press Ctrl+C here when you are done.
+`+"\n", r.base, pin, adminTokn, adminTokn, r.base)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	<-ctx.Done()
+	fmt.Println("\nStopping and removing what the students made...")
+	r.removeWorkspaces(examID)
 }

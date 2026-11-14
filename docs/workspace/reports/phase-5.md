@@ -20,6 +20,7 @@ ticked there with that noted. **The branch is not pushed.**
 | `apps/proctor/internal/dashboard/workspace.go`, `service.go`, `api.go` | The proctor application's Go side: the roster alongside the sessions, the files, the transcript, and the two saves (P5-7, P5-9). |
 | `apps/proctor/frontend/src/{workspace.js,WorkspaceReview,TranscriptPlayer}.svelte`, `Monitoring*.svelte`, `ReviewWindow.svelte`, `history.js`, `HistoryTable.svelte` | The Workspace column, the review panel, the replay, the history's words and filter (P5-8, P5-10). `@xterm/xterm` 6.0.0 is a new dependency of the proctor app. |
 | `docs/tools/STUDENT-NOTICE.md` | The workspace notice (P5-11). **Yours to review.** |
+| `deploy/workspace/test-server.sh --manual`, phase `M` of `internal/workspace/e2e` | **Not a test:** a throwaway exam server (own database, three students, the example package published) for you to try the applications against, stopped with Ctrl+C. Tried for real: a student logged in, got a container, and Ctrl+C removed it. It is what the focus-loss script now starts from. |
 | `docs/workspace/{DECISIONS.md,proctor-view.md}`, this report, `reports/phase-5-e2e.log`, `reports/phase-5-tests.log` | |
 
 ## Tests run and results
@@ -71,7 +72,8 @@ ticked there with that noted. **The branch is not pushed.**
 4. **The recorder is a second client of the agent**, and the agent keeps only the last 64 KiB of each terminal. A program that prints more than that before the recorder looks (the recorder looks every second) loses its beginning. The transcript says when its own connection dropped (P5-6).
 5. **What a student types in a terminal is in its transcript**, because the terminal shows it; a password is not, because it is not shown. The notice says so (P5-11).
 6. **The roster's CPU and memory are the last sample** (every 10 s) and say "not measured" for a container that is not running.
-7. **`P3-14` is now closed:** a snapshot is unfiltered (it keeps what the container held, build products too), a submission is filtered.
+7. **Phase D of the real run left a stopped container and its folder behind** after every run (the student's workspace is made by the application's client, so the rig did not have it in its state). Found by looking after a run, removed through the runner's own API, and fixed: the rig now removes what an exam's students made, however the run ends. The last run left nothing but the Phase 0 spike's leftovers.
+8. **`P3-14` is now closed:** a snapshot is unfiltered (it keeps what the container held, build products too), a submission is filtered.
 
 ## Deviations from the plan, and conflicts found (standing rule 1)
 
@@ -98,5 +100,5 @@ On this machine: nothing new from the end-to-end runs (checked: no containers, f
 
 1. **Confirm or change P5-1 to P5-11, and P4-2 to P4-10 and P4-12**, which are still proposed: first **P5-4** (the finish dialog's wording is mine; the screenshots are in `docs/workspace/reports/phase-5-screens/`), **P5-6** (what a transcript holds, and that it holds what a student types where the terminal shows it) and **P5-11**.
 2. **Read `docs/tools/STUDENT-NOTICE.md`'s new section.** It says what is really recorded; if you want less recorded, the code must change, not only the words.
-3. **Run the focus-loss script** (`docs/tools/TEST-FOCUS.md`, "The workspace IDE") on Linux Mint and on the Windows VM. Steps are in my message.
+3. **Run the focus-loss script** (`docs/tools/TEST-FOCUS.md`, "The workspace IDE") on Linux Mint and on the Windows VM. Its setup is now two commands on this machine: `deploy/workspace/test-server.sh --manual` (or `--manual 0.0.0.0:8090` for the VM), and `make student proctor` (`make student-windows` for the VM).
 4. **May I push the branch?** And **go for Phase 6** (the grading runner).

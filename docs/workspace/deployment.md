@@ -122,5 +122,6 @@ A session's workspace as the proctor would see it: `GET /admin/workspace/session
 | `images/test.sh cpp20` | 31 checks of the image and its agent, from outside. |
 | `deploy/workspace/test-runner.sh` | The runner and the quota helper against Podman, as `cbe-server`; restarts the runner and checks it finds its containers. |
 | `deploy/workspace/test-server.sh` | The server's binary as `cbe-server` against all of it: login, files, terminals, Run and Check, abuse, an agent that ends, a restarted server and a restarted runner, the deadline. About four minutes; removes everything it made. |
+| `deploy/workspace/test-server.sh --manual [address]` | Not a test: a throwaway exam server for a person to try the applications against (the focus-loss script). It listens on `127.0.0.1:8090` unless given an address (`0.0.0.0:8090`, or the host's address on a virtual machine's network), has its own database, a class of three students (accounts `0001` to `0003`) and the example package published (PIN and admin token are printed), and runs until Ctrl+C, when it removes what the students made. It never touches the server on `:8080`. |
 
 All three use `sudo` without a password.

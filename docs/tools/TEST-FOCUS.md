@@ -57,9 +57,19 @@ The same rule holds for the IDE of a workspace exam: it is a page in the exam wi
 alarm and no screenshots. Terminal and editor focus are the new things: the terminal's keyboard is a hidden text field of the page, and
 the editor is a text field too, but neither is a native window.
 
-Setup: build the student application, the server, the runner and the course image (docs/workspace/deployment.md), import and publish
-the example package (`testdata/workspace/lab-listas`, compile it with `examc`), log in with the PIN and pass the screenshot test, and
-watch the proctor's review window for your session as above. Note the last row.
+Setup, on the container host (the one with the runner and the course image, docs/workspace/deployment.md):
+
+1. Build the student application and the proctor application: `make student proctor` (for a Windows virtual machine too:
+   `make student-windows`, and copy `build/cbe-portal-student.exe` into the machine).
+2. Start a throwaway workspace exam server: `deploy/workspace/test-server.sh --manual` (for a virtual machine to reach it,
+   `deploy/workspace/test-server.sh --manual 0.0.0.0:8090`). It builds what it needs, publishes the example package and prints the
+   server's address, the PIN, three accounts and an admin token. Leave it running; Ctrl+C stops it and removes what it made. It is
+   separate from any server of yours on `:8080`.
+3. Save the admin token it prints in a file (`echo '<token>' > ~/manual-admin-token`), start the proctor application, and in
+   **Server connection** give it the address printed and that file. Open the exam, then the review window of your session once you have
+   logged in.
+4. Start the student application with `-server http://127.0.0.1:8090` (on a virtual machine: `-server http://<the host's address>:8090`),
+   log in with `0001` and the PIN, and pass the screenshot test. Note the last row of the review window.
 
 1. Open `src/list.cpp` from the file tree and type in it for half a minute. Switch between two files with the mouse and with the
    arrow keys on the tab row.
