@@ -100,3 +100,5 @@ Phase 0 resource backstop on `cbe-runner`'s slice **must still go before product
 1. **Confirm or change P4-1 to P4-13**, first **P4-11 (the question: should a student be able to end a workspace exam early?)**, P4-2 (a lock hides the IDE but keeps the text), P4-7 (what the paste guard does and does not do) and P4-13.
 2. **Run the focus-loss script with the IDE** (`docs/tools/TEST-FOCUS.md`, "The workspace IDE") on the platforms you use, and tell me the result. I will tick Phase 4 when it passes.
 3. **May I push the branch?** And **go for Phase 5** (submission, logging and the proctor's views) once the script passes, or now if you would rather run it while I start.
+
+**Update, 2026-11-14:** the manual focus-loss script was run by the owner on a Windows VM and on Linux Mint (see `docs/tools/TEST-FOCUS.md`), decisions P4-1 to P4-13 are confirmed, and Phase 4 is ticked in the plan.

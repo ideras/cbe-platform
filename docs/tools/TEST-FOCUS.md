@@ -103,10 +103,10 @@ the server for the policy's time, the exam locks, as for any exam; that is the m
 
 | Platform | Focus behavior | Result |
 |---|---|---|
-| Linux X11 | `WindowLostFocus`/`WindowFocus` hooks of the native window | not run yet; the IDE steps not run on any platform yet |
+| Linux X11 | `WindowLostFocus`/`WindowFocus` hooks of the native window | **passed** (owner, 2026-11-14, Linux Mint, IDE open): switching to another console with Ctrl+Alt+F2 sounded the alarm and logged the incident; **no screenshot was recorded** (not investigated: the session's screen is not on the display then), and a screenshot retest was required on returning |
 | Linux Wayland | same hooks; compositor focus | **passed** (owner, 2026-10-25, KDE Plasma; through Phase 6A, with the programmer steps) |
-| Windows | same hooks | not run yet; the owner runs it later |
-| macOS | same hooks | not run yet; the owner runs it later |
+| Windows | same hooks | **passed** (owner, 2026-11-14, Windows VM, IDE open): Win+L sounded the alarm, recorded the screenshot and logged the incident; a screenshot retest was required on returning |
+| macOS | same hooks | not run; deferred by the owner (2026-11-14) |
 
 Automated coverage (Playwright, `tests/ui/calculator.spec.js`): opening, evaluating and closing call no native
 method other than the `Calc*` ones (Snapshot entries are the app's own poll timer), and `window.open` is never
