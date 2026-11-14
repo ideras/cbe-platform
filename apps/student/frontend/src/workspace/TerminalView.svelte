@@ -47,10 +47,18 @@
     model.registerSink(info.term, sink);
     // Fitting changes the size the observer watches: it is done on the next frame, outside the observer's own notification.
     let frame = 0;
+    // The application's A− and A+ buttons size the text of the exam, the terminals' too.
+    const resize = () => {
+      const scale = parseFloat(getComputedStyle(host).getPropertyValue('--exam-scale')) || 1;
+      xterm.options.fontSize = Math.round(14 * scale);
+      refit();
+    };
+    window.addEventListener('exam-text-size', resize);
+    resize();
     const watcher = new ResizeObserver(() => { cancelAnimationFrame(frame); frame = requestAnimationFrame(refit); });
     watcher.observe(host);
     refit();
-    return () => { cancelAnimationFrame(frame); watcher.disconnect(); model.unregisterSink(info.term, sink); xterm.dispose(); xterm = null; };
+    return () => { window.removeEventListener('exam-text-size', resize); cancelAnimationFrame(frame); watcher.disconnect(); model.unregisterSink(info.term, sink); xterm.dispose(); xterm = null; };
   });
 
   $effect(() => { if (xterm) xterm.options.disableStdin = !keyboard || readOnly; });

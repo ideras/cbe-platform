@@ -122,7 +122,11 @@
       case 'replaced': return { text: snap.note, kind: 'warning', retry: true };
       case 'ended': case 'closed': return { text: snap.note || 'The workspace is closed.', kind: 'danger' };
       case 'idle': return { text: 'The workspace is not connected.', kind: 'warning' };
-      default: return null;
+      default:
+        // Connected, and the server says what the container is doing.
+        if (workspace.status?.state === 'preparing' || workspace.status?.state === 'restarting') return { text: 'Your workspace is starting… This takes a few seconds.', kind: 'pending' };
+        if (workspace.status?.state === 'failed') return { text: 'Your workspace could not be prepared. Call your instructor.', kind: 'danger' };
+        return null;
     }
   });
   const disabled = $derived(snap.readOnly);

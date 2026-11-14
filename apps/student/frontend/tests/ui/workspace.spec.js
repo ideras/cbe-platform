@@ -444,3 +444,30 @@ test('using the IDE calls no native method but the workspace ones and the poll',
   // (Rules is the login form reading the server's rules for the address it was given; it is not the IDE's.)
   expect([...new Set(calls)].filter(name => name !== 'Rules').sort()).toEqual(['Snapshot', 'WorkspaceInput', 'WorkspaceRequest']);
 });
+
+test('the A+ and A− buttons size the editor and the terminals too', async ({ page }) => {
+  await start(page);
+  await openFile(page, 'notes.txt');
+  await page.getByRole('button', { name: 'New terminal' }).click();
+  await expect(page.getByRole('region', { name: 'Terminal 1 output' })).toContainText('student@workspace');
+  const sizes = () => page.evaluate(() => ({ editor: parseFloat(getComputedStyle(document.querySelector('.cm-content')).fontSize), terminal: parseFloat(getComputedStyle(document.querySelector('.xterm-rows')).fontSize) }));
+  const before = await sizes();
+  await page.getByRole('button', { name: 'Larger text' }).click();
+  await page.getByRole('button', { name: 'Larger text' }).click();
+  await expect.poll(async () => (await sizes()).editor).toBeGreaterThan(before.editor);
+  await expect.poll(async () => (await sizes()).terminal).toBeGreaterThan(before.terminal);
+  await page.getByRole('button', { name: 'Smaller text' }).click();
+  await page.getByRole('button', { name: 'Smaller text' }).click();
+  await page.getByRole('button', { name: 'Smaller text' }).click();
+  await expect.poll(async () => (await sizes()).terminal).toBeLessThan(before.terminal);
+});
+
+test('a workspace that is still starting says so, and one that failed says to call the instructor', async ({ page }) => {
+  await start(page);
+  await page.evaluate(() => window.__studentHarness.workspaceStatus({ state: 'preparing' }));
+  await expect(page.getByText('Your workspace is starting')).toBeVisible();
+  await page.evaluate(() => window.__studentHarness.workspaceStatus({ state: 'running' }));
+  await expect(page.getByText('Your workspace is starting')).toHaveCount(0);
+  await page.evaluate(() => window.__studentHarness.workspaceStatus({ state: 'failed' }));
+  await expect(page.getByText('could not be prepared')).toBeVisible();
+});

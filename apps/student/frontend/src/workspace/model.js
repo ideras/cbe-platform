@@ -51,6 +51,7 @@ export class WorkspaceModel {
     this.pendingFolders = new Set();
     this.pendingFiles = new Set();
     this.syncing = null;
+    this.retries = new Map(); // what is asked again while the workspace is starting: key -> { count, timer }
     this.closed = false;
     this.revision = 0;
   }
@@ -108,6 +109,17 @@ export class WorkspaceModel {
   async call(type, fields = {}) {
     return this.transport.request(type, fields);
   }
+
+  // The workspace may still be starting when the first request arrives (the container is made at the first login): the answer is
+  // UNAVAILABLE, and asking again in a second is the right thing to do, for up to half a minute.
+  again(key, retry) {
+    const state = this.retries.get(key) ?? { count: 0, timer: null };
+    if (state.timer !== null || state.count >= 30 || this.closed) return;
+    state.count += 1;
+    state.timer = this.scheduler.set(() => { state.timer = null; if (!this.closed && !this.readOnly) retry(); }, 1000);
+    this.retries.set(key, state);
+  }
+  settled(key) { const state = this.retries.get(key); if (state) { if (state.timer !== null) this.scheduler.clear(state.timer); this.retries.delete(key); } }
   // A request whose answer says it failed is a value, not an exception; a request that got no answer at all is an exception.
   tell(kind, key, text) { this.notify({ kind, key, text }); }
 
@@ -117,8 +129,9 @@ export class WorkspaceModel {
     try {
       const reply = await this.call('fs.list', { path });
       const folder = this.folders.get(path) ?? { entries: [], loaded: false, error: '' };
-      if (reply.ok) { folder.entries = sortEntries(reply.entries ?? []); folder.loaded = true; folder.error = ''; }
+      if (reply.ok) { folder.entries = sortEntries(reply.entries ?? []); folder.loaded = true; folder.error = ''; this.settled(`folder:${path}`); }
       else if (reply.code === 'NOT_FOUND') { this.folders.delete(path); this.expanded.delete(path); this.changed(); return; }
+      else if (reply.code === 'UNAVAILABLE') { folder.error = 'Your workspace is starting…'; this.again(`folder:${path}`, () => this.loadFolder(path)); }
       else { folder.error = reply.message || 'The folder cannot be read.'; }
       this.folders.set(path, folder);
     } catch {
@@ -175,6 +188,8 @@ export class WorkspaceModel {
         tab.state = 'toolarge'; tab.message = 'This file is larger than 1 MiB, so it cannot be shown or edited here.';
       } else if (reply.code === 'NOT_FOUND') {
         tab.state = 'error'; tab.missing = true; tab.message = 'This file no longer exists.';
+      } else if (reply.code === 'UNAVAILABLE') {
+        tab.state = 'loading'; this.again(`file:${tab.id}`, () => this.readInto(tab));
       } else {
         tab.state = 'error'; tab.message = reply.message || 'The file cannot be opened.';
       }
@@ -624,6 +639,8 @@ export class WorkspaceModel {
     this.closed = true;
     for (const timer of this.timers.values()) this.scheduler.clear(timer);
     this.timers.clear();
+    for (const state of this.retries.values()) if (state.timer !== null) this.scheduler.clear(state.timer);
+    this.retries.clear();
     if (this.refreshTimer !== null) this.scheduler.clear(this.refreshTimer);
   }
 }

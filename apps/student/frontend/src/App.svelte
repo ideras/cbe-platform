@@ -419,7 +419,7 @@
     {/if}
   {/if}
   {#if workspaceShown}
-    <div class="exam-main workspace-host" hidden={examLocked}>
+    <div class="exam-main workspace-host" style:--exam-scale={scales[scaleIndex]} hidden={examLocked}>
       {@render notices()}
       {#if view.phase === 'exam' && captureBlocked}{@render retest()}{/if}
       <Workspace {api} workspace={view.workspace} notify={note => notifier.post(note.key, note.text, { kind: note.kind })} />
@@ -473,6 +473,7 @@
   main.wide { max-width: none; }
   /* The class that lays the page out would otherwise show what the hidden attribute hides. */
   .workspace-host[hidden] { display: none; }
+  .workspace-host { font-size: calc(1rem * var(--exam-scale)); --text-base: calc(1rem * var(--exam-scale)); --text-sm: calc(.875rem * var(--exam-scale)); --text-xs: calc(.75rem * var(--exam-scale)); }
   main { max-width: 78rem; margin: 0 auto; padding: var(--space-4) clamp(var(--space-3), 3vw, var(--space-5)) var(--space-5); }
   label { display: grid; gap: var(--space-1); margin: var(--space-3) 0; }
   input { width: 100%; min-width: 0; font-weight: 400; }

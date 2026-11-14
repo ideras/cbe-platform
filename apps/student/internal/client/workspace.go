@@ -34,7 +34,6 @@ type WorkspaceStatus struct {
 	SecondsLeft    int64      `json:"seconds_left"`
 	AgentRestarts  int        `json:"agent_restarts"`
 	Terminal       bool       `json:"terminal"`
-	Failure        string     `json:"failure,omitempty"`
 }
 
 // WorkspaceView is the workspace as the page shows it: the exam's text, and where the connection to the server is.

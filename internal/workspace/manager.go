@@ -242,7 +242,8 @@ func (m *Manager) waitAgent(ctx context.Context, session string) error {
 	}
 }
 
-// ClientStatus is what a student's application is told about its workspace (the ws.status message of section 6).
+// ClientStatus is what a student's application is told about its workspace (the ws.status message of section 6). It never says why a
+// workspace failed: the reason can name the runner or a path, and is for the proctor (AdminSession).
 type ClientStatus struct {
 	// State is preparing, running, restarting, frozen, ended or failed.
 	State           string     `json:"state"`
@@ -251,7 +252,6 @@ type ClientStatus struct {
 	SecondsLeft     int64      `json:"seconds_left"`
 	AgentRestarts   int        `json:"agent_restarts"`
 	TerminalAllowed bool       `json:"terminal"`
-	Failure         string     `json:"failure,omitempty"`
 }
 
 // Status describes a session's workspace to its student.
@@ -261,7 +261,7 @@ func (m *Manager) Status(ctx context.Context, session string) (ClientStatus, err
 		return ClientStatus{}, err
 	}
 	now := m.opts.Now()
-	status := ClientStatus{LastSnapshotAt: info.LastSnapshotAt, DeadlineAt: info.Deadline(), AgentRestarts: info.AgentRestarts, Failure: info.Failure}
+	status := ClientStatus{LastSnapshotAt: info.LastSnapshotAt, DeadlineAt: info.Deadline(), AgentRestarts: info.AgentRestarts}
 	if left := info.Deadline().Sub(now); left > 0 {
 		status.SecondsLeft = int64(left / time.Second)
 	}

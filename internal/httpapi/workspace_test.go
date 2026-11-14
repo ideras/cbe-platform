@@ -6,6 +6,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -896,5 +897,26 @@ func TestALockedSessionReachesNothingOfItsWorkspace(t *testing.T) {
 	again := f.dial(t, login.SessionToken)
 	if reply := again.Call(map[string]any{"type": "fs.list", "path": ""}); !ok(reply) {
 		t.Errorf("after the unlock: %v", reply)
+	}
+}
+
+// Why a workspace failed can name the runner's socket or a path; the student is told it failed, and the proctor why.
+func TestAFailedWorkspaceTellsTheStudentNothingOfWhy(t *testing.T) {
+	f := newWorkspaceFixture(t, nil)
+	login := f.loginReady(t, "0012")
+	const reason = "the runner: dial unix /data/cbe-platform/ipc/runner.sock: connection refused"
+	if err := f.repo.SetState(context.Background(), login.SessionID, workspace.StateFailed, reason, f.clock.Now()); err != nil {
+		t.Fatal(err)
+	}
+	w := request(f.router, "GET", "/workspace", "", "Bearer "+login.SessionToken)
+	if w.Code != 200 || strings.Contains(w.Body.String(), "runner") || strings.Contains(w.Body.String(), "/data") || !strings.Contains(w.Body.String(), `"state":"failed"`) {
+		t.Errorf("view = %d %s", w.Code, w.Body.String())
+	}
+	status, err := f.manager.Status(context.Background(), login.SessionID)
+	if encoded, _ := json.Marshal(status); err != nil || status.State != "failed" || strings.Contains(string(encoded), "failure") {
+		t.Errorf("ws.status = %s, %v", encoded, err)
+	}
+	if view := decoded[workspace.AdminSession](t, request(f.router, "GET", "/admin/workspace/session/"+login.SessionID, "", "Bearer "+testAdminToken).Body.Bytes()); view.Failure != reason {
+		t.Errorf("the proctor's view = %+v", view)
 	}
 }

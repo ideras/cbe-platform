@@ -478,3 +478,32 @@ test('a student can keep working through a drop that lasts: edits stay, and noth
   await h.back();
   assert.equal(h.server.files.get('notes.txt'), '2\n');
 });
+
+test('a workspace that is still starting is asked again, and the tree fills in when it is ready', async () => {
+  const h = setup();
+  let starting = 2;
+  const request = h.server.request.bind(h.server);
+  h.server.request = async (type, fields) => (starting > 0 && type === 'fs.list' && starting-- ? { type, ok: false, code: 'UNAVAILABLE', message: 'the workspace is not ready' } : request(type, fields));
+  await h.connect();
+  assert.equal(h.model.folders.get('').loaded, false);
+  assert.match(h.model.folders.get('').error, /starting/);
+  await h.time.advance(1000);
+  assert.equal(h.model.folders.get('').loaded, false, 'still starting once more');
+  await h.time.advance(1000);
+  assert.equal(h.model.folders.get('').loaded, true);
+  assert.equal(h.model.folders.get('').error, '');
+  assert.ok(h.model.folders.get('').entries.length > 0);
+});
+
+test('a file that cannot be opened yet is opened when the workspace is ready', async () => {
+  const h = setup();
+  await h.connect();
+  let starting = 1;
+  const request = h.server.request.bind(h.server);
+  h.server.request = async (type, fields) => (starting > 0 && type === 'fs.read' && starting-- ? { type, ok: false, code: 'UNAVAILABLE', message: 'x' } : request(type, fields));
+  await h.model.openFile('notes.txt');
+  assert.equal(h.model.tab('notes.txt').state, 'loading');
+  await h.time.advance(1000);
+  assert.equal(h.model.tab('notes.txt').state, 'ready');
+  assert.equal(h.model.tab('notes.txt').savedText, 'hi\n');
+});

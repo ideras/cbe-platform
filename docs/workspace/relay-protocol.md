@@ -33,7 +33,7 @@ Anything else (an unknown type, an unknown field, a message that is not an objec
 
 | Type | When | Fields |
 |---|---|---|
-| `ws.status` | on connecting, when the state changes, and every 5 s | `state` (`preparing`, `running`, `restarting`, `frozen`, `ended`, `failed`), `last_snapshot_at`, `deadline_at`, `seconds_left`, `agent_restarts`, `terminal` (whether the exam has one), `failure` |
+| `ws.status` | on connecting, when the state changes, and every 5 s | `state` (`preparing`, `running`, `restarting`, `locked`, `frozen`, `ended`, `failed`), `last_snapshot_at`, `deadline_at`, `seconds_left`, `agent_restarts`, `terminal` (whether the exam has one). Never the reason for a failure: that is for the proctor. |
 | `ws.agent_restarted` | the container was started again after the agent was lost | none; a `ws.status` follows. The terminals are gone and the files are not: list the terminals again. |
 | replies | to each request | as above |
 | `fs.event` | files changed in `/work` (by the student's programs too) | `kind` (`create`, `modify`, `delete`, `rename`, `overflow`), `path`, `from` |
