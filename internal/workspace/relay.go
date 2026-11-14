@@ -33,6 +33,23 @@ type relay struct {
 	notified chan struct{}
 	exam     ExamRecord
 	closeMsg string
+
+	// What the student asked that the agent has not answered yet, and the sizes of the files they have read or written: what the events of
+	// a saved file, a new one, a terminal opened and the rest are made of, once the agent says the request worked.
+	opMu   sync.Mutex
+	ops    map[uint64]pendingOp
+	sizes  map[string]int64
+	pastes *bucket
+}
+
+type pendingOp struct {
+	kind       string
+	path, to   string
+	bytes      int
+	dir        bool
+	which      string
+	term       uint32
+	cols, rows int
 }
 
 func (m *Manager) register(r *relay) {
@@ -110,10 +127,15 @@ func (m *Manager) Serve(w http.ResponseWriter, req *http.Request, session string
 	}
 	conn.SetReadLimit(MaxClientMessage)
 	ctx, cancel := context.WithCancel(context.Background())
-	r := &relay{m: m, session: session, conn: conn, ctx: ctx, cancel: cancel, exam: exam, notified: make(chan struct{}, 1),
+	r := &relay{m: m, session: session, conn: conn, ctx: ctx, cancel: cancel, exam: exam, notified: make(chan struct{}, 1), ops: map[uint64]pendingOp{}, sizes: map[string]int64{}, pastes: newBucket(0.5, 5),
 		control: newBucket(controlRate, controlBurst), controlBytes: newBucket(controlBytesRate, controlBytesBurst), input: newBucket(inputRate, inputBurst), output: newBucket(outputRate, outputBurst)}
 	m.register(r)
-	defer m.unregister(r)
+	m.touch(session)
+	m.event(session, EventOpened, nil)
+	defer func() {
+		m.unregister(r)
+		m.event(session, EventDisconnected, nil)
+	}()
 	r.run()
 }
 
@@ -338,6 +360,7 @@ func (r *relay) fromClient() {
 
 // keystrokes handles a binary message: a 4-byte terminal ID and the bytes the student typed.
 func (r *relay) keystrokes(data []byte) {
+	r.m.touch(r.session)
 	if len(data) < 5 || len(data)-4 > agentproto.MaxTerminalData {
 		r.close("a terminal message was not a terminal ID and bytes")
 		return
@@ -359,6 +382,7 @@ type header struct {
 // message handles a text message from the student: the server's own messages here, and everything else only after it has passed the
 // protocol's own decoder, which refuses an unknown type, an unknown field or a path that leaves /work.
 func (r *relay) message(data []byte) {
+	r.m.touch(r.session)
 	var h header
 	if err := json.Unmarshal(data, &h); err != nil {
 		r.refuse(0, "ws.error", agentproto.CodeBadRequest, "the message is not a JSON object with a type")
@@ -375,6 +399,8 @@ func (r *relay) message(data []byte) {
 		r.todoSet(h, data)
 	case "submit":
 		r.submit(h, data)
+	case "paste.blocked":
+		r.pasteBlocked(h, data)
 	default:
 		r.forward(h, data)
 	}
@@ -417,6 +443,24 @@ func (r *relay) forward(h header, data []byte) {
 	if err != nil {
 		r.refuse(h.ID, h.Type, agentproto.CodeInternal, "the request cannot be sent")
 		return
+	}
+	switch q := request.(type) {
+	case *agentproto.FSRead:
+		r.track(h.ID, pendingOp{kind: "fs.read", path: q.Path})
+	case *agentproto.FSWrite:
+		r.track(h.ID, pendingOp{kind: "fs.write", path: q.Path, bytes: len(q.Content)})
+	case *agentproto.FSCreate:
+		r.track(h.ID, pendingOp{kind: "fs.create", path: q.Path, bytes: len(q.Content)})
+	case *agentproto.FSMkdir:
+		r.track(h.ID, pendingOp{kind: "fs.mkdir", path: q.Path, dir: true})
+	case *agentproto.FSRename:
+		r.track(h.ID, pendingOp{kind: "fs.rename", path: q.Path, to: q.To})
+	case *agentproto.FSDelete:
+		r.track(h.ID, pendingOp{kind: "fs.delete", path: q.Path})
+	case *agentproto.PTYOpen:
+		r.track(h.ID, pendingOp{kind: "pty.open", cols: q.Cols, rows: q.Rows})
+	case *agentproto.PTYClose:
+		r.track(h.ID, pendingOp{kind: "pty.close", term: q.Term})
 	}
 	if !r.toAgent(agentproto.Frame{Kind: agentproto.KindJSON, Data: payload}) {
 		r.refuse(h.ID, h.Type, agentproto.CodeUnavailable, "the workspace is not ready; try again in a moment")
@@ -463,6 +507,7 @@ func (r *relay) runStart(h header, data []byte) {
 		return
 	}
 	payload, _ := agentproto.Encode(open)
+	r.track(h.ID, pendingOp{kind: "run.start", which: request.Which, cols: request.Cols, rows: request.Rows})
 	if !r.toAgent(agentproto.Frame{Kind: agentproto.KindJSON, Data: payload}) {
 		r.refuse(h.ID, h.Type, agentproto.CodeUnavailable, "the workspace is not ready; try again in a moment")
 	}
@@ -497,6 +542,7 @@ func (r *relay) todoSet(h header, data []byte) {
 		r.refuse(h.ID, h.Type, agentproto.CodeInternal, "the TODO state could not be saved")
 		return
 	}
+	r.m.event(r.session, EventTodoSet, map[string]any{"id": request.Item, "done": request.Done})
 	r.sendJSON(serverReply{ID: h.ID, Type: h.Type, OK: true})
 }
 
@@ -511,14 +557,14 @@ func (r *relay) submit(h header, data []byte) {
 		r.refuse(h.ID, h.Type, agentproto.CodeBadRequest, "submit takes no fields")
 		return
 	}
-	record, _, err := r.m.Snapshots.Take(r.ctx, r.session, ReasonSubmit)
+	record, err := r.m.Submit(r.ctx, r.session, SubmissionSubmit)
 	if err != nil {
 		// What went wrong is the server's business (it may name the runner or a path), not the student's.
 		r.m.opts.Logger.Error("workspace: the snapshot for a submission failed", "session", r.session, "error", err)
 		r.refuse(h.ID, h.Type, agentproto.CodeUnavailable, "the snapshot could not be taken; try again in a moment")
 		return
 	}
-	r.sendJSON(serverReply{ID: h.ID, Type: h.Type, OK: true, Snapshot: record.ID})
+	r.sendJSON(serverReply{ID: h.ID, Type: h.Type, OK: true, Snapshot: record.SnapshotID})
 }
 
 // fromAgent relays what the agent says to the student until the agent's connection ends. Everything is checked on the way: a frame
@@ -550,6 +596,9 @@ func (r *relay) fromAgent(agent net.Conn) {
 				continue
 			}
 			passes := message.OK != nil
+			if message.OK != nil && message.ID != 0 {
+				r.replied(message)
+			}
 			switch message.Type {
 			case agentproto.TypeFSEvent, agentproto.TypePTYExit, agentproto.TypeSessionErr:
 				passes = true
@@ -564,4 +613,119 @@ func (r *relay) fromAgent(agent net.Conn) {
 			r.sendJSON(message)
 		}
 	}
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------------
+// The history: what the student did, once the agent has said it worked.
+
+func (r *relay) track(id uint64, op pendingOp) {
+	if id == 0 {
+		return
+	}
+	r.opMu.Lock()
+	defer r.opMu.Unlock()
+	if len(r.ops) >= 512 {
+		r.ops = map[uint64]pendingOp{}
+	}
+	r.ops[id] = op
+}
+
+func (r *relay) take(id uint64) (pendingOp, bool) {
+	r.opMu.Lock()
+	defer r.opMu.Unlock()
+	op, ok := r.ops[id]
+	delete(r.ops, id)
+	return op, ok
+}
+
+// sizeOf and setSize keep what the student has seen of a file's size, so a saved file can say how much it changed. A file the student
+// never read has no size here, and its event says only how big it is now.
+func (r *relay) sizeOf(path string) (int64, bool) {
+	r.opMu.Lock()
+	defer r.opMu.Unlock()
+	size, ok := r.sizes[path]
+	return size, ok
+}
+
+func (r *relay) setSize(path string, size int64) {
+	r.opMu.Lock()
+	defer r.opMu.Unlock()
+	if len(r.sizes) >= 4096 {
+		r.sizes = map[string]int64{}
+	}
+	r.sizes[path] = size
+}
+
+func (r *relay) forgetSizes(path string) {
+	r.opMu.Lock()
+	defer r.opMu.Unlock()
+	for name := range r.sizes {
+		if name == path || strings.HasPrefix(name, path+"/") {
+			delete(r.sizes, name)
+		}
+	}
+}
+
+// replied is the agent's answer to something the student asked.
+func (r *relay) replied(message agentproto.Message) {
+	op, found := r.take(message.ID)
+	if !found || message.OK == nil || !*message.OK {
+		return
+	}
+	switch op.kind {
+	case "fs.read":
+		r.setSize(op.path, message.Size)
+	case "fs.write":
+		detail := map[string]any{"path": op.path, "bytes": op.bytes}
+		if before, known := r.sizeOf(op.path); known {
+			detail["delta_bytes"] = int64(op.bytes) - before
+		}
+		r.setSize(op.path, int64(op.bytes))
+		r.m.event(r.session, EventFileSaved, detail)
+	case "fs.create":
+		r.setSize(op.path, int64(op.bytes))
+		r.m.event(r.session, EventFileCreated, map[string]any{"path": op.path, "dir": false})
+	case "fs.mkdir":
+		r.m.event(r.session, EventFileCreated, map[string]any{"path": op.path, "dir": true})
+	case "fs.rename":
+		if size, known := r.sizeOf(op.path); known {
+			r.forgetSizes(op.path)
+			r.setSize(op.to, size)
+		}
+		r.m.event(r.session, EventFileRenamed, map[string]any{"path": op.path, "to": op.to})
+	case "fs.delete":
+		r.forgetSizes(op.path)
+		r.m.event(r.session, EventFileDeleted, map[string]any{"path": op.path})
+	case "pty.open", "run.start":
+		kind := TerminalShell
+		if op.kind == "run.start" {
+			kind = TerminalRun
+			if op.which == "check" {
+				kind = TerminalCheck
+			}
+		}
+		r.m.noteTerminal(r.session, message.Term, kind, op.cols, op.rows)
+		r.m.event(r.session, EventPTYOpened, map[string]any{"id": message.Term, "kind": kind})
+	case "pty.close":
+		r.m.event(r.session, EventPTYClosed, map[string]any{"id": op.term})
+	}
+}
+
+// pasteBlocked is the student's application saying it stopped a paste or a drop: where it was aimed and how much text it had. It is
+// kept in the history, so the proctor sees an attempt; the rate is held down, so an attempt repeated in a loop is not a flood.
+func (r *relay) pasteBlocked(h header, data []byte) {
+	var request struct {
+		ID     uint64 `json:"id"`
+		Type   string `json:"type"`
+		Target string `json:"target"`
+		Bytes  int64  `json:"bytes"`
+	}
+	if err := strict(data, &request); err != nil || (request.Target != "editor" && request.Target != "terminal" && request.Target != "other") || request.Bytes < 0 || request.Bytes > 1<<31 {
+		r.refuse(h.ID, h.Type, agentproto.CodeBadRequest, "paste.blocked takes target (editor, terminal or other) and bytes")
+		return
+	}
+	if r.pastes.allow(1) {
+		r.m.event(r.session, EventPasteBlocked, map[string]any{"target": request.Target, "bytes": request.Bytes})
+	}
+	r.sendJSON(serverReply{ID: h.ID, Type: h.Type, OK: true})
 }

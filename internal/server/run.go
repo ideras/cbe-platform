@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -89,7 +90,7 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		repo := store.Workspaces()
 		runnerClient := runner.NewClient(cfg.RunnerSocket, strings.TrimSpace(string(secret)))
 		workspaces = workspace.NewManager(workspace.Options{Repo: repo, Runner: runnerClient, Blobs: blobs, Logger: logger, Now: timekeeper.Now,
-			SnapshotEvery: cfg.WorkspaceSnapshotEvery, Retention: cfg.WorkspaceRetention})
+			SnapshotEvery: cfg.WorkspaceSnapshotEvery, Retention: cfg.WorkspaceRetention, TranscriptDir: filepath.Join(cfg.WorkspaceDir, "transcripts")})
 		options.Workspace = &workspace.Service{Manager: workspaces, Repo: repo, Importer: &workspace.Importer{Repo: repo, Runner: runnerClient, Blobs: blobs, Now: timekeeper.Now,
 			Max: workspace.Resources{CPU: cfg.WorkspaceMaxCPU, MemoryMB: cfg.WorkspaceMaxMemoryMB, DiskMB: cfg.WorkspaceMaxDiskMB}, DefaultGrace: sessions.DefaultGraceSeconds}}
 		if err := runnerClient.Ping(ctx); err != nil {
@@ -139,7 +140,15 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 			workspaces.Supervise(workerCtx)
 		}
 	}()
-	defer func() { cancelWorker(); <-workerDone; <-imageWorkerDone; <-workspaceDone }()
+	defer func() {
+		cancelWorker()
+		<-workerDone
+		<-imageWorkerDone
+		<-workspaceDone
+		if workspaces != nil {
+			workspaces.Close()
+		}
+	}()
 	stopped := make(chan error, 1)
 	go func() { stopped <- httpServer.Serve(listener) }()
 	var runErr error

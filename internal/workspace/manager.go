@@ -49,6 +49,8 @@ type Options struct {
 	Limits    SnapshotLimits
 	// ReadyTimeout is how long provisioning waits for the agent to come up.
 	ReadyTimeout time.Duration
+	// TranscriptDir is where terminal transcripts are written. Without it there are none.
+	TranscriptDir string
 }
 
 func (o *Options) fill() {
@@ -88,12 +90,16 @@ type Manager struct {
 	locks  map[string]*sync.Mutex
 	relays map[string]*relay
 	silent map[string]int
+	// activity is when each student last did something through the workspace; recorders are the transcript recorders of the sessions
+	// that have a running container.
+	activity  map[string]time.Time
+	recorders map[string]*recorder
 }
 
 // NewManager makes the manager of the exam server's workspace sessions.
 func NewManager(opts Options) *Manager {
 	opts.fill()
-	return &Manager{opts: opts, Snapshots: NewSnapshots(opts.Repo, opts.Blobs, opts.Runner, opts.Limits, opts.Now), locks: map[string]*sync.Mutex{}, relays: map[string]*relay{}, silent: map[string]int{}}
+	return &Manager{opts: opts, Snapshots: NewSnapshots(opts.Repo, opts.Blobs, opts.Runner, opts.Limits, opts.Now), locks: map[string]*sync.Mutex{}, relays: map[string]*relay{}, silent: map[string]int{}, activity: map[string]time.Time{}, recorders: map[string]*recorder{}}
 }
 
 func (m *Manager) lock(session string) func() {
@@ -161,6 +167,7 @@ func (m *Manager) Ensure(ctx context.Context, session string) (SessionInfo, erro
 		if err == nil {
 			switch status.State {
 			case runner.StateRunning:
+				m.startRecorder(session)
 				return info, nil
 			case runner.StatePaused:
 				if _, err := m.opts.Runner.Unpause(ctx, session); err != nil {
@@ -220,6 +227,7 @@ func (m *Manager) provision(ctx context.Context, info SessionInfo) (SessionInfo,
 		return info, err
 	}
 	m.opts.Logger.Info("workspace ready", "session", info.SessionID, "exam", info.ExamID)
+	m.startRecorder(info.SessionID)
 	return m.opts.Repo.Session(ctx, info.SessionID)
 }
 
@@ -353,21 +361,26 @@ func (m *Manager) superviseOne(ctx context.Context, session string) {
 				log.Error("workspace: removing the container after the retention period failed", "error", err)
 				return
 			}
+			m.stopRecorder(session)
 			_ = m.opts.Repo.SetState(ctx, session, StateRemoved, "", now)
 			log.Info("workspace removed after the retention period")
 		}
 	}
 }
 
-// freeze takes the last snapshot, at the deadline, and pauses the container: its processes stop, its files stay.
+// freeze ends a session's work: it takes the last snapshot and records the final submission made of it (so a student who never pressed
+// Submit has one, and a student who did has the latest), then pauses the container: its processes stop, its files stay. It happens at
+// the deadline plus grace, and when the student finished early or a proctor ended the session.
 func (m *Manager) freeze(ctx context.Context, info SessionInfo) {
 	log := m.opts.Logger.With("session", info.SessionID)
-	if record, _, err := m.Snapshots.Take(ctx, info.SessionID, ReasonDeadline); err != nil {
-		log.Error("workspace: the final snapshot failed; the container stays as it is and the next round tries again", "error", err)
+	submission, err := m.Submit(ctx, info.SessionID, SubmissionFinal)
+	if err != nil {
+		log.Error("workspace: the final submission failed; the container stays as it is and the next round tries again", "error", err)
 		return
-	} else {
-		log.Info("workspace frozen", "snapshot", record.ID, "files", record.Files)
 	}
+	log.Info("workspace frozen", "snapshot", submission.SnapshotID, "submission", submission.ID, "files", submission.Files)
+	// The transcripts end with the last of the output.
+	m.stopRecorder(info.SessionID)
 	if _, err := m.opts.Runner.Pause(ctx, info.SessionID); err != nil && !errors.Is(err, runner.ErrNotFound) {
 		log.Error("workspace: pausing the container failed", "error", err)
 		return
@@ -387,6 +400,7 @@ func (m *Manager) watchReady(ctx context.Context, info SessionInfo) {
 	}
 	switch status.State {
 	case runner.StateMissing:
+		m.stopRecorder(info.SessionID)
 		_ = m.opts.Repo.SetState(ctx, info.SessionID, StateFailed, "the container is gone", m.opts.Now())
 		log.Error("workspace: the container is gone")
 		return
@@ -402,6 +416,7 @@ func (m *Manager) watchReady(ctx context.Context, info SessionInfo) {
 		}
 		return
 	}
+	m.startRecorder(info.SessionID)
 	silent := !status.Agent.Connected || status.Agent.LastSeen.IsZero() || m.opts.Now().Sub(status.Agent.LastSeen) > m.opts.HeartbeatTimeout
 	m.mu.Lock()
 	if silent {
@@ -451,8 +466,8 @@ func (m *Manager) restart(ctx context.Context, info SessionInfo, why string, sto
 	m.mu.Lock()
 	delete(m.silent, info.SessionID)
 	m.mu.Unlock()
-	// workspace.agent_restarted is logged here and, in Phase 5, goes into the event log.
 	log.Info("workspace.agent_restarted")
+	m.event(info.SessionID, EventAgentRestarted, nil)
 	m.notifyRestart(info.SessionID)
 	return nil
 }
