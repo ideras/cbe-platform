@@ -4,6 +4,7 @@
   import * as api from '$proctor-api';
   import Panel from './Panel.svelte';
   import HistoryTable from './HistoryTable.svelte';
+  import WorkspaceReview from './WorkspaceReview.svelte';
   import { localDateTime } from './dates.js';
   // One student's session in a window of its own: the summary and the read-only history, page by page. While the session
   // is still running the shown page refreshes by itself.
@@ -63,10 +64,12 @@
     {#if busy && !page}<p>Loading history…</p>{/if}
     {#if page}<HistoryTable items={page.items} finalVersionId={session.final_version?.final_version_id} />{/if}
   </Panel>
+  <!-- On a workspace exam the student's files, terminals and downloads are here too; it shows nothing for any other session. -->
+  <WorkspaceReview {sessionId} />
 </div>
 
 <style>
-  .window { padding: var(--space-4); }
+  .window { display: grid; gap: var(--space-4); padding: var(--space-4); }
   .summary { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: .2rem var(--space-3); margin: 0 0 var(--space-2); }
   .summary dt { color: var(--text-muted); font-size: var(--text-sm); }
   .summary dd { margin: 0; }

@@ -7,6 +7,7 @@
   import ExtendGraceDialog from './ExtendGraceDialog.svelte';
   import EndTimeDialog from './EndTimeDialog.svelte';
   import MonitoringRow from './MonitoringRow.svelte';
+  import { todoNote } from './workspace.js';
   import Icon from '../../../../shared/theme/Icon.svelte';
   import { localTime } from './dates.js';
   import { rosterFilters, rosterCounts, sortRoster, filterRoster, initials, duration, spoken, examLength, lockRule, inProgress, appRelease } from './roster.js';
@@ -33,6 +34,9 @@
   const visible = $derived(filterRoster(sessions, filter));
   const counts = $derived(rosterCounts(sessions));
   const missing = $derived(view.roster?.students_without_session ?? []);
+  // A workspace exam has one more column: what each student's container is doing, and what they say they have done (their own ticks).
+  const workspaces = $derived(new Map((view.workspace?.students ?? []).map(student => [student.session_id, student])));
+  const hasWorkspace = $derived(Boolean(view.workspace));
   const policy = $derived(view.roster?.policy ?? {});
   // The server's release, and the students still working whose application is another one.
   const serverVersion = $derived(view.catalog?.server_version ?? '');
@@ -163,12 +167,12 @@
           <!-- svelte-ignore a11y_no_noninteractive_tabindex (Keyboard users need to scroll this region in WebKit.) -->
           <div class="table-scroll" role="region" aria-label="Session table — scroll horizontally for controls" tabindex="0"><table>
             <caption class="visually-hidden">All sessions — locked first, then student name; warning columns are independent</caption>
-            <colgroup><col class="student-column" /><col class="network-column" /><col class="focus-column" /><col class="time-column" /><col class="control-column" /></colgroup>
-            <thead><tr><th scope="col">Student</th><th scope="col">Network</th><th scope="col">Focus</th><th scope="col">Lifecycle / remaining</th><th scope="col">Review / control</th></tr></thead>
+            <colgroup><col class="student-column" /><col class="network-column" /><col class="focus-column" />{#if hasWorkspace}<col class="workspace-column" />{/if}<col class="time-column" /><col class="control-column" /></colgroup>
+            <thead><tr><th scope="col">Student</th><th scope="col">Network</th><th scope="col">Focus</th>{#if hasWorkspace}<th scope="col">Workspace <span class="muted-th">(TODO is {todoNote})</span></th>{/if}<th scope="col">Lifecycle / remaining</th><th scope="col">Review / control</th></tr></thead>
             <tbody>{#each visible as row (row.session_id)}
-              <MonitoringRow {row} serverTime={view.roster.server_time} {policy} {serverVersion} disabled={disabled || view.busy} {timingBusy} {unlockBusy} {actionBusy} {releaseBusy}
+              <MonitoringRow {row} workspace={hasWorkspace ? (workspaces.get(row.session_id) ?? null) : undefined} serverTime={view.roster.server_time} {policy} {serverVersion} disabled={disabled || view.busy} {timingBusy} {unlockBusy} {actionBusy} {releaseBusy}
                 onReview={review} onExtend={row => askTiming('grace', row)} onUnlock={askUnlock} onForce={row => ask('force', row)} onRelease={askRelease} />
-            {:else}<tr class="empty-row"><td colspan="5">{sessions.length ? 'No sessions match this filter.' : 'No sessions for this exam yet.'}</td></tr>{/each}</tbody>
+            {:else}<tr class="empty-row"><td colspan={hasWorkspace ? 6 : 5}>{sessions.length ? 'No sessions match this filter.' : 'No sessions for this exam yet.'}</td></tr>{/each}</tbody>
           </table></div>
         </div>
       {/if}
@@ -232,6 +236,11 @@
   .table-scroll { overflow-x: auto; }
   table { width: 100%; min-width: 980px; border-collapse: collapse; table-layout: fixed; }
   .student-column { width: 19%; } .network-column { width: 24%; } .focus-column { width: 19%; } .time-column { width: 20%; } .control-column { width: 18%; }
+  .workspace-column { width: 22%; }
+  table:has(.workspace-column) { min-width: 1240px; }
+  table:has(.workspace-column) .student-column { width: 16%; } table:has(.workspace-column) .network-column { width: 18%; } table:has(.workspace-column) .focus-column { width: 14%; }
+  table:has(.workspace-column) .time-column { width: 15%; } table:has(.workspace-column) .control-column { width: 15%; }
+  .muted-th { color: var(--text-muted); font-weight: 400; letter-spacing: 0; text-transform: none; }
   th { text-align: left; padding: .6rem .8rem; background: var(--bg-secondary); color: var(--action-hover); border-bottom: 1px solid var(--border-subtle); font-size: .7rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
   .empty-row td { padding: 1.5rem; text-align: center; color: var(--text-muted); }
   .visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }

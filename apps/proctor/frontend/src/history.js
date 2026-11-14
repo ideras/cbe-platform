@@ -12,6 +12,10 @@ const labels = {
   locked: 'Exam locked', unlocked: 'Exam unlocked', grace_extended: 'Grace extended', end_time_changed: 'End time changed',
   calc_opened: 'Calculator opened', calc_closed: 'Calculator closed', calc_mode_changed: 'Calculator mode changed', calc_tab_changed: 'Calculator tab changed',
   calc_evaluated: 'Calculator evaluated', calc_inspected: 'IEEE 754 inspected',
+  // Workspace exams: what the student did in their workspace, written by the server as it happened.
+  'workspace.opened': 'Workspace opened', 'workspace.disconnected': 'Workspace disconnected', 'workspace.submitted': 'Workspace submitted', 'workspace.agent_restarted': 'Workspace restarted',
+  'file.saved': 'File saved', 'file.created': 'File created', 'file.renamed': 'File renamed', 'file.deleted': 'File deleted', 'pty.opened': 'Terminal opened', 'pty.closed': 'Terminal closed',
+  'run.started': 'Run or Check ended', 'todo.set': 'TODO changed', 'paste.blocked': 'Paste blocked',
 };
 
 /** The table's filter groups. */
@@ -20,8 +24,34 @@ export const groups = [
   { id: 'focus', label: 'Focus' },
   { id: 'network', label: 'Network' },
   { id: 'calculator', label: 'Calculator' },
+  { id: 'workspace', label: 'Workspace' },
   { id: 'other', label: 'Other' },
 ];
+
+/** Whether an event is one of a workspace's (the server writes them: docs/workspace, Phase 5). */
+export function isWorkspaceEvent(type) {
+  return type.startsWith('workspace.') || type.startsWith('file.') || type.startsWith('pty.') || type.startsWith('run.') || type === 'todo.set' || type === 'paste.blocked';
+}
+
+/** What a workspace row reads. The details are the server's, from what the student's application did: paths and sizes, never the text
+ *  of a file or of a paste. They are only shown as text. */
+export function workspaceDetail(type, detail) {
+  const d = detail ?? {};
+  const signed = n => (n > 0 ? `+${n}` : String(n));
+  switch (type) {
+    case 'file.saved': return `${d.path} · ${d.bytes} bytes${Number.isFinite(d.delta_bytes) ? ` (${signed(d.delta_bytes)})` : ''}`;
+    case 'file.created': return `${d.path}${d.dir ? ' (folder)' : ''}`;
+    case 'file.renamed': return `${d.path} → ${d.to}`;
+    case 'file.deleted': return `${d.path}`;
+    case 'pty.opened': return `${{ shell: 'terminal', run: 'Run', check: 'Check' }[d.kind] ?? d.kind ?? 'terminal'} ${d.id}`;
+    case 'pty.closed': return `terminal ${d.id}`;
+    case 'run.started': return `${d.which === 'check' ? 'Check' : 'Run'} ended with code ${d.exit_code ?? 'unknown'}`;
+    case 'todo.set': return `${d.id} marked ${d.done ? 'done' : 'not done'} (self-reported)`;
+    case 'paste.blocked': return `Blocked a paste into the ${d.target} (${d.bytes} bytes)`;
+    case 'workspace.submitted': return `${d.final ? 'Final submission' : 'Submit pressed'} · snapshot ${d.snapshot} · ${d.files} files`;
+    default: return '';
+  }
+}
 
 export function label(type) { return labels[type] ?? type.replaceAll('_', ' '); }
 
@@ -39,6 +69,7 @@ function group(type) {
   if (type === 'focus_lost' || type === 'focus_regained') return 'focus';
   if (type.startsWith('network_') || type === 'connection_changed') return 'network';
   if (type.startsWith('calc_')) return 'calculator';
+  if (isWorkspaceEvent(type)) return 'workspace';
   return 'other';
 }
 
@@ -187,6 +218,8 @@ export function historyRows(items, finalVersionId) {
       row.note = event.detail?.ends_at ? `Ends ${new Date(event.detail.ends_at).toLocaleString()}` : 'End time cleared';
     } else if (event.event_type.startsWith('calc_')) {
       row.note = calcDetail(event.event_type, event.detail);
+    } else if (isWorkspaceEvent(event.event_type)) {
+      row.note = workspaceDetail(event.event_type, event.detail);
     }
     rows.push(row);
   }

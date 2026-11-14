@@ -148,9 +148,15 @@ function snapshot() {
     error: rejected ? 'Proctor authorization was rejected. Reconnect with the correct credential.' : catalogDown ? 'Invalid exam catalog; previous observations retained.' : stale ? 'Server unreachable. Previous observations retained.' : '', last_success: connected ? AT : null,
     catalog: ok && !catalogDown ? catalog() : { server_time: AT, current_exam_id: '', current_class_id: '', current_class_name: '', exams: [] }, catalog_loaded: ok && !catalogDown,
     classes: ok ? classList() : [], classes_loaded: ok,
+    workspace: loaded && workspaceRoster ? structuredClone(workspaceRoster) : null,
     roster: { exam_id: selectedExam, server_time: AT, sessions: loaded ? structuredClone(rows) : [], students_without_session: loaded ? structuredClone(missing) : [],
       policy: { heartbeat_interval_ms: 15000, focus_threshold_ms: 5000, overdue_threshold_ms: 30000, alert_interval_ms: 2000, capture_interval_ms: 5000, lock_away_after_ms: 300000, lock_no_contact_after_ms: 300000 } } };
 }
+// A workspace exam (Phase 5): the roster of workspaces the dashboard reads with the sessions, and what the review window reads of one.
+let workspaceRoster = window.__proctorFake?.workspace?.roster ?? null; // set before the page loads, for a window that reads them at once
+let workspaceData = window.__proctorFake?.workspace?.data ?? null;
+let workspaceSavePath = '/home/proctor/Downloads/file';
+let workspaceReadFails = '';
 let endTimePreviewFailure = '';
 let endTimeClockWarning = false;
 export async function PreviewEndTime(hhmm) {
@@ -362,6 +368,7 @@ export async function Timeline(id, cursor) {
     { id: 'event:46', kind: 'event', occurred_at: AT, event: { event_log_id: 46, event_type: 'calc_evaluated', detail: { client: { client_time: AT, mode: 'programmer', expression: '0xFF / 2', ok: true, display: '127', word_size: 8, input_base: 'hex', signed: false } }, screenshots: [] } },
     { id: 'event:47', kind: 'event', occurred_at: AT, event: { event_log_id: 47, event_type: 'calc_tab_changed', detail: { client: { client_time: AT, from: 'ieee754', to: 'fraction' } }, screenshots: [] } },
     { id: 'event:48', kind: 'event', occurred_at: AT, event: { event_log_id: 48, event_type: 'calc_evaluated', detail: { client: { client_time: AT, mode: 'programmer', view: 'fraction', expression: '10.625', ok: true, display: '1010.101', word_size: 32, signed: true } }, screenshots: [] } },
+    ...(!cursor && workspaceData?.events ? structuredClone(workspaceData.events) : []),
   ], next_cursor: cursor ? null : 'opaque cursor +/=' };
 }
 export async function Image(id, thumbnail) { calls.image.push({ id, thumbnail }); if (imageMissing) throw new Error('Image missing or purged.'); return { id, data: PNG }; }
@@ -570,3 +577,38 @@ export async function CalcConvertFraction(input) {
 // The release the build stamps into the binary (the real one comes from -ldflags).
 // Not recorded: like Snapshot, it is a read the page makes on its own, and the tests that list native calls mean the proctor's actions.
 export async function Version() { return 'v0.15.0-test'; }
+
+export async function WorkspaceSession(id) {
+  calls.workspace = calls.workspace ?? [];
+  calls.workspace.push({ call: 'WorkspaceSession', id });
+  if (!workspaceData || workspaceData.session.session_id !== id) throw new Error('Requested record or image is unavailable, missing or purged.');
+  return structuredClone(workspaceData.session);
+}
+export async function WorkspaceTree(kind, id) {
+  calls.workspace.push({ call: 'WorkspaceTree', kind, id });
+  if (workspaceReadFails) throw new Error(workspaceReadFails);
+  const entries = workspaceData?.trees?.[`${kind}:${id}`];
+  if (!entries) throw new Error('Requested record or image is unavailable, missing or purged.');
+  return structuredClone(entries);
+}
+export async function WorkspaceFile(kind, id, path) {
+  calls.workspace.push({ call: 'WorkspaceFile', kind, id, path });
+  const file = workspaceData?.files?.[`${kind}:${id}:${path}`];
+  if (!file) throw new Error('Requested record or image is unavailable, missing or purged.');
+  return structuredClone(file);
+}
+export async function WorkspaceTranscript(id) {
+  calls.workspace.push({ call: 'WorkspaceTranscript', id });
+  const text = workspaceData?.casts?.[id];
+  if (text === undefined) throw new Error('Requested record or image is unavailable, missing or purged.');
+  return text;
+}
+export async function SaveWorkspaceZip(sessionId, submissionId) { calls.workspace.push({ call: 'SaveWorkspaceZip', sessionId, submissionId }); return saveCancelled ? '' : `${workspaceSavePath}-files.zip`; }
+export async function SaveWorkspaceReport(sessionId) { calls.workspace.push({ call: 'SaveWorkspaceReport', sessionId }); return saveCancelled ? '' : `${workspaceSavePath}-report.md`; }
+Object.assign(window.ProctorHarness, {
+  // Makes the monitored exam a workspace exam: `roster` is what the dashboard reads with the sessions; `data` is what the review window
+  // reads of the first student's workspace (session, trees by "kind:id", files by "kind:id:path", transcripts by terminal id).
+  workspace(roster, data = null) { workspaceRoster = roster; workspaceData = data; },
+  workspaceRoster(roster) { workspaceRoster = roster; },
+  workspaceReadFails(message) { workspaceReadFails = message; },
+});

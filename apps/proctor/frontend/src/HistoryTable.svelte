@@ -19,7 +19,7 @@
 
 <fieldset class="filters">
   <legend>Show</legend>
-  {#each groups as entry (entry.id)}
+  {#each groups.filter(entry => entry.id !== 'workspace' || counts.workspace > 0) as entry (entry.id)}
     <label><input type="checkbox" bind:checked={shown[entry.id]} />{entry.label} <span class="muted">({counts[entry.id]})</span></label>
   {/each}
 </fieldset>
@@ -82,6 +82,7 @@
   tr.group-answers td:first-child { box-shadow: inset 3px 0 0 var(--action-primary); }
   tr.group-focus td:first-child { box-shadow: inset 3px 0 0 var(--alert); }
   tr.group-network td:first-child { box-shadow: inset 3px 0 0 var(--warn); }
+  tr.group-workspace td:first-child { box-shadow: inset 3px 0 0 var(--text-muted); }
   tr.final { background: var(--ok-fill); }
   tr.expanded td { background: var(--hover-fill); }
   .badge { display: inline-block; padding: 0 .45rem; font-size: var(--text-xs, .75rem); font-weight: 700; border: 1px solid; border-radius: 999px; }

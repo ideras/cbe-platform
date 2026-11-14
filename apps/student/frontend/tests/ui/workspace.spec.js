@@ -413,6 +413,10 @@ test('the workspace has no critical accessibility problems', async ({ page }) =>
   await page.getByRole('treeitem', { name: 'Makefile', exact: true }).click();
   await page.getByRole('button', { name: 'Delete', exact: true }).click();
   await scan('the delete dialog');
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Finish exam…' }).click();
+  await expect(page.getByRole('dialog', { name: 'Finish your exam now?' })).toBeVisible();
+  await scan('the finish dialog');
 });
 
 for (const viewport of [{ width: 1280, height: 800 }, { width: 1000, height: 700 }, { width: 1920, height: 1080 }]) {
