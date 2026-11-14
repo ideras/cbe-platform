@@ -70,9 +70,12 @@ watch the proctor's review window for your session as above. Note the last row.
 5. Tick a TODO item. Press **Submit**.
 6. Try to paste text copied from outside the application (another window's text) into the editor and into the terminal: it must be
    refused with a notice, and the exam window must keep its focus.
-7. Open the dialogs (new file, delete) and close them with Escape.
+7. Open the dialogs (new file, delete, and **Finish exam…**, Phase 5) and close them with Escape or **Keep working**.
 8. Throughout: the window stays fullscreen and always on top, and **no alarm sounds**. In the review window, filter **Focus**: no new
    `focus_lost` row since the setup's last row; no new screenshot rows either.
+9. Last, press **Finish exam…** and then **Finish my exam**: the exam ends and the window shows the finished page. In the review window the
+   **Workspace** filter lists what you did (files saved, the terminal, the TODO tick, one **Paste blocked** row for each refused paste in step 6, the
+   final submission), and the Workspace panel under the history shows your files and replays your terminals.
 
 Then pull the network cable (or turn the Wi-Fi off) for 30 seconds while typing in the editor, and put it back: the banner says
 "Reconnecting…", what was typed is still in the editor, and it is saved when the connection returns. (If the application cannot reach
