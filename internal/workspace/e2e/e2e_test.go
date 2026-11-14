@@ -5,9 +5,10 @@
 // CBE_E2E_SERVER_BIN is set; deploy/workspace/test-server.sh sets everything up and runs it in two phases, restarting the runner
 // between them.
 //
-//	CBE_E2E_SERVER_BIN        the server binary             CBE_E2E_PHASE   "A" (everything, leaves sessions), "B" (after the runner restarted), "C" (after the runtime's user manager restarted, which is what a boot does to the containers) or "cleanup"
+//	CBE_E2E_SERVER_BIN        the server binary             CBE_E2E_PHASE   "A" (everything, leaves sessions), "B" (after the runner restarted), "C" (after the runtime's user manager restarted, which is what a boot does to the containers) "D" (a student finishes the example package through the student application's own client) or "cleanup"
 //	CBE_E2E_STATE             a folder both phases share    CBE_RUNNER_SOCKET / CBE_RUNNER_SECRET_FILE   the runner's
 //	CBE_E2E_RUNTIME_SOCKET    the runtime's socket, which this account must not be able to reach
+//	CBE_E2E_STUDENT_TEST      for phase D: the student application's client tests, compiled (go test -c ./apps/student/internal/client)
 //	CBE_E2E_PACKAGE           a folder with what examc made of the example package: document.json, starter.tar, grading.tar
 package e2e
 
@@ -340,6 +341,8 @@ func TestRealServer(t *testing.T) {
 		phaseB(t, r)
 	case "C":
 		phaseC(t, r)
+	case "D":
+		phaseD(t, r)
 	case "cleanup":
 		// Whatever the other phases made, whether or not they got to the end: the containers and their folders go.
 		r.load()
@@ -349,7 +352,7 @@ func TestRealServer(t *testing.T) {
 			}
 		}
 	default:
-		t.Fatalf("CBE_E2E_PHASE must be A, B, C or cleanup, not %q", phase)
+		t.Fatalf("CBE_E2E_PHASE must be A, B, C, D or cleanup, not %q", phase)
 	}
 }
 
@@ -813,4 +816,98 @@ func phaseC(t *testing.T, r *rig) {
 			t.Errorf("a frozen workspace took a connection: %d", status)
 		}
 	})
+}
+
+// Phase D: a student finishes the example package through the student application's own client (apps/student/internal/client, run as its
+// test, TestRealWorkspaceFinishTheExamplePackage) against this server and a real container; then the proctor's side reads the
+// submission back. The page of the IDE is tested with a stand-in for the container (the UI tests); this is the real thing under it.
+func phaseD(t *testing.T, r *rig) {
+	studentTest := env(t, "CBE_E2E_STUDENT_TEST")
+	r.load()
+	dir, err := os.MkdirTemp(env(t, "CBE_E2E_STATE"), "student-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.dir = dir
+	if err := os.WriteFile(filepath.Join(dir, "admin-token"), []byte(adminTokn+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r.start()
+	var class struct {
+		Class struct {
+			ID string `json:"class_id"`
+		} `json:"class"`
+	}
+	if err := json.Unmarshal(r.admin("POST", "/admin/classes?name=Finish", "text/csv", strings.NewReader(classCSV), 201), &class); err != nil || class.Class.ID == "" {
+		t.Fatalf("class: %v", err)
+	}
+	examID := r.importExam(class.Class.ID, "Finish the example", 0, 0)
+	r.admin("POST", "/admin/exam/"+examID+"/publish", "application/json", strings.NewReader(`{"expected_current":""}`), 200)
+
+	command := exec.Command(studentTest, "-test.run", "^TestRealWorkspaceFinishTheExamplePackage$", "-test.v", "-test.timeout", "5m")
+	command.Env = append(os.Environ(), "CBE_E2E_SERVER_URL="+r.base, "CBE_E2E_ACCOUNT=0001", "CBE_E2E_PIN="+pin)
+	output, err := command.CombinedOutput()
+	t.Logf("the student's client:\n%s", output)
+	if err != nil {
+		t.Fatalf("the student could not finish the package: %v", err)
+	}
+
+	// The proctor's side: the session, its snapshots, what the student ticked, and the files of the submission.
+	var list struct {
+		Sessions []struct {
+			ID      string `json:"session_id"`
+			Account string `json:"account_number"`
+		} `json:"sessions"`
+	}
+	if err := json.Unmarshal(r.admin("GET", "/admin/sessions?exam_id="+examID, "", nil, 200), &list); err != nil || len(list.Sessions) == 0 {
+		t.Fatalf("sessions: %v", err)
+	}
+	var student sessionState
+	for _, item := range list.Sessions {
+		if item.Account == "0001" {
+			student = sessionState{ID: item.ID}
+		}
+	}
+	if student.ID == "" {
+		t.Fatalf("the student's session is not in the list: %+v", list.Sessions)
+	}
+	r.state.Sessions["student"] = student
+	r.save()
+	var admin struct {
+		adminSession
+		Done map[string]bool `json:"done"`
+	}
+	if err := json.Unmarshal(r.admin("GET", "/admin/workspace/session/"+student.ID, "", nil, 200), &admin); err != nil {
+		t.Fatal(err)
+	}
+	if !admin.Done["t1"] || !admin.Done["t2"] || !admin.Done["t3"] {
+		t.Errorf("the TODO ticks: %v", admin.Done)
+	}
+	var submit int64
+	for _, snap := range admin.Snapshots {
+		if snap.Reason == "submit" {
+			submit = snap.ID
+		}
+	}
+	if submit == 0 {
+		t.Fatalf("no submission: %+v", admin)
+	}
+	files := r.snapshotFiles(submit)
+	if !strings.Contains(files["src/list.cpp"], "head_ = new Node{value, head_};") || !strings.Contains(files["src/list.cpp"], "insert_sorted") {
+		t.Errorf("the submission's list.cpp: %q", files["src/list.cpp"])
+	}
+	if !strings.Contains(files["tests/mine.cpp"], "mine: ok") {
+		t.Errorf("the student's own test is not in the submission: %q", files["tests/mine.cpp"])
+	}
+	for _, name := range []string{"Makefile", "include/list.hpp", "src/main.cpp", "tests/sample_test.cpp", "build/list_demo", "build/sample_test"} {
+		if _, found := files[name]; !found {
+			t.Errorf("%s is not in the submission", name)
+		}
+	}
+	for name := range files {
+		if strings.Contains(name, "hidden") || strings.Contains(files[name], "HIDDEN-CASES-MARKER") {
+			t.Errorf("the submission has something of the grading bundle: %s", name)
+		}
+	}
+	r.stop()
 }
