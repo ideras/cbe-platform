@@ -717,3 +717,30 @@ test('nor do the other changes the page shows: a TODO tick, a terminal opening, 
   expect(after.same).toBeGreaterThan(before.lines / 2);
   expect(after.same).toBe(after.lines);
 });
+
+// ---- the cursor after a change of the text size ----
+// CodeMirror keeps the height it believes each line has, and moves the cursor up and down by it. It measures the lines again only when
+// its content changes height or its theme changes: with the code shorter than the editor (a tall window), a size that came from the
+// page's CSS alone left the old heights, and Down went from line 4 to 5, 7, 10, 14. The size is part of its theme now.
+const listing = Array.from({ length: 27 }, (_, i) => `    int line_${i + 1} = ${i + 1}; // a line of code`).join('\n') + '\n';
+const sizeChanges = {
+  'the editor\'s A+ twice': async page => { for (let i = 0; i < 2; i += 1) await page.getByRole('button', { name: /Larger code text/ }).click(); },
+  'the editor\'s A− once': page => page.getByRole('button', { name: /Smaller code text/ }).click(),
+  'the toolbar\'s A+ twice': async page => { for (let i = 0; i < 2; i += 1) await page.getByRole('button', { name: 'Larger text' }).click(); },
+  'the toolbar\'s A− once': page => page.getByRole('button', { name: 'Smaller text' }).click(),
+  'both A+ twice': async page => { for (const name of ['Larger text', /Larger code text/]) for (let i = 0; i < 2; i += 1) await page.getByRole('button', { name }).click(); },
+};
+for (const [name, change] of Object.entries(sizeChanges)) {
+  test(`the arrow keys move one line at a time after ${name}, in a window the code does not fill`, async ({ page }) => {
+    await start(page, { files: { ...project, 'src/list.cpp': listing } }, { width: 1920, height: 1080 });
+    const editor = await openSrc(page);
+    await expect(editor).toContainText('line_27');
+    await change(page);
+    // Click in the text of line 4, as a person does, and walk down and back up.
+    await page.locator('.cm-line').nth(3).click({ position: { x: 40, y: 4 } });
+    const line = () => page.evaluate(() => Number(document.querySelector('.cm-activeLineGutter')?.textContent));
+    expect(await line()).toBe(4);
+    for (let expected = 5; expected <= 18; expected += 1) { await page.keyboard.press('ArrowDown'); expect(await line()).toBe(expected); }
+    for (let expected = 17; expected >= 4; expected -= 1) { await page.keyboard.press('ArrowUp'); expect(await line()).toBe(expected); }
+  });
+}

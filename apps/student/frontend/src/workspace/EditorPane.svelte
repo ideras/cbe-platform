@@ -21,6 +21,13 @@
   const extensionsOf = new Map(); // tab id -> the language's extension, for a state made again
   const outside = Annotation.define();
   const access = new Compartment();
+  // The size of the code is part of the editor's theme, and a change of it is dispatched as a change of the theme. CodeMirror measures its
+  // lines (the height it believes each has, which moving the cursor up and down and finding the line under the mouse go by) when its
+  // content changes height or its theme changes, and in no other case: a size that came from the page's CSS alone (the toolbar's A− and
+  // A+, ours below) left it with the old heights when the code did not fill the editor, and the arrow keys then skipped lines.
+  const sizing = new Compartment();
+  const sizeTheme = () => EditorView.theme({ '&': { fontSize: 'calc(var(--text-sm) * var(--code-zoom, 1))' } });
+  function resize() { view?.dispatch({ effects: sizing.reconfigure(sizeTheme()) }); }
   let shownId = $state(null);
   const buffers = new Map(); // tab id -> the buffer registered with the model
 
@@ -35,7 +42,7 @@
   const ZOOMS = [0.85, 1, 1.15, 1.3, 1.5, 1.75, 2];
   let zoomIndex = $state(1);
   const zoom = delta => { zoomIndex = delta === 0 ? 1 : Math.max(0, Math.min(ZOOMS.length - 1, zoomIndex + delta)); };
-  $effect(() => { zoomIndex; if (view) tick().then(() => view?.requestMeasure()); });
+  $effect(() => { zoomIndex; if (view) tick().then(resize); });
   // A click leaves the focus where the student was working (the editor); a key press on the button keeps it on the button.
   const zoomClick = (delta, event) => { zoom(delta); if (event.detail > 0) view?.focus(); };
 
@@ -55,6 +62,7 @@
       EditorView.contentAttributes.of({ 'aria-label': `Editor for ${tab.path}`, spellcheck: 'false' }),
       access.of(accessConfig(readOnly)),
       editorTheme('0'),
+      sizing.of(sizeTheme()),
       EditorView.updateListener.of(update => {
         if (update.docChanged && !update.transactions.some(t => t.annotation(outside))) model.editedById(tab.id);
       }),
@@ -93,7 +101,7 @@
     const state = await ensure(tab);
     if (ticket !== wanted) return;
     view.setState(state);
-    view.dispatch({ effects: access.reconfigure(accessConfig(readOnly)) });
+    view.dispatch({ effects: [access.reconfigure(accessConfig(readOnly)), sizing.reconfigure(sizeTheme())] });
     shownId = tab.id;
   }
   // What decides it are the tab's id and state, read through values of their own: `active` is a new object at every snapshot of the model
@@ -115,11 +123,10 @@
   $effect(() => { const locked = readOnly; if (view) view.dispatch({ effects: access.reconfigure(accessConfig(locked)) }); });
 
   onMount(() => {
-    view = new EditorView({ parent: host, state: EditorState.create({ doc: '', extensions: [editorTheme('0')] }) });
+    view = new EditorView({ parent: host, state: EditorState.create({ doc: '', extensions: [editorTheme('0'), sizing.of(sizeTheme())] }) });
     show();
-    const measure = () => view.requestMeasure();
-    window.addEventListener('exam-text-size', measure);
-    return () => { window.removeEventListener('exam-text-size', measure); view.destroy(); view = null; };
+    window.addEventListener('exam-text-size', resize);
+    return () => { window.removeEventListener('exam-text-size', resize); view.destroy(); view = null; };
   });
 
   export function focus() { view?.focus(); }
@@ -191,7 +198,7 @@
   .none { padding: .5rem .75rem; color: var(--text-muted); font-size: var(--text-sm); }
   .panel { position: relative; display: flex; flex-direction: column; min-height: 0; }
   .host { flex: 1 1 0; min-height: 0; overflow: hidden; }
-  .host :global(.cm-editor) { height: 100%; font-size: calc(var(--text-sm) * var(--code-zoom, 1)); }
+  .host :global(.cm-editor) { height: 100%; }
   .host:focus-within { box-shadow: inset 0 0 0 2px var(--focus-halo); }
   .notice { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); padding: .45rem .75rem; background: var(--warn-fill); color: var(--warn-text); border-bottom: 1px solid var(--border-subtle); font-size: var(--text-sm); }
   .notice.conflict { background: var(--alert-fill); color: var(--alert-text); }
