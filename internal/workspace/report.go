@@ -66,7 +66,7 @@ func (s *Service) Report(ctx context.Context, session string) (string, error) {
 	at := func(t time.Time) string { return t.UTC().Format("2006-01-02 15:04:05 UTC") }
 	fmt.Fprintf(&out, "# %s — student %s\n\n", exam.Title, info.Account)
 	fmt.Fprintf(&out, "- Session: `%s`\n- Session status: %s\n", info.SessionID, info.Status)
-	kind := "pressed Submit"
+	kind := "pressed Save"
 	if latest.Kind == SubmissionFinal {
 		kind = "made when the exam ended"
 	}

@@ -136,7 +136,7 @@
     if (submitting) return;
     submitting = true;
     try {
-      if (await model.submit()) notify({ kind: 'info', key: 'submitted', text: 'Your work was submitted. You can keep working and submit again until the time is up; the last submission counts. Press Finish exam when you are done.' });
+      if (await model.submit()) notify({ kind: 'info', key: 'submitted', text: 'Your work was saved. You can keep working: what is in your workspace is submitted automatically when you finish the exam or your time ends.' });
     } finally { submitting = false; }
   }
   // Finishing the exam is final, so it is asked about first. Once it is confirmed the files are saved and a copy is submitted (if either
@@ -195,7 +195,7 @@
       </div>
     </aside>
     <div class="main" class:with-terminal={terminalVisible}>
-      <div class="actions" role="toolbar" aria-label="Run, check and submit">
+      <div class="actions" role="toolbar" aria-label="Run, check and save">
         {#if snap.canRun}<button type="button" onclick={() => run('run')} disabled={disabled}><Icon name="arrowRight" size={16} />Run</button>{/if}
         {#if snap.canCheck}<button type="button" onclick={() => run('check')} disabled={disabled}><Icon name="check" size={16} />Check</button>{/if}
         <!-- The terminals take room only when wanted: this shows the panel (opening a terminal if there is none) and hides it again. -->
@@ -206,8 +206,8 @@
           </button>
         {/if}
         <span class="spacer"></span>
-        {#if snap.lastSubmit}<span class="submitted" role="status">Submitted {clock(snap.lastSubmit.at)}</span>{/if}
-        <button type="button" class="primary" onclick={submit} disabled={disabled || submitting}><Icon name="fileCheck" size={16} />Submit</button>
+        {#if snap.lastSubmit}<span class="submitted" role="status">Last Save {clock(snap.lastSubmit.at)}</span>{/if}
+        <button type="button" class="primary" onclick={submit} disabled={disabled || submitting}><Icon name="fileCheck" size={16} />Save</button>
         <button type="button" onclick={() => { confirmingFinish = true; }} disabled={disabled}><Icon name="done" size={16} />Finish exam…</button>
       </div>
       <div class="editor-box" data-pane="editor">
@@ -231,7 +231,7 @@
       <span class="mk"><Icon name="check" size={13} /></span>
       <div>
         <p class="h">Your files are saved, and a copy is submitted, when you finish.</p>
-        <p>{snap.unsaved ? 'You have changes that are not saved yet: they are saved first.' : 'Everything you have typed is saved.'} {snap.lastSubmit ? `Your last submission was at ${clock(snap.lastSubmit.at)}.` : 'You have not pressed Submit yet.'}</p>
+        <p>{snap.unsaved ? 'You have changes that are not saved yet: they are saved first.' : 'Everything you have typed is saved.'} {snap.lastSubmit ? `Your last Save was at ${clock(snap.lastSubmit.at)}.` : 'You have not pressed Save yet.'}</p>
       </div>
     </div>
     <div class="fact {ticked < workspace.todos.length ? 'warn' : 'ok'}">

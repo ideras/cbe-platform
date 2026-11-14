@@ -7,7 +7,7 @@ import (
 )
 
 // Submit takes a snapshot of the student's files and records the submission made of it: the files the exam submits, which is what
-// `submit` and `ignore` leave. A student pressing Submit makes a SubmissionSubmit; a session that ends (by the student's choice, a
+// `submit` and `ignore` leave. A student pressing Save (the button was called Submit until 2026-11-14) makes a SubmissionSubmit; a session that ends (by the student's choice, a
 // proctor's, or time) makes a SubmissionFinal, the one that counts when nothing came after it. Students may submit again and again:
 // the latest submission is the one that counts.
 func (m *Manager) Submit(ctx context.Context, session, kind string) (SubmissionRecord, error) {

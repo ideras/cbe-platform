@@ -511,7 +511,7 @@ func TestTheProctorReadsFilesAndDownloadsThatMatchTheSnapshot(t *testing.T) {
 	}
 	text := report.Body.String()
 	for _, want := range []string{"# Lab 1 — student 0012", "## Instructions", "Build it.", "self-reported", "- [x] Do `one`", "- [ ] Do two", "### `src/main.c`", "```c\nint main(void) { return 0; }\n```",
-		"### `tricky.md`", "````markdown\n```\nnot a fence of the report\n```\n````", "`bin/blob.bin` is not text", "`big.txt` is larger than 1 MiB", "`link` is a symbolic link to `src/main.c`", "contenido\r\nsin salto"} {
+		"### `tricky.md`", "````markdown\n```\nnot a fence of the report\n```\n````", "`bin/blob.bin` is not text", "`big.txt` is larger than 1 MiB", "`link` is a symbolic link to `src/main.c`", "contenido\r\nsin salto", "(pressed Save)"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("the report lacks %q:\n%s", want, text)
 		}

@@ -160,7 +160,7 @@ type SnapshotRecord struct {
 	Skipped      int
 }
 
-// The kinds of submission: the student pressing Submit, and the one made when the exam ends.
+// The kinds of submission: the student pressing Save (called Submit until 2026-11-14), and the one made when the exam ends.
 const (
 	SubmissionSubmit = "submit"
 	SubmissionFinal  = "final"

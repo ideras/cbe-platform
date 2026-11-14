@@ -56,7 +56,7 @@ test('the workspace shows the exam text, the files and the status, and none of t
   await expect(page.locator('header.toolbar').getByLabel('Remaining time')).toBeVisible();
   await expect(page.getByRole('group', { name: 'Workspace status' })).toHaveCount(1);
   await expect(page.getByText(/Time left/)).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Submit', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: /Submit current answers/ })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Finish exam…' })).toBeVisible();
   await expect(page.getByRole('navigation', { name: 'Exercises' })).toHaveCount(0);
@@ -232,15 +232,18 @@ test('a TODO tick is kept by the server', async ({ page }) => {
   await expect.poll(() => server(page, 'server.todo.t1')).toBe(false);
 });
 
-test('Submit takes a snapshot of what is saved, and says so', async ({ page }) => {
+test('Save takes a snapshot of what is saved, and says so', async ({ page }) => {
   await start(page);
   const editor = await openFile(page, 'notes.txt');
   await editor.click();
   await page.keyboard.type('final answer ');
-  await page.getByRole('button', { name: 'Submit', exact: true }).click();
-  await expect(page.getByText(/^Submitted \d/)).toBeVisible();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByText(/^Last Save \d/)).toBeVisible();
   expect(await server(page, "server.submits.at(-1).get('notes.txt')")).toContain('final answer');
-  await expect(page.getByText('Your work was submitted')).toBeVisible();
+  await expect(page.getByText('Your work was saved')).toBeVisible();
+  // It is a save, not the end of the exam: the exam's own Submit is not called.
+  expect(await page.evaluate(() => window.__studentHarness.nativeCalls.includes('Submit'))).toBe(false);
+  await expect(page.getByRole('button', { name: 'Finish exam…' })).toBeEnabled();
 });
 
 test('while the connection is down the editor and terminals are read-only, and what was typed is saved after it returns', async ({ page }) => {
@@ -253,7 +256,7 @@ test('while the connection is down the editor and terminals are read-only, and w
   await expect(page.getByText(/Reconnecting…/).first()).toBeVisible();
   await expect(page.getByRole('group', { name: 'Workspace status' })).toContainText('Reconnecting');
   await expect(page.getByRole('button', { name: 'Run', exact: true })).toBeDisabled();
-  await expect(page.getByRole('button', { name: 'Submit', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
   await expect(editor).toHaveAttribute('aria-readonly', 'true');
   await page.keyboard.type('NOT TYPED');
   await expect(editor).not.toContainText('NOT TYPED');
@@ -457,7 +460,7 @@ test('using the IDE calls no native method but the workspace ones and the poll',
   await page.getByRole('button', { name: 'Run', exact: true }).click();
   await page.getByRole('button', { name: 'Check', exact: true }).click();
   await page.getByRole('checkbox', { name: /Implement push_front/ }).check();
-  await page.getByRole('button', { name: 'Submit', exact: true }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
   await page.waitForTimeout(1200);
   const calls = await page.evaluate(() => window.__studentHarness.nativeCalls);
   // (Rules is the login form reading the server's rules for the address it was given; it is not the IDE's.)
@@ -504,7 +507,7 @@ test('finishing the exam asks first, saves and submits a copy, and then ends the
   const dialog = page.getByRole('dialog', { name: 'Finish your exam now?' });
   await expect(dialog).toContainText('You have ticked 1 of 2 items');
   await expect(dialog).toContainText('This is final');
-  await expect(dialog).toContainText('You have not pressed Submit yet');
+  await expect(dialog).toContainText('You have not pressed Save yet');
   await expect(dialog.getByRole('button', { name: 'Keep working' })).toBeFocused();
   expect(await server(page, 'server.submits.length')).toBe(0);
   expect(await page.evaluate(() => window.__studentHarness.nativeCalls.includes('Submit'))).toBe(false);
