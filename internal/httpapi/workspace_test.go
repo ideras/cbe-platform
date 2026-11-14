@@ -18,6 +18,7 @@ import (
 	"exam-platform/internal/service"
 	"exam-platform/internal/workspace"
 	"exam-platform/internal/workspace/workspacetest"
+	"github.com/coder/websocket"
 )
 
 // ---------------------------------------------------------------------------------------------------------------------------------
@@ -857,5 +858,43 @@ func TestASubmitThatCannotBeTakenSaysSoWithoutTheDetails(t *testing.T) {
 	f.runner.FailArchive = nil
 	if reply := c.Call(map[string]any{"type": "submit"}); !ok(reply) {
 		t.Errorf("the next submit: %v", reply)
+	}
+}
+
+// The lock is the monitoring's answer to a student who left the exam window; it takes the exam's content away, and a workspace is
+// content too.
+func TestALockedSessionReachesNothingOfItsWorkspace(t *testing.T) {
+	f := newWorkspaceFixture(t, nil)
+	login := f.loginReady(t, "0012")
+	token := "Bearer " + login.SessionToken
+	c := f.dial(t, login.SessionToken)
+	c.Wait("ws.status", c.OfType("ws.status"))
+	if w := request(f.router, "POST", "/event", `{"event_type":"away_lock"}`, token); w.Code != http.StatusOK {
+		t.Fatalf("away_lock = %d %s", w.Code, w.Body.String())
+	}
+	select {
+	case <-c.Closed:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the connection of a locked session was not closed")
+	}
+	if w := request(f.router, "GET", "/workspace", "", token); w.Code != http.StatusLocked {
+		t.Errorf("the view of a locked session: %d %s", w.Code, w.Body.String())
+	}
+	if _, resp, err := websocket.Dial(context.Background(), "ws"+strings.TrimPrefix(f.server.URL, "http")+"/workspace/ws", &websocket.DialOptions{HTTPHeader: http.Header{"Authorization": {"Bearer " + login.SessionToken}}}); err == nil || resp == nil || resp.StatusCode != http.StatusLocked {
+		t.Errorf("a locked session took a connection: %v %v", resp, err)
+	}
+	// The container went on running meanwhile, and the proctor's unlock gives the workspace back.
+	if f.runner.State(login.SessionID) != "running" {
+		t.Errorf("the container is %s", f.runner.State(login.SessionID))
+	}
+	if w := request(f.router, "POST", "/admin/session/"+login.SessionID+"/unlock", `{"reason":"back","give_back_time":false}`, "Bearer "+testAdminToken); w.Code != http.StatusOK {
+		t.Fatalf("unlock = %d %s", w.Code, w.Body.String())
+	}
+	if w := request(f.router, "GET", "/workspace", "", token); w.Code != http.StatusOK {
+		t.Errorf("the view after the unlock: %d", w.Code)
+	}
+	again := f.dial(t, login.SessionToken)
+	if reply := again.Call(map[string]any{"type": "fs.list", "path": ""}); !ok(reply) {
+		t.Errorf("after the unlock: %v", reply)
 	}
 }

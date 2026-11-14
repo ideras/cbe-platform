@@ -118,6 +118,9 @@ type SessionInfo struct {
 	FrozenAt       *time.Time
 	LastSnapshotAt *time.Time
 	Failure        string
+	// LockedAt is when a proctor's lock or the monitoring's lock was put on the session; nil while it is not locked. A locked session
+	// reaches nothing of its workspace, as it is sent no questions (the container goes on running; nobody can use it).
+	LockedAt *time.Time
 }
 
 // Deadline is when the student's time is up: the end of the exam's length, or the proctor's cap when that comes first.

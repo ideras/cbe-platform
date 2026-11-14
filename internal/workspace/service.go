@@ -48,6 +48,9 @@ func (s *Service) Student(ctx context.Context, session string) (StudentView, err
 	if err != nil {
 		return StudentView{}, err
 	}
+	if info.LockedAt != nil {
+		return StudentView{}, ErrLocked
+	}
 	exam, err := s.Repo.Exam(ctx, info.ExamID)
 	if err != nil {
 		return StudentView{}, err

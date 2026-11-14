@@ -111,6 +111,10 @@ func (m *Manager) lock(session string) func() {
 // ErrOver means the session's time is up: no container is made for it, and none is opened to it.
 var ErrOver = errors.New("workspace: the exam is over for this session")
 
+// ErrLocked means the session is locked: its workspace is not shown and no connection is taken, as the questions of a locked question
+// exam are not sent.
+var ErrLocked = errors.New("workspace: the exam is locked")
+
 // IsWorkspaceSession says whether a session belongs to a workspace exam.
 func (m *Manager) IsWorkspaceSession(ctx context.Context, session string) (bool, error) {
 	if _, err := m.opts.Repo.Session(ctx, session); err != nil {
@@ -268,6 +272,8 @@ func (m *Manager) Status(ctx context.Context, session string) (ClientStatus, err
 		status.State = "frozen"
 	case info.Over(now):
 		status.State = "ended"
+	case info.LockedAt != nil:
+		status.State = "locked"
 	case info.State == StateReady:
 		status.State = "running"
 		if running, err := m.opts.Runner.Status(ctx, session); err != nil || running.State != runner.StateRunning || !running.Agent.Connected {
