@@ -21,8 +21,10 @@ func (m *Manager) Submit(ctx context.Context, session, kind string) (SubmissionR
 	}
 	reason := ReasonSubmit
 	if kind == SubmissionFinal {
+		// Time that ran out is "deadline"; a session that ended with time left (the student finished, or a proctor ended it) is "final".
+		// (The server's own worker also marks a session submitted when its time is up, so the status alone does not say which.)
 		reason = ReasonDeadline
-		if info.Status == "submitted" || info.Status == "force_submitted" {
+		if m.opts.Now().Before(info.FreezeAt()) {
 			reason = ReasonFinal
 		}
 	}

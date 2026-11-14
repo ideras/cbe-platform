@@ -256,9 +256,11 @@ func TestRealWorkspaceFinishTheExamplePackage(t *testing.T) {
 		t.Fatal(err)
 	}
 	view = waitView(t, s, func(v View) bool { return v.Phase == "complete" })
-	if view.Final == nil || view.Workspace == nil || view.Workspace.Connection == connConnected {
+	if view.Final == nil || view.Workspace == nil {
 		t.Errorf("after finishing: final %+v, workspace %+v", view.Final, view.Workspace)
 	}
+	// The connection is closed from this side as soon as the exam is over.
+	waitView(t, s, func(v View) bool { return v.Workspace != nil && v.Workspace.Connection != connConnected })
 	if _, err := s.WorkspaceRequest(`{"type":"fs.list","path":""}`); err == nil {
 		t.Error("a finished exam took a request")
 	}

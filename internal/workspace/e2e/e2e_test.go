@@ -947,10 +947,14 @@ func phaseD(t *testing.T, r *rig) {
 			t.Errorf("%s is in the submission, and the exam ignores it", entry.Path)
 		}
 	}
-	for _, name := range []string{"Makefile", "include/list.hpp", "src/list.cpp", "src/main.cpp", "tests/sample_test.cpp", "tests/mine.cpp", "made_in_the_terminal.txt"} {
+	for _, name := range []string{"Makefile", "include/list.hpp", "src/list.cpp", "src/main.cpp", "tests/sample_test.cpp", "tests/mine.cpp"} {
 		if !submitted[name] {
 			t.Errorf("%s is not in the submission", name)
 		}
+	}
+	// The example package submits src/, include/, tests/ and the Makefile: a file the student made elsewhere is in the snapshot, not the submission.
+	if submitted["made_in_the_terminal.txt"] {
+		t.Error("made_in_the_terminal.txt is in the submission, and the exam's submit list does not name it")
 	}
 	for name := range files {
 		if strings.Contains(name, "hidden") || strings.Contains(files[name], "HIDDEN-CASES-MARKER") {
@@ -958,7 +962,8 @@ func phaseD(t *testing.T, r *rig) {
 		}
 	}
 	// The zip of the submission is the submission: the same files, with the same bytes.
-	archive, err := zip.NewReader(bytes.NewReader(r.admin("GET", fmt.Sprintf("/admin/workspace/submission/%d/zip", final.ID), "", nil, 200)), 1<<31)
+	zipData := r.admin("GET", fmt.Sprintf("/admin/workspace/submission/%d/zip", final.ID), "", nil, 200)
+	archive, err := zip.NewReader(bytes.NewReader(zipData), int64(len(zipData)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -973,7 +978,7 @@ func phaseD(t *testing.T, r *rig) {
 		t.Errorf("the zip has %d files, the submission %d", len(inZip), len(submitted))
 	}
 	for name := range submitted {
-		if inZip[name] != files[name] && name != "made_in_the_terminal.txt" {
+		if inZip[name] != files[name] {
 			t.Errorf("%s in the zip is not what the snapshot has", name)
 		}
 	}
@@ -984,7 +989,7 @@ func phaseD(t *testing.T, r *rig) {
 			t.Errorf("the report lacks %q", want)
 		}
 	}
-	if strings.Contains(report, "HIDDEN-CASES-MARKER") || strings.Contains(report, "build/list_demo") {
+	if strings.Contains(report, "HIDDEN-CASES-MARKER") || strings.Contains(report, "### `build/") {
 		t.Error("the report has what it must not")
 	}
 	// The transcripts: the first Check fails, the second passes, the Run printed the list, and every one replays.
@@ -1061,7 +1066,8 @@ func phaseD(t *testing.T, r *rig) {
 	if strings.Count(joined, "workspace.submitted") != 2 || strings.Count(joined, "todo.set") != 3 || !strings.HasSuffix(joined, "workspace.submitted") && !strings.HasSuffix(joined, "workspace.disconnected") {
 		t.Errorf("history: %s", joined)
 	}
-	if fmt.Sprint(exits) != "[check 1 check 0 run 0]" && fmt.Sprint(exits) != "[check 1 run 0 check 0]" && fmt.Sprint(exits) != "[check 1 check 0 run 0]" {
+	// make says 2 when a recipe fails, and the first Check's test returns 1.
+	if fmt.Sprint(exits) != "[check 2 check 0 run 0]" {
 		t.Errorf("how the runs ended: %v", exits)
 	}
 	// The roster, with the TODO progress, which the proctor is told is the student's own.
