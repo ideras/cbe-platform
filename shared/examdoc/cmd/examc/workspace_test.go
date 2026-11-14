@@ -44,7 +44,7 @@ func TestRunSummarizesAWorkspacePackage(t *testing.T) {
 			}
 		})
 		for _, want := range []string{"Laboratorio 2 – Listas enlazadas", "workspace exam, 120 min, image cbe/cpp20, terminal on", "run: make run · check: make check",
-			"resources: 1 cpu, 1024 MiB memory, 100 MiB disk", "t1   Implement push_front in src/list.cpp [10 pts]", "total: 40 points", "starter bundle: 5 files", "grading bundle: 2 files", "sha256:"} {
+			"resources: 1 cpu, 1024 MiB memory, 100 MiB disk", "t1   Implement push_front in src/list.cpp [10 pts]", "total: 40 points", "starter bundle: 5 files", "grading bundle: 3 files", "sha256:"} {
 			if !strings.Contains(output, want) {
 				t.Errorf("the summary of %s lacks %q:\n%s", path, want, output)
 			}
