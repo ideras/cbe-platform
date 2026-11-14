@@ -97,9 +97,12 @@ async function review(page, extra) {
   await page.goto(`/#/review/${SESSION}`);
 }
 
+const tab = (page, name) => page.getByRole('tab', { name: new RegExp(`^${name}`) });
+const openTab = async (page, name) => { await tab(page, name).click(); await expect(tab(page, name)).toHaveAttribute('aria-selected', 'true'); };
+
 test('the review window shows a student\'s workspace: its state, what they ticked as their own word, and the submissions', async ({ page }) => {
   await review(page);
-  const panel = page.getByRole('region', { name: 'Workspace' });
+  const panel = page.getByRole('region', { name: 'Session review' });
   await expect(panel).toBeVisible();
   await expect(panel).toContainText('restarted 1 time');
   await expect(panel).toContainText('TODO (self-reported)');
@@ -108,16 +111,50 @@ test('the review window shows a student\'s workspace: its state, what they ticke
   await expect(panel).toContainText('2 · latest is the final one');
 });
 
-test('a session that is not a workspace\'s shows nothing of one', async ({ page }) => {
+test('a workspace exam\'s review is in tabs, the history first, and the tabs go by keyboard', async ({ page }) => {
+  await review(page);
+  const tabs = page.getByRole('tablist', { name: 'Parts of the session review' });
+  await expect(tabs.getByRole('tab')).toHaveText([/History/, /Files/, /Terminals\s*3/]);
+  await expect(tab(page, 'History')).toHaveAttribute('aria-selected', 'true');
+  // Only the chosen tab's part is shown: the history's table, not the files or the terminals.
+  await expect(page.getByRole('table').first()).toBeVisible();
+  await expect(page.getByRole('tree', { name: /Files of the student's workspace/ })).toBeHidden();
+  await expect(page.getByRole('grid', { name: /Transcripts/ })).toBeHidden();
+  await tab(page, 'History').focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(tab(page, 'Files')).toBeFocused();
+  await expect(tab(page, 'Files')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('tree', { name: /Files of the student's workspace/ })).toBeVisible();
+  await expect(page.getByRole('table')).toHaveCount(0);
+  await page.keyboard.press('End');
+  await expect(tab(page, 'Terminals')).toBeFocused();
+  await expect(page.getByRole('grid', { name: /Transcripts/ })).toBeVisible();
+  await page.keyboard.press('ArrowRight');
+  await expect(tab(page, 'History')).toBeFocused();
+  // Only the chosen tab is in the tab order.
+  await expect(tab(page, 'Files')).toHaveAttribute('tabindex', '-1');
+  // What was chosen in a tab is still there when it is chosen again.
+  await openTab(page, 'Files');
+  await page.getByRole('tree', { name: /Files of the student's workspace/ }).getByRole('treeitem', { name: /^Makefile/ }).click();
+  await expect(page.getByRole('region', { name: 'Contents of Makefile' })).toBeVisible();
+  await openTab(page, 'History');
+  await openTab(page, 'Files');
+  await expect(page.getByRole('region', { name: 'Contents of Makefile' })).toBeVisible();
+});
+
+test('a session that is not a workspace\'s shows nothing of one: no tabs, only the history', async ({ page }) => {
   await page.goto(`/#/review/${SESSION}`);
   await expect(page.getByRole('region', { name: 'Session review' })).toBeVisible();
   await page.waitForTimeout(300);
-  await expect(page.getByRole('region', { name: 'Workspace' })).toHaveCount(0);
+  await expect(page.getByRole('tablist')).toHaveCount(0);
+  await expect(page.getByText('Container')).toHaveCount(0);
+  await expect(page.getByRole('table').first()).toBeVisible();
 });
 
 test('the files are read from the latest snapshot or from a submission, as text', async ({ page }) => {
   const errors = []; page.on('pageerror', e => errors.push(e.message));
   await review(page);
+  await openTab(page, 'Files');
   const tree = page.getByRole('tree', { name: /Files of the student's workspace/ });
   // The newest snapshot first: everything, build products too.
   await expect(page.getByLabel('Show the files of')).toHaveValue('snapshot:5');
@@ -152,6 +189,7 @@ test('the files are read from the latest snapshot or from a submission, as text'
 
 test('a tree that cannot be read says so, and the files keep their place when it is read again', async ({ page }) => {
   await review(page);
+  await openTab(page, 'Files');
   await page.evaluate(() => window.ProctorHarness.workspaceReadFails('Server request failed.'));
   await page.getByLabel('Show the files of').selectOption('snapshot:3');
   await expect(page.getByRole('alert').filter({ hasText: 'The files could not be read' })).toBeVisible();
@@ -178,10 +216,15 @@ test('the zip and the report are saved where the proctor chooses', async ({ page
 
 test('a terminal\'s transcript is replayed, paused, sped up, sought and shown whole', async ({ page }) => {
   await review(page);
-  await expect(page.getByRole('table', { name: /Transcripts of the student's terminals/ })).toContainText('ended with code 0');
-  await expect(page.getByRole('table', { name: /Transcripts/ })).toContainText('still open');
-  await expect(page.getByRole('table', { name: /Transcripts/ })).toContainText('cut at the limit');
-  await page.getByRole('button', { name: /^Replay Run of/ }).click();
+  await openTab(page, 'Terminals');
+  const grid = page.getByRole('grid', { name: /Transcripts of the student's terminals/ });
+  await expect(grid).toContainText('ended with code 0');
+  await expect(grid).toContainText('still open');
+  await expect(grid).toContainText('cut at the limit');
+  // A row is chosen to replay it: there is no Replay button on the rows, and nothing is replayed until one is chosen.
+  await expect(page.getByRole('button', { name: /Replay/ })).toHaveCount(0);
+  await expect(page.getByRole('region', { name: /^Replay of/ })).toHaveCount(0);
+  await grid.getByRole('row', { name: /^Run/ }).click();
   const player = page.getByRole('region', { name: /^Replay of Run at/ });
   await expect(player).toContainText('3 pieces of output');
   await expect(player).toContainText('00:30 long');
@@ -219,9 +262,100 @@ test('a terminal\'s transcript is replayed, paused, sped up, sought and shown wh
 
 test('a transcript that is not one says so instead of showing something', async ({ page }) => {
   await review(page);
-  await page.getByRole('button', { name: /^Replay Check of/ }).click();
+  await openTab(page, 'Terminals');
+  await page.getByRole('grid', { name: /Transcripts/ }).getByRole('row', { name: /^Check/ }).click();
   await expect(page.getByRole('alert').filter({ hasText: 'transcript' })).toBeVisible();
   await expect(page.locator('.xterm')).toHaveCount(0);
+});
+
+test('the terminals are a grid with chosen rows: the chosen one is marked, replayed under the grid, and closing the replay clears it', async ({ page }) => {
+  await review(page);
+  await openTab(page, 'Terminals');
+  const grid = page.getByRole('grid', { name: /Transcripts of the student's terminals/ });
+  const rows = grid.getByRole('row');
+  await expect(rows).toHaveCount(4); // the header and the three terminals
+  const run = grid.getByRole('row', { name: /^Run/ }), shell = grid.getByRole('row', { name: /^Terminal \d/ }), check = grid.getByRole('row', { name: /^Check/ });
+  for (const row of [run, shell, check]) await expect(row).toHaveAttribute('aria-selected', 'false');
+  // Choosing a row marks it and shows its replay; choosing another replaces it.
+  await run.click();
+  await expect(run).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('region', { name: /^Replay of Run at/ })).toBeVisible();
+  await shell.click();
+  await expect(shell).toHaveAttribute('aria-selected', 'true');
+  await expect(run).toHaveAttribute('aria-selected', 'false');
+  await expect(page.getByRole('region', { name: /^Replay of Terminal at/ })).toBeVisible();
+  await expect(page.getByRole('region', { name: /^Replay of Run at/ })).toHaveCount(0);
+  await expect(page.locator('.xterm')).toHaveCount(1);
+  // Closing the replay clears the choice and puts the focus back on the row.
+  await page.getByRole('button', { name: 'Close replay' }).click();
+  await expect(shell).toHaveAttribute('aria-selected', 'false');
+  await expect(shell).toBeFocused();
+  await expect(page.getByRole('region', { name: /^Replay of/ })).toHaveCount(0);
+});
+
+test('the grid goes by keyboard: the arrows move between rows, Enter chooses, and only one row is in the tab order', async ({ page }) => {
+  await review(page);
+  await openTab(page, 'Terminals');
+  const grid = page.getByRole('grid', { name: /Transcripts/ });
+  const rows = grid.locator('tbody tr');
+  await expect(rows.nth(0)).toHaveAttribute('tabindex', '0');
+  await expect(rows.nth(1)).toHaveAttribute('tabindex', '-1');
+  await rows.nth(0).focus();
+  await page.keyboard.press('ArrowDown');
+  await expect(rows.nth(1)).toBeFocused();
+  await page.keyboard.press('End');
+  await expect(rows.nth(2)).toBeFocused();
+  await page.keyboard.press('ArrowDown'); // the last row is the last
+  await expect(rows.nth(2)).toBeFocused();
+  await page.keyboard.press('Home');
+  await expect(rows.nth(0)).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(rows.nth(0)).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('region', { name: /^Replay of Run at/ })).toBeVisible();
+  // The chosen row is the one in the tab order now.
+  await expect(rows.nth(0)).toHaveAttribute('tabindex', '0');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press(' ');
+  await expect(rows.nth(1)).toHaveAttribute('aria-selected', 'true');
+  await expect(rows.nth(1)).toHaveAttribute('tabindex', '0');
+  await expect(rows.nth(0)).toHaveAttribute('tabindex', '-1');
+});
+
+test('choosing a row scrolls the window to the replay when it is below the fold, and does not when it is already in view', async ({ page }) => {
+  await page.setViewportSize({ width: 1200, height: 760 });
+  await review(page);
+  await openTab(page, 'Terminals');
+  const grid = page.getByRole('grid', { name: /Transcripts/ });
+  expect(await page.evaluate(() => window.scrollY)).toBe(0);
+  await grid.getByRole('row', { name: /^Run/ }).click();
+  const player = page.getByRole('region', { name: /^Replay of Run at/ });
+  await expect(player).toBeVisible();
+  // The whole replay is in the window (it fits in it), which it was not before the window was scrolled to it.
+  await expect(player).toBeInViewport({ ratio: 1 });
+  expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+  // A window tall enough to hold everything does not move.
+  await page.getByRole('button', { name: 'Close replay' }).click();
+  await page.setViewportSize({ width: 1200, height: 2400 });
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await grid.getByRole('row', { name: /^Run/ }).click();
+  await expect(player).toBeInViewport({ ratio: 1 });
+  await page.waitForTimeout(300);
+  expect(await page.evaluate(() => window.scrollY)).toBe(0);
+});
+
+test('the replay the proctor chose is kept while the workspace is read again', async ({ page }) => {
+  await review(page);
+  await openTab(page, 'Terminals');
+  await page.getByRole('grid', { name: /Transcripts/ }).getByRole('row', { name: /^Run/ }).click();
+  await expect(page.getByRole('region', { name: /^Replay of Run at/ })).toBeVisible();
+  // A new terminal appears in the next reading (every five seconds); the chosen row and its replay stay.
+  const more = data(); more.session.terminals.push({ id: 14, kind: 'run', started_at: '2035-01-01T22:15:00Z', ended_at: '2035-01-01T22:15:01Z', exit_code: 0, bytes: 20, truncated: false });
+  more.casts[14] = cast([{ version: 2, width: 80, height: 24, timestamp: 3 }, [0.1, 'o', 'x\r\n']]);
+  await page.evaluate(value => window.ProctorHarness.workspace({ students: [] }, value), more);
+  await expect(page.getByRole('grid', { name: /Transcripts/ }).locator('tbody tr')).toHaveCount(4, { timeout: 8000 });
+  await expect(page.getByRole('grid', { name: /Transcripts/ }).getByRole('row', { name: /^Run/ }).first()).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('region', { name: /^Replay of Run at/ })).toBeVisible();
+  await expect(page.getByRole('tab', { name: /^Terminals/ })).toContainText('4');
 });
 
 const event = (id, type, detail) => ({ id: `event:${id}`, kind: 'event', occurred_at: '2035-01-01T00:05:00Z', event: { event_log_id: id, event_type: type, detail, screenshots: [] } });
