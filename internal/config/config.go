@@ -35,6 +35,10 @@ type Config struct {
 	WorkspaceMaxCPU      float64
 	WorkspaceMaxMemoryMB int
 	WorkspaceMaxDiskMB   int
+	// WorkspaceGradeParallel is how many grading runs the server has going at once (the runner bounds them too); WorkspaceGradeTimeout is
+	// how long a run may take for an exam that sets no grade_timeout.
+	WorkspaceGradeParallel int
+	WorkspaceGradeTimeout  time.Duration
 	// ShowVersion asks for the version to be printed instead of starting the server.
 	ShowVersion bool
 	// Version is the server's release, stamped into the binary by the build; it is not a flag.
@@ -61,6 +65,8 @@ func Parse(args []string, output io.Writer) (Config, error) {
 	flags.Float64Var(&cfg.WorkspaceMaxCPU, "workspace-max-cpu", 2, "the most cores an exam may ask for each student")
 	flags.IntVar(&cfg.WorkspaceMaxMemoryMB, "workspace-max-memory-mb", 2048, "the most memory (MiB) an exam may ask for each student")
 	flags.IntVar(&cfg.WorkspaceMaxDiskMB, "workspace-max-disk-mb", 500, "the most disk (MiB) an exam may ask for each student")
+	flags.IntVar(&cfg.WorkspaceGradeParallel, "workspace-grade-parallel", 2, "how many grading runs go at once (1 to 32; the runner has a bound of its own, grade_parallel)")
+	flags.DurationVar(&cfg.WorkspaceGradeTimeout, "workspace-grade-timeout", 5*time.Minute, "how long a grading run may take, for exams that set no grade_timeout (10s to 30m)")
 	flags.BoolVar(&cfg.ShowVersion, "version", false, "print the version and exit")
 	if err := flags.Parse(args); err != nil {
 		return cfg, err
@@ -98,6 +104,9 @@ func (c Config) Validate() error {
 	}
 	if c.RunnerSocket != "" && (c.WorkspaceDir == "" || c.WorkspaceRetention <= 0 || c.WorkspaceSnapshotEvery < 10*time.Second || c.WorkspaceMaxCPU <= 0 || c.WorkspaceMaxMemoryMB < 64 || c.WorkspaceMaxDiskMB < 1) {
 		return fmt.Errorf("the workspace settings are not usable: a folder, a retention, a snapshot interval of at least 10s and limits are needed")
+	}
+	if c.RunnerSocket != "" && (c.WorkspaceGradeParallel < 1 || c.WorkspaceGradeParallel > 32 || c.WorkspaceGradeTimeout < 10*time.Second || c.WorkspaceGradeTimeout > 30*time.Minute) {
+		return fmt.Errorf("the grading settings are not usable: workspace-grade-parallel is 1 to 32 and workspace-grade-timeout 10s to 30m")
 	}
 	for name, path := range map[string]string{"database": c.Database, "screenshots": c.Screenshots, "admin-token-file": c.AdminTokenFile} {
 		if strings.TrimSpace(path) == "" {

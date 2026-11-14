@@ -78,6 +78,7 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	logger.Info("server ready", "release", cfg.Version, "bind", listener.Addr().String(), "classes", len(known.Classes), "sqlite", version)
 	options := httpapi.Options{AdminToken: cfg.AdminToken, Exams: exams, Publisher: publisher, Classes: classes, Proctor: sessions, Screenshots: images, Rules: sessions, MaxJSONBytes: cfg.MaxJSONBytes, Version: cfg.Version}
 	var workspaces *workspace.Manager
+	var grader *workspace.Grader
 	if cfg.RunnerSocket != "" {
 		secret, err := os.ReadFile(cfg.RunnerSecretFile)
 		if err != nil {
@@ -91,11 +92,14 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		runnerClient := runner.NewClient(cfg.RunnerSocket, strings.TrimSpace(string(secret)))
 		workspaces = workspace.NewManager(workspace.Options{Repo: repo, Runner: runnerClient, Blobs: blobs, Logger: logger, Now: timekeeper.Now,
 			SnapshotEvery: cfg.WorkspaceSnapshotEvery, Retention: cfg.WorkspaceRetention, TranscriptDir: filepath.Join(cfg.WorkspaceDir, "transcripts")})
-		options.Workspace = &workspace.Service{Manager: workspaces, Repo: repo, Importer: &workspace.Importer{Repo: repo, Runner: runnerClient, Blobs: blobs, Now: timekeeper.Now,
+		grader = workspace.NewGrader(workspaces, workspace.GraderOptions{Parallel: cfg.WorkspaceGradeParallel, DefaultTimeout: cfg.WorkspaceGradeTimeout})
+		options.Workspace = &workspace.Service{Manager: workspaces, Repo: repo, Grader: grader, Importer: &workspace.Importer{Repo: repo, Runner: runnerClient, Blobs: blobs, Now: timekeeper.Now,
 			Max: workspace.Resources{CPU: cfg.WorkspaceMaxCPU, MemoryMB: cfg.WorkspaceMaxMemoryMB, DiskMB: cfg.WorkspaceMaxDiskMB}, DefaultGrace: sessions.DefaultGraceSeconds}}
 		if err := runnerClient.Ping(ctx); err != nil {
 			logger.Warn("workspace exams are enabled but the runner does not answer yet; containers are made when it does", "socket", cfg.RunnerSocket, "error", err)
 		}
+		// The grading runs a stop interrupted are over: they are marked failed before any request can ask about them.
+		grader.Recover(ctx)
 	}
 	httpServer := &http.Server{
 		Handler: httpapi.New(timekeeper, sessions, logger, options), ReadHeaderTimeout: 5 * time.Second,
@@ -140,11 +144,19 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 			workspaces.Supervise(workerCtx)
 		}
 	}()
+	gradingDone := make(chan struct{})
+	go func() {
+		defer close(gradingDone)
+		if grader != nil {
+			grader.Run(workerCtx)
+		}
+	}()
 	defer func() {
 		cancelWorker()
 		<-workerDone
 		<-imageWorkerDone
 		<-workspaceDone
+		<-gradingDone
 		if workspaces != nil {
 			workspaces.Close()
 		}

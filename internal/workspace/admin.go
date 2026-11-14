@@ -36,6 +36,19 @@ type RosterEntry struct {
 	Submissions      int        `json:"submissions"`
 	LastSubmissionAt *time.Time `json:"last_submission_at,omitempty"`
 	Final            bool       `json:"submitted_final"`
+	// Grade is the student's grade as it stands, advisory until Confirmed: the confirmed run, or the latest.
+	Grade *RosterGrade `json:"grade,omitempty"`
+}
+
+// RosterGrade is a student's grade in the roster.
+type RosterGrade struct {
+	GradingID int64     `json:"grading"`
+	State     string    `json:"state"`
+	Failure   string    `json:"failure,omitempty"`
+	Points    *float64  `json:"points,omitempty"`
+	Max       *float64  `json:"max_points,omitempty"`
+	Confirmed bool      `json:"confirmed"`
+	At        time.Time `json:"at"`
 }
 
 // Roster lists the workspaces of an exam's students, those who have logged in. ErrNotFound says the exam is not a workspace exam.
@@ -57,6 +70,9 @@ func (s *Service) Roster(ctx context.Context, examID string) ([]RosterEntry, err
 			if row.Todo[item.ID] {
 				entry.TodoDone++
 			}
+		}
+		if g := row.Grade; g != nil {
+			entry.Grade = &RosterGrade{GradingID: g.GradingID, State: g.State, Failure: g.Failure, Points: g.Points, Max: g.Max, Confirmed: g.Confirmed, At: g.At}
 		}
 		entry.Connected = s.Manager.Connected(row.SessionID)
 		last := s.Manager.LastActivity(row.SessionID)

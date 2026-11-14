@@ -29,6 +29,8 @@ type RunnerAPI interface {
 	Archive(ctx context.Context, session, path string) (io.ReadCloser, error)
 	ConnectAgent(ctx context.Context, session string) (net.Conn, error)
 	ImageInspect(ctx context.Context, name string) (runner.ImageStatus, error)
+	// Grade is grading.run (Phase 6): a submission and the grading bundle, two tar archives, go to a fresh container.
+	Grade(ctx context.Context, req runner.GradeRequest, submission, bundle io.Reader) (runner.GradeResult, error)
 }
 
 var _ RunnerAPI = (*runner.Client)(nil)

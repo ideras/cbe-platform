@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 )
 
 // Submit takes a snapshot of the student's files and records the submission made of it: the files the exam submits, which is what
@@ -47,6 +48,16 @@ func (m *Manager) Submit(ctx context.Context, session, kind string) (SubmissionR
 	}
 	m.event(session, EventSubmitted, map[string]any{"snapshot": snapshot.ID, "submission": record.ID, "final": kind == SubmissionFinal, "files": files})
 	return record, nil
+}
+
+// SubmissionTar writes the files of a submission as a tar archive: what a grading container is given. It is deterministic, and links are
+// links, never followed.
+func (m *Manager) SubmissionTar(ctx context.Context, id int64, w io.Writer) error {
+	record, manifest, err := m.SubmissionManifest(ctx, id)
+	if err != nil {
+		return err
+	}
+	return m.Snapshots.writeManifestTar(w, manifest, record.SubmittedAt, fmt.Sprintf("submission %d", id))
 }
 
 // SubmissionManifest reads the manifest of a submission: the files it holds, named by their content.

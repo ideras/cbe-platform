@@ -12,6 +12,8 @@ type Service struct {
 	Manager  *Manager
 	Importer *Importer
 	Repo     Repository
+	// Grader runs the gradings of the exam's hidden tests (Phase 6).
+	Grader *Grader
 }
 
 // OnLogin is called when a student has logged in.

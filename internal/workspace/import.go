@@ -43,6 +43,9 @@ const (
 	DefaultMinVolume   = 80
 	minSnapshotSeconds = 10
 	maxSnapshotSeconds = 600
+	// The grade_timeout key's bounds; the runner's own maximum is at least this.
+	minGradeTimeoutSeconds = 10
+	maxGradeTimeoutSeconds = 1800
 )
 
 var (
@@ -205,6 +208,9 @@ func (im *Importer) checkWorkspace(ctx context.Context, w Settings, problems *Va
 				problems.add("workspace.%s has a pattern that is not a path from /work down: %q", name, truncate(glob, 40))
 			}
 		}
+	}
+	if w.GradeTimeoutSeconds != nil && (*w.GradeTimeoutSeconds < minGradeTimeoutSeconds || *w.GradeTimeoutSeconds > maxGradeTimeoutSeconds) {
+		problems.add("workspace.grade_timeout_seconds must be %d to %d", minGradeTimeoutSeconds, maxGradeTimeoutSeconds)
 	}
 	if w.SnapshotSeconds != nil && (*w.SnapshotSeconds < minSnapshotSeconds || *w.SnapshotSeconds > maxSnapshotSeconds) {
 		problems.add("workspace.snapshot_seconds must be %d to %d", minSnapshotSeconds, maxSnapshotSeconds)
