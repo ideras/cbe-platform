@@ -96,9 +96,29 @@ ticked there with that noted. **The branch is not pushed.**
 
 On this machine: nothing new from the end-to-end runs (checked: no containers, folders or processes). The generated bindings of the proctor application (`apps/proctor/frontend/bindings/`) are regenerated and git-ignored. The Phase 0 resource backstop on `cbe-runner`'s slice **must still go before production**.
 
+## After the owner's manual run (2026-11-14): room for the editor
+
+The owner ran `deploy/workspace/test-server.sh --manual` with the real applications ("so far, so good") and asked for more room for the code (terminal panel hideable, the status bar moved, an A−/A+ for the editor). Their session `a1a9792f-…` is in the rig's database: 20 snapshots (periodic, two on Submit, one `final`), three submissions of 5 files and 2,242 bytes (the snapshots hold 7 files and 35,946 bytes: `submit`/`ignore` leave out the build folder, as designed), six transcripts (a shell, four Runs, a Check) and the events of the walk through the script, with the two focus losses they made on purpose. Nothing in it looks wrong.
+
+**A fault of mine in Phase 4 turned up while measuring.** With no banner showing (the normal state, connected) the IDE's grid put the panes in the `auto` row and the status bar in the `1fr` row, so the IDE **stopped growing with the window**: the editor was **279 px tall (13 lines of code) at every window size**, 1080p included, with the rest of the window empty under the status bar (`ide-layout-before.png`). My tests only checked that nothing overflowed. The grid is now a column (banner when there is one, then the panes, which take the rest) and a test checks that the editor has more than 60 % of the window's height.
+
+| Window | Lines of code visible, before | Terminal panel hidden | Terminal panel shown |
+|---|---|---|---|
+| 1920×1080 | 13 | 47 | 29 |
+| 1366×768 | 13 | 30 | 18 |
+| 1280×720 | 13 | 27 | 17 |
+| 1024×768 | 13 | 30 | 18 |
+
+What changed (P5-12 to P5-14 in `DECISIONS.md`, all proposed; screens `ide-layout-*.png`):
+1. **The terminal panel takes no room until a terminal is wanted.** Run, Check, or the new **Terminal** button (next to them) show it; **⌄** in its tab row or the same button hides it, and the terminals go on. Closing the last terminal removes the panel. Shown, it is about a third of the room.
+2. **The status moved to the exam toolbar** (connection chip, "Saved 12:03:44", "Server copy 12:03:00"), next to the time chip; the bar under the panes is gone, and so is its "Time left", which the toolbar's chip already says. The component is now `WorkspaceStatus.svelte`.
+3. **The editor has its own A− and A+** (also Ctrl and + − 0; 85 % to 200 %). **The toolbar's A−/A+ already sized the whole workspace** (editor, terminals, files) since Phase 4, with a test; the owner had not noticed the buttons. Both are kept, and they add up. If two pairs of buttons is one too many, the editor's can go (about 25 lines).
+
+Tests: the IDE spec went from 27 to 31 tests (the terminal panel's showing, hiding and focus; F6 over a hidden panel; the editor's size by buttons and keys, its limits, that it is the same on another file and writes nothing; the two sizes adding up; the status in the toolbar); the existing tests that opened a terminal now press **Terminal**. The accessibility scan failed the new A−/A+ buttons (their names did not contain their visible text, WCAG's "label in name"); fixed, and the toolbar's own two buttons, which have the same fault and are excluded from the scan, are left as they were. **Not run:** the real window on any OS (the keys Ctrl and + − 0 may also be taken by the web view as its own zoom on Windows or Linux; the buttons are the sure way), and a screenshot of the new layout from the real application.
+
 ## For the owner
 
-1. **Confirm or change P5-1 to P5-11, and P4-2 to P4-10 and P4-12**, which are still proposed: first **P5-4** (the finish dialog's wording is mine; the screenshots are in `docs/workspace/reports/phase-5-screens/`), **P5-6** (what a transcript holds, and that it holds what a student types where the terminal shows it) and **P5-11**.
+1. **Confirm or change P5-1 to P5-14, and P4-2 to P4-10 and P4-12**, which are still proposed: first **P5-4** (the finish dialog's wording is mine; the screenshots are in `docs/workspace/reports/phase-5-screens/`), **P5-6** (what a transcript holds, and that it holds what a student types where the terminal shows it) and **P5-11**.
 2. **Read `docs/tools/STUDENT-NOTICE.md`'s new section.** It says what is really recorded; if you want less recorded, the code must change, not only the words.
 3. **Run the focus-loss script** (`docs/tools/TEST-FOCUS.md`, "The workspace IDE") on Linux Mint and on the Windows VM. Its setup is now two commands on this machine: `deploy/workspace/test-server.sh --manual` (or `--manual 0.0.0.0:8090` for the VM), and `make student proctor` (`make student-windows` for the VM).
 4. **May I push the branch?** And **go for Phase 6** (the grading runner).

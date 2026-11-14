@@ -74,8 +74,10 @@ Setup, on the container host (the one with the runner and the course image, docs
 1. Open `src/list.cpp` from the file tree and type in it for half a minute. Switch between two files with the mouse and with the
    arrow keys on the tab row.
 2. Press **Run**, then **Check**. Watch their output tabs fill.
-3. Open a terminal (**+**), click in it, type `ls`, press Enter, then press **Ctrl+C** and **Ctrl+D**. Move between the editor, the
-   terminal and the file tree with the mouse and with **F6**.
+3. Press **Terminal** (next to Run and Check; the terminal panel is hidden until one is wanted), click in the terminal, type `ls`, press
+   Enter, then press **Ctrl+C** and **Ctrl+D**. Move between the editor, the terminal and the file tree with the mouse and with **F6**.
+   Hide the panel with the **⌄** in its tab row and show it again with **Terminal**. In the editor, press **A+**, **A−** (in the editor's
+   tab row) and **Ctrl** with **+**, **−** and **0**: the text of the code changes size, and the window must keep its focus.
 4. Create a file and a folder from the file tree, rename one, delete one (confirm the dialog), then press **Ctrl+S**.
 5. Tick a TODO item. Press **Submit**.
 6. Try to paste text copied from outside the application (another window's text) into the editor and into the terminal: it must be
