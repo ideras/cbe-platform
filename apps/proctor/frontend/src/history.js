@@ -48,7 +48,7 @@ export function workspaceDetail(type, detail) {
     case 'run.started': return `${d.which === 'check' ? 'Check' : 'Run'} ended with code ${d.exit_code ?? 'unknown'}`;
     case 'todo.set': return `${d.id} marked ${d.done ? 'done' : 'not done'} (self-reported)`;
     case 'paste.blocked': return `Blocked a paste into the ${d.target} (${d.bytes} bytes)`;
-    case 'workspace.submitted': return `${d.final ? 'Final submission' : 'Submit pressed'} · snapshot ${d.snapshot} · ${d.files} files`;
+    case 'workspace.submitted': return `${d.final ? 'Final submission' : 'Save pressed'} · snapshot ${d.snapshot} · ${d.files} files`;
     default: return '';
   }
 }

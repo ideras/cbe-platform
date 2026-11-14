@@ -31,7 +31,7 @@
   const running = $derived(session && (session.status === 'active' || session.status === 'grace'));
   const ticked = $derived(Object.entries(workspace?.done ?? {}).filter(([, done]) => done).map(([id]) => id).sort());
   const latestSubmission = $derived(workspace?.submissions.at(-1) ?? null);
-  const tabs = $derived(workspace ? [{ id: 'history', text: 'History', icon: 'clock' }, { id: 'files', text: 'Files', icon: 'folder' }, { id: 'terminals', text: 'Terminals', icon: 'monitor', count: workspace.terminals.length }] : []);
+  const tabs = $derived(workspace ? [{ id: 'history', text: 'History', icon: 'clock' }, { id: 'files', text: 'Files', icon: 'folder' }, { id: 'terminals', text: 'Terminals', icon: 'terminal', count: workspace.terminals.length }] : []);
 
   async function load(cursor, at, quiet = false) {
     const mine = ++epoch;
@@ -86,7 +86,7 @@
         {#if workspace}
           <dt>Container</dt><dd><strong>{workspace.state}</strong>{#if workspace.agent_restarts}{' · restarted '}{workspace.agent_restarts} time{workspace.agent_restarts === 1 ? '' : 's'}{/if}</dd>
           <dt>TODO ({todoNote})</dt><dd>{#if ticked.length}{ticked.join(', ')} ticked by the student{:else}nothing ticked{/if}. Nothing checked these ticks.</dd>
-          <dt>Submissions</dt><dd>{#if latestSubmission}{workspace.submissions.length} · latest {latestSubmission.final ? 'is the final one' : 'was made by the student pressing Submit'}, {localDateTime(latestSubmission.submitted_at)}{:else}none yet{/if}</dd>
+          <dt>Submissions</dt><dd>{#if latestSubmission}{workspace.submissions.length} · latest {latestSubmission.final ? 'is the final one' : 'was made by the student pressing Save'}, {localDateTime(latestSubmission.submitted_at)}{:else}none yet{/if}</dd>
         {/if}
       </dl>
       <p class="muted">Session {session.session_id}. Read-only server history as of {localDateTime(page.server_time)}; version sequence is commit order. Signals are observations, not proof of misconduct.</p>

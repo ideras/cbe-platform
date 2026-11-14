@@ -358,11 +358,38 @@ test('the replay the proctor chose is kept while the workspace is read again', a
   await expect(page.getByRole('tab', { name: /^Terminals/ })).toContainText('4');
 });
 
+test('the Terminals tab and the replay\'s controls have their icons, and Close replay is an icon with no text', async ({ page }) => {
+  await review(page);
+  await expect(tab(page, 'Terminals').locator('svg')).toHaveCount(1);
+  await openTab(page, 'Terminals');
+  await page.getByRole('grid', { name: /Transcripts/ }).getByRole('row', { name: /^Run/ }).click();
+  const player = page.getByRole('region', { name: /^Replay of Run at/ });
+  await expect(player).toBeVisible();
+  // Each control that has a word has an icon with it (drawn in the page, not an image or a character).
+  for (const name of ['Play', 'Show all']) {
+    const button = player.getByRole('button', { name, exact: true });
+    await expect(button.locator('svg')).toHaveCount(1);
+    await expect(button).toHaveText(name);
+  }
+  await player.getByRole('button', { name: 'Show all' }).click();
+  await expect(player.getByRole('button', { name: 'Play again', exact: true }).locator('svg')).toHaveCount(1);
+  await player.getByRole('button', { name: 'Play again', exact: true }).click();
+  await expect(player.getByRole('button', { name: 'Pause', exact: true }).locator('svg')).toHaveCount(1);
+  await player.getByRole('button', { name: 'Pause', exact: true }).click();
+  // Close replay: the icon alone, named for a screen reader and by a tooltip.
+  const close = player.getByRole('button', { name: 'Close replay' });
+  await expect(close.locator('svg')).toHaveCount(1);
+  expect((await close.textContent()).trim()).toBe('');
+  await expect(close).toHaveAttribute('title', 'Close replay');
+  const box = await close.boundingBox();
+  expect(Math.round(box.width)).toBe(Math.round(box.height));
+});
+
 const event = (id, type, detail) => ({ id: `event:${id}`, kind: 'event', occurred_at: '2035-01-01T00:05:00Z', event: { event_log_id: id, event_type: type, detail, screenshots: [] } });
 
 test('the history names a workspace\'s events in words, with a filter that exists only when there are some', async ({ page }) => {
   const withEvents = data();
-  withEvents.events = [event(90, 'workspace.opened', null), event(91, 'file.saved', { path: 'src/main.c', bytes: 120, delta_bytes: 16 }), event(92, 'paste.blocked', { target: 'editor', bytes: 30 }),
+  withEvents.events = [event(89, 'workspace.submitted', { final: false, snapshot: 4, files: 5 }), event(90, 'workspace.opened', null), event(91, 'file.saved', { path: 'src/main.c', bytes: 120, delta_bytes: 16 }), event(92, 'paste.blocked', { target: 'editor', bytes: 30 }),
     event(93, 'todo.set', { id: 't1', done: true }), event(94, 'run.started', { which: 'check', exit_code: 2 }), event(95, 'workspace.submitted', { final: true, snapshot: 5, files: 6 })];
   await review(page, withEvents);
   const history = page.getByRole('group', { name: 'Show' });
@@ -374,6 +401,8 @@ test('the history names a workspace\'s events in words, with a filter that exist
   await expect(table).toContainText('t1 marked done (self-reported)');
   await expect(table).toContainText('Check ended with code 2');
   await expect(table).toContainText('Final submission · snapshot 5 · 6 files');
+  // What the student's own button is called is what the history calls it, and it is not the end.
+  await expect(table).toContainText('Save pressed · snapshot 4 · 5 files');
   await expect(table.getByRole('row').filter({ hasText: 'Paste blocked' })).toHaveCount(1);
   // The filter hides them.
   await history.getByLabel(/Workspace/).uncheck();

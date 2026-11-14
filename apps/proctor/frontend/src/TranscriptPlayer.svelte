@@ -2,6 +2,7 @@
   import { onMount, untrack } from 'svelte';
   import { Terminal } from '@xterm/xterm';
   import '@xterm/xterm/css/xterm.css';
+  import Icon from '../../../../shared/theme/Icon.svelte';
   import { parseCast, playbackPlan, plainText } from './workspace.js';
 
   // Replays a terminal's transcript the way it happened: what the program printed, with the pauses it had (a pause longer than two
@@ -75,17 +76,19 @@
   <header>
     <h3>{title}</h3>
     {#if cast}<span class="muted">{cast.header.width}×{cast.header.height} · {total} piece{total === 1 ? '' : 's'} of output · {clock(cast.duration)} long</span>{/if}
-    <button type="button" class="close" onclick={onClose}>Close replay</button>
+    <button type="button" class="icon-btn close" aria-label="Close replay" title="Close replay" onclick={onClose}><Icon name="close" size={18} /></button>
   </header>
   {#if problem}<p role="alert">{problem}</p>{/if}
   {#if cast}
     <div class="controls" role="group" aria-label="Replay controls">
-      {#if playing}<button type="button" onclick={pause}>Pause</button>{:else}<button type="button" onclick={play}>{position >= total ? 'Play again' : 'Play'}</button>{/if}
+      {#if playing}<button type="button" onclick={pause}><Icon name="pause" size={16} />Pause</button>
+      {:else if position >= total}<button type="button" onclick={play}><Icon name="replayPlay" size={16} />Play again</button>
+      {:else}<button type="button" onclick={play}><Icon name="play" size={16} />Play</button>{/if}
       <label>Speed <select bind:value={speed} aria-label="Replay speed">{#each [1, 2, 4, 10] as value}<option {value}>{value}×</option>{/each}</select></label>
       <label class="seek">Position <input type="range" min="0" max={total} value={position} aria-label="Position in the transcript" aria-valuetext="{clock(shownAt)} of {clock(cast.duration)}"
         oninput={event => jump(Number(event.currentTarget.value))} /></label>
       <span class="time" aria-hidden="true">{clock(shownAt)} / {clock(cast.duration)}</span>
-      <button type="button" onclick={() => jump(total)}>Show all</button>
+      <button type="button" onclick={() => jump(total)}><Icon name="goToEnd" size={16} />Show all</button>
     </div>
   {/if}
   <div class="screen" bind:this={host} hidden={!cast}></div>
@@ -101,8 +104,12 @@
   header { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2); }
   h3 { margin: 0; font-size: var(--text-base); }
   .close { margin: 0 0 0 auto; }
+  /* A button with an icon and no text: a square with a hairline border, as in the owner's mock. */
+  .icon-btn { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 2.25rem; height: 2.25rem; padding: 0; border: 1px solid var(--control-border); border-radius: 8px; background: var(--transparent); box-shadow: none; color: var(--text-muted); }
+  .icon-btn:hover:not(:disabled) { background: var(--hover-fill); color: var(--text-main); }
   .controls { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
   .controls button, .controls select { margin: 0; }
+  .controls button { display: inline-flex; align-items: center; gap: .4rem; }
   .controls label { display: inline-flex; align-items: center; gap: .35rem; margin: 0; font-size: var(--text-sm); }
   .seek { flex: 1 1 12rem; }
   .seek input { flex: 1; min-width: 6rem; }

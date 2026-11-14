@@ -52,6 +52,13 @@ Fluent UI System Icons (github.com/microsoft/fluentui-system-icons/blob/main/LIC
 
 Lucide (github.com/lucide-icons/lucide/blob/main/LICENSE):
   close-admission.svg: door-closed-locked
+  play.svg: play
+  pause.svg: pause
+  go-to-end.svg: skip-forward
+  replay-play.svg: rotate-ccw (with a play triangle added)
+
+Drawn from the owner's mocks, in the style of Lucide (not retrieved from Iconify):
+  terminal.svg: a window with a prompt, after Lucide's square-terminal
 
 ========================================================================
 
