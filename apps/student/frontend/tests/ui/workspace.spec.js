@@ -441,5 +441,6 @@ test('using the IDE calls no native method but the workspace ones and the poll',
   await page.getByRole('button', { name: 'Submit', exact: true }).click();
   await page.waitForTimeout(1200);
   const calls = await page.evaluate(() => window.__studentHarness.nativeCalls);
-  expect([...new Set(calls)].sort()).toEqual(['Snapshot', 'WorkspaceInput', 'WorkspaceRequest']);
+  // (Rules is the login form reading the server's rules for the address it was given; it is not the IDE's.)
+  expect([...new Set(calls)].filter(name => name !== 'Rules').sort()).toEqual(['Snapshot', 'WorkspaceInput', 'WorkspaceRequest']);
 });
