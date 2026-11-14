@@ -111,6 +111,10 @@ func (m *Manager) lock(session string) func() {
 // ErrOver means the session's time is up: no container is made for it, and none is opened to it.
 var ErrOver = errors.New("workspace: the exam is over for this session")
 
+// ErrLocked means the session is locked: its workspace is not shown and no connection is taken, as the questions of a locked question
+// exam are not sent.
+var ErrLocked = errors.New("workspace: the exam is locked")
+
 // IsWorkspaceSession says whether a session belongs to a workspace exam.
 func (m *Manager) IsWorkspaceSession(ctx context.Context, session string) (bool, error) {
 	if _, err := m.opts.Repo.Session(ctx, session); err != nil {
@@ -238,7 +242,8 @@ func (m *Manager) waitAgent(ctx context.Context, session string) error {
 	}
 }
 
-// ClientStatus is what a student's application is told about its workspace (the ws.status message of section 6).
+// ClientStatus is what a student's application is told about its workspace (the ws.status message of section 6). It never says why a
+// workspace failed: the reason can name the runner or a path, and is for the proctor (AdminSession).
 type ClientStatus struct {
 	// State is preparing, running, restarting, frozen, ended or failed.
 	State           string     `json:"state"`
@@ -247,7 +252,6 @@ type ClientStatus struct {
 	SecondsLeft     int64      `json:"seconds_left"`
 	AgentRestarts   int        `json:"agent_restarts"`
 	TerminalAllowed bool       `json:"terminal"`
-	Failure         string     `json:"failure,omitempty"`
 }
 
 // Status describes a session's workspace to its student.
@@ -257,7 +261,7 @@ func (m *Manager) Status(ctx context.Context, session string) (ClientStatus, err
 		return ClientStatus{}, err
 	}
 	now := m.opts.Now()
-	status := ClientStatus{LastSnapshotAt: info.LastSnapshotAt, DeadlineAt: info.Deadline(), AgentRestarts: info.AgentRestarts, Failure: info.Failure}
+	status := ClientStatus{LastSnapshotAt: info.LastSnapshotAt, DeadlineAt: info.Deadline(), AgentRestarts: info.AgentRestarts}
 	if left := info.Deadline().Sub(now); left > 0 {
 		status.SecondsLeft = int64(left / time.Second)
 	}
@@ -268,6 +272,8 @@ func (m *Manager) Status(ctx context.Context, session string) (ClientStatus, err
 		status.State = "frozen"
 	case info.Over(now):
 		status.State = "ended"
+	case info.LockedAt != nil:
+		status.State = "locked"
 	case info.State == StateReady:
 		status.State = "running"
 		if running, err := m.opts.Runner.Status(ctx, session); err != nil || running.State != runner.StateRunning || !running.Agent.Connected {

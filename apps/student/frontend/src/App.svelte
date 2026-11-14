@@ -11,6 +11,7 @@
   import LockScreen from './LockScreen.svelte';
   import ConnectionWarning from './ConnectionWarning.svelte';
   import SoundStatus from './SoundStatus.svelte';
+  import Workspace from './workspace/Workspace.svelte';
   import Toasts from './Toasts.svelte';
   import Card from '../../../../shared/theme/Card.svelte';
   import Icon from '../../../../shared/theme/Icon.svelte';
@@ -56,6 +57,10 @@
   // Forward-only exams show the exercise the server has the student on; earlier ones are closed for good.
   let forwardOnly = $derived(exam?.navigation === 'forward_only');
   let exercises = $derived(exam?.content.exercises ?? []);
+  // A workspace exam has an IDE in place of exercises. It stays mounted while the exam is locked (hidden behind the lock screen), so
+  // what the student has typed and not yet saved is still there when the exam is unlocked.
+  let workspace = $derived(view.workspace ?? null);
+  let workspaceShown = $derived(Boolean(workspace) && (view.phase === 'exam' || view.phase === 'locked'));
   let page = $derived(forwardOnly ? Math.min(view.exercise ?? 0, exercises.length - 1) : selected);
   let exercise = $derived(exercises[page]);
   let lastPage = $derived(page >= exercises.length - 1);
@@ -279,12 +284,21 @@
   <p class="callout danger">{view.capture.block_reason || 'Screenshot retest required: editing is paused until a screenshot test succeeds.'} The server timer continues.</p>
   <CaptureStatus capture={view.capture} testable {capturing} {captureTest} {busy} onTest={testScreenshot} onCancel={() => pendingCapture?.cancel()} />
 {/snippet}
-<main>
+{#snippet notices()}
+        {#if view.monitoring?.contact_lost}<ConnectionWarning monitoring={view.monitoring} onLock={lockForNetwork} />{/if}
+        <!-- The window can be in front and still not the active one, as when the instructor unlocks the exam and the computer does
+             not hand it the focus. The alarm goes on until it is, so the student is told what to do about it. -->
+        {#if view.monitoring?.focus === 'unfocused'}<p role="status" class="callout warning">This window is not the active one. Click anywhere in it to continue: the alarm stops when it is active.</p>{/if}
+        <!-- What the app found that shows this computer is watched or controlled from elsewhere is told to the instructor, and to the
+             student, so that it is no surprise and so that a mistake (a program they did not know was running) is put right. -->
+        {#if view.monitoring?.remote?.length}<p role="status" class="callout warning">Your instructor has been told that this computer is being used remotely or has remote-control software running: {remoteNames(view.monitoring.remote)}. If this is a mistake, close it and tell your instructor.</p>{/if}
+{/snippet}
+<main class:wide={workspaceShown}>
   {#if view.phase !== 'login' && view.phase !== 'loading'}
-    <ExamToolbar title={exam?.title || 'Exam'} position={exercises.length ? `Exercise ${page + 1} of ${exercises.length}` : ''}
+    <ExamToolbar title={workspace?.title || exam?.title || 'Exam'} position={exercises.length ? `Exercise ${page + 1} of ${exercises.length}` : ''}
       status={view.status} statusObservation={view.status_observation} ageMillis={view.status_age_millis ?? 0}
       stale={view.timing_stale || !!bridgeError} locked={examLocked} complete={view.phase === 'complete'}
-      saveText={view.save_error ? 'Not saved' : view.save_state === 'saving' || revision > view.acknowledged_revision ? 'Saving…' : 'Saved'}
+      saveText={workspace ? '' : view.save_error ? 'Not saved' : view.save_state === 'saving' || revision > view.acknowledged_revision ? 'Saving…' : 'Saved'}
       {scaleIndex} onSmaller={() => changeScale(-1)} onLarger={() => changeScale(1)} calculator={calcAvailable} onCalculator={openCalculator} bind:calcButton
       onWarning={notice => notifier.post(notice.key, notice.text, { kind: 'warning' })} />
     {#if view.status && view.phase !== 'complete'}<details class="timing-details"><summary>Timing details</summary><p>State: {view.status.status}. Server report: {view.status.server_time}.</p><p>Deadline: {view.status.deadline_at}. Grace ends: {view.status.grace_until}.</p></details>{/if}
@@ -357,15 +371,9 @@
         <button class="primary" onclick={closeWindow}>Close exam window</button>
       </Card>
     {/if}
-    {#if view.phase === 'exam'}
+    {#if view.phase === 'exam' && !workspace}
     <div class="exam-main">
-        {#if view.monitoring?.contact_lost}<ConnectionWarning monitoring={view.monitoring} onLock={lockForNetwork} />{/if}
-        <!-- The window can be in front and still not the active one, as when the instructor unlocks the exam and the computer does
-             not hand it the focus. The alarm goes on until it is, so the student is told what to do about it. -->
-        {#if view.monitoring?.focus === 'unfocused'}<p role="status" class="callout warning">This window is not the active one. Click anywhere in it to continue: the alarm stops when it is active.</p>{/if}
-        <!-- What the app found that shows this computer is watched or controlled from elsewhere is told to the instructor, and to the
-             student, so that it is no surprise and so that a mistake (a program they did not know was running) is put right. -->
-        {#if view.monitoring?.remote?.length}<p role="status" class="callout warning">Your instructor has been told that this computer is being used remotely or has remote-control software running: {remoteNames(view.monitoring.remote)}. If this is a mistake, close it and tell your instructor.</p>{/if}
+        {@render notices()}
         {#if view.phase === 'exam' && captureBlocked}{@render retest()}{/if}
         <p aria-label="Save status" role="status" class="callout" class:danger={!!view.save_error}
           class:pending={!view.save_error && (view.save_state === 'saving' || revision > view.acknowledged_revision)}>{saveLabel(view, revision)}</p>
@@ -409,6 +417,13 @@
         <p class="muted">Unacknowledged text is retained only while this process stays open. Closing or crashing can lose it. Only server-acknowledged work is durable.</p>
     </div>
     {/if}
+  {/if}
+  {#if workspaceShown}
+    <div class="exam-main workspace-host" style:--exam-scale={scales[scaleIndex]} hidden={examLocked}>
+      {@render notices()}
+      {#if view.phase === 'exam' && captureBlocked}{@render retest()}{/if}
+      <Workspace {api} workspace={view.workspace} notify={note => notifier.post(note.key, note.text, { kind: note.kind })} />
+    </div>
   {/if}
 </main>
 <Toasts {toasts} onDismiss={id => notifier.dismiss(id)} onTick={ms => notifier.tick(ms)} />
@@ -455,6 +470,10 @@
 <style>
   /* The page keeps its top-level heading for screen readers; there is no visible title bar. */
   .visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+  main.wide { max-width: none; }
+  /* The class that lays the page out would otherwise show what the hidden attribute hides. */
+  .workspace-host[hidden] { display: none; }
+  .workspace-host { font-size: calc(1rem * var(--exam-scale)); --text-base: calc(1rem * var(--exam-scale)); --text-sm: calc(.875rem * var(--exam-scale)); --text-xs: calc(.75rem * var(--exam-scale)); }
   main { max-width: 78rem; margin: 0 auto; padding: var(--space-4) clamp(var(--space-3), 3vw, var(--space-5)) var(--space-5); }
   label { display: grid; gap: var(--space-1); margin: var(--space-3) 0; }
   input { width: 100%; min-width: 0; font-weight: 400; }

@@ -151,7 +151,7 @@ func newWorkspaceFixture(t *testing.T, change func(*workspace.Document)) *worksp
 		HeartbeatTimeout: 5 * time.Second, ReadyTimeout: 10 * time.Second, Retention: time.Hour})
 	f.service = &workspace.Service{Manager: f.manager, Repo: f.repo, Importer: &workspace.Importer{Repo: f.repo, Runner: f.runner, Blobs: f.blobs, Now: f.clock.Now,
 		Max: workspace.Resources{CPU: 2, MemoryMB: 2048, DiskMB: 500}, DefaultGrace: f.sessions.DefaultGraceSeconds}}
-	f.options = Options{AdminToken: testAdminToken, Workspace: f.service}
+	f.options = Options{AdminToken: testAdminToken, Workspace: f.service, Proctor: f.sessions, Rules: f.sessions}
 	f.router = New(f.clock, f.sessions, f.logger, f.options)
 	f.server = httptest.NewServer(f.router)
 	t.Cleanup(f.server.Close)

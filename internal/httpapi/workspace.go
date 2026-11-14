@@ -37,6 +37,8 @@ func workspaceError(w http.ResponseWriter, logger *slog.Logger, operation string
 		writeError(w, http.StatusNotFound, "not found")
 	case errors.Is(err, workspace.ErrOver):
 		writeError(w, http.StatusGone, "the exam is over")
+	case errors.Is(err, workspace.ErrLocked):
+		writeError(w, http.StatusLocked, "the exam is locked")
 	default:
 		logger.Error("workspace", "operation", operation, "error", err)
 		writeError(w, http.StatusInternalServerError, "internal server error")

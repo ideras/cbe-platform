@@ -93,6 +93,10 @@ func (m *Manager) Serve(w http.ResponseWriter, req *http.Request, session string
 		http.Error(w, "this session has no workspace", http.StatusNotFound)
 		return
 	}
+	if info.LockedAt != nil {
+		http.Error(w, "the exam is locked", http.StatusLocked)
+		return
+	}
 	exam, err := m.opts.Repo.Exam(req.Context(), info.ExamID)
 	if err != nil {
 		http.Error(w, "the exam cannot be read", http.StatusInternalServerError)
@@ -116,6 +120,7 @@ func (m *Manager) Serve(w http.ResponseWriter, req *http.Request, session string
 func (r *relay) run() {
 	defer r.cancel()
 	go r.statusLoop()
+	go r.lockLoop()
 	go r.keepalive()
 	// The client's side is read for as long as the connection lives; the agent's side comes and goes (a container that restarts).
 	clientDone := make(chan struct{})
@@ -205,6 +210,24 @@ func (r *relay) sendStatus() {
 		return
 	}
 	r.sendJSON(statusMessage{Type: "ws.status", ClientStatus: status})
+}
+
+// lockLoop ends the connection of a session that gets locked: the lock is the monitoring's answer to the student leaving the exam, and
+// it takes the exam's content away from them, as the questions of a locked question exam are not sent.
+func (r *relay) lockLoop() {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-r.ctx.Done():
+			return
+		case <-ticker.C:
+			if info, err := r.m.opts.Repo.Session(r.ctx, r.session); err == nil && info.LockedAt != nil {
+				r.close("the exam is locked")
+				return
+			}
+		}
+	}
 }
 
 func (r *relay) statusLoop() {

@@ -51,6 +51,33 @@ and the review window as above.
 
 Switching tabs, formats or the Encode | Decode control must cause no focus loss, like any other calculator use.
 
+## The workspace IDE (workspace exams, Phase 4)
+
+The same rule holds for the IDE of a workspace exam: it is a page in the exam window, so using it must cause no `focus_lost` event, no
+alarm and no screenshots. Terminal and editor focus are the new things: the terminal's keyboard is a hidden text field of the page, and
+the editor is a text field too, but neither is a native window.
+
+Setup: build the student application, the server, the runner and the course image (docs/workspace/deployment.md), import and publish
+the example package (`testdata/workspace/lab-listas`, compile it with `examc`), log in with the PIN and pass the screenshot test, and
+watch the proctor's review window for your session as above. Note the last row.
+
+1. Open `src/list.cpp` from the file tree and type in it for half a minute. Switch between two files with the mouse and with the
+   arrow keys on the tab row.
+2. Press **Run**, then **Check**. Watch their output tabs fill.
+3. Open a terminal (**+**), click in it, type `ls`, press Enter, then press **Ctrl+C** and **Ctrl+D**. Move between the editor, the
+   terminal and the file tree with the mouse and with **F6**.
+4. Create a file and a folder from the file tree, rename one, delete one (confirm the dialog), then press **Ctrl+S**.
+5. Tick a TODO item. Press **Submit**.
+6. Try to paste text copied from outside the application (another window's text) into the editor and into the terminal: it must be
+   refused with a notice, and the exam window must keep its focus.
+7. Open the dialogs (new file, delete) and close them with Escape.
+8. Throughout: the window stays fullscreen and always on top, and **no alarm sounds**. In the review window, filter **Focus**: no new
+   `focus_lost` row since the setup's last row; no new screenshot rows either.
+
+Then pull the network cable (or turn the Wi-Fi off) for 30 seconds while typing in the editor, and put it back: the banner says
+"Reconnecting…", what was typed is still in the editor, and it is saved when the connection returns. (If the application cannot reach
+the server for the policy's time, the exam locks, as for any exam; that is the monitoring working, not a failure of the IDE.)
+
 ## What counts as a failure
 
 - Any `focus_lost` event, any alarm beep, any new screenshot between step 1 and step 6.
@@ -61,7 +88,7 @@ Switching tabs, formats or the Encode | Decode control must cause no focus loss,
 
 | Platform | Focus behavior | Result |
 |---|---|---|
-| Linux X11 | `WindowLostFocus`/`WindowFocus` hooks of the native window | not run yet |
+| Linux X11 | `WindowLostFocus`/`WindowFocus` hooks of the native window | not run yet; the IDE steps not run on any platform yet |
 | Linux Wayland | same hooks; compositor focus | **passed** (owner, 2026-10-25, KDE Plasma; through Phase 6A, with the programmer steps) |
 | Windows | same hooks | not run yet; the owner runs it later |
 | macOS | same hooks | not run yet; the owner runs it later |
@@ -69,4 +96,6 @@ Switching tabs, formats or the Encode | Decode control must cause no focus loss,
 Automated coverage (Playwright, `tests/ui/calculator.spec.js`): opening, evaluating and closing call no native
 method other than the `Calc*` ones (Snapshot entries are the app's own poll timer), and `window.open` is never
 called. `tests/ui/programmer.spec.js` checks the same for switching the programmer tabs and the Encode | Decode
-control (Phase 6A). Focus detection itself is native and cannot be exercised in the browser harness.
+control (Phase 6A). `tests/ui/workspace.spec.js` checks that using the IDE (editing, terminals, Run, Check, the TODO list, Submit) calls no native
+method other than `WorkspaceRequest`, `WorkspaceInput` and the poll's `Snapshot`. Focus detection itself is native and cannot be exercised in the
+browser harness.

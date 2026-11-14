@@ -104,14 +104,14 @@ func (s Workspaces) Exam(ctx context.Context, examID string) (workspace.ExamReco
 }
 
 const workspaceSessionSelect = `SELECT s.session_id, s.exam_id, s.account_number, s.status, s.deadline_at, s.grace_until, s.ends_at,
-		COALESCE(w.state, 'new'), COALESCE(w.agent_restarts, 0), w.ready_at, w.frozen_at, w.last_snapshot_at, COALESCE(w.failure, '')
+		COALESCE(w.state, 'new'), COALESCE(w.agent_restarts, 0), w.ready_at, w.frozen_at, w.last_snapshot_at, COALESCE(w.failure, ''), s.locked_at
 	FROM sessions s JOIN workspace_exams we ON we.exam_id = s.exam_id LEFT JOIN workspace_sessions w ON w.session_id = s.session_id`
 
 func scanWorkspaceSession(row scanner) (workspace.SessionInfo, error) {
 	var info workspace.SessionInfo
 	var deadline, grace string
-	var ends, ready, frozen, snapshot sql.NullString
-	err := row.Scan(&info.SessionID, &info.ExamID, &info.Account, &info.Status, &deadline, &grace, &ends, &info.State, &info.AgentRestarts, &ready, &frozen, &snapshot, &info.Failure)
+	var ends, ready, frozen, snapshot, locked sql.NullString
+	err := row.Scan(&info.SessionID, &info.ExamID, &info.Account, &info.Status, &deadline, &grace, &ends, &info.State, &info.AgentRestarts, &ready, &frozen, &snapshot, &info.Failure, &locked)
 	if errors.Is(err, sql.ErrNoRows) {
 		return info, workspace.ErrNotFound
 	}
@@ -133,7 +133,10 @@ func scanWorkspaceSession(row scanner) (workspace.SessionInfo, error) {
 	if info.FrozenAt, err = nullTime(frozen); err != nil {
 		return info, err
 	}
-	info.LastSnapshotAt, err = nullTime(snapshot)
+	if info.LastSnapshotAt, err = nullTime(snapshot); err != nil {
+		return info, err
+	}
+	info.LockedAt, err = nullTime(locked)
 	return info, err
 }
 
