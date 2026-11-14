@@ -7,8 +7,9 @@
   import HistoryTable from './HistoryTable.svelte';
   import WorkspaceFiles from './WorkspaceFiles.svelte';
   import WorkspaceTerminals from './WorkspaceTerminals.svelte';
+  import WorkspaceGrading from './WorkspaceGrading.svelte';
   import { localDateTime } from './dates.js';
-  import { todoNote } from './workspace.js';
+  import { todoNote, gradeLine } from './workspace.js';
   // One student's session in a window of its own: the summary and the read-only history, page by page. While the session
   // is still running the shown page refreshes by itself. On a workspace exam the student's files and terminals are tabs of the same
   // window, and what the server knows of the workspace (its state, the ticks, the submissions, the downloads) is in the summary.
@@ -22,6 +23,7 @@
   let epoch = 0;
   let alive = true;
   let workspace = $state(null); // null for a session that is not a workspace's
+  let gradings = $state(null); // the student's runs of the exam's hidden tests, read with the workspace
   let problem = $state('');
   let tab = $state('history');
   let saving = $state('');
@@ -31,7 +33,10 @@
   const running = $derived(session && (session.status === 'active' || session.status === 'grace'));
   const ticked = $derived(Object.entries(workspace?.done ?? {}).filter(([, done]) => done).map(([id]) => id).sort());
   const latestSubmission = $derived(workspace?.submissions.at(-1) ?? null);
-  const tabs = $derived(workspace ? [{ id: 'history', text: 'History', icon: 'clock' }, { id: 'files', text: 'Files', icon: 'folder' }, { id: 'terminals', text: 'Terminals', icon: 'terminal', count: workspace.terminals.length }] : []);
+  const tabs = $derived(workspace ? [{ id: 'history', text: 'History', icon: 'clock' }, { id: 'files', text: 'Files', icon: 'folder' }, { id: 'terminals', text: 'Terminals', icon: 'terminal', count: workspace.terminals.length },
+    { id: 'grading', text: 'Grading', icon: 'fileCheck', count: gradings?.gradings.length ?? 0 }] : []);
+  // The grade that stands: the confirmed run, or else the latest.
+  const standing = $derived(gradings?.gradings.find(run => run.confirmed) ?? gradings?.gradings[0] ?? null);
 
   async function load(cursor, at, quiet = false) {
     const mine = ++epoch;
@@ -51,7 +56,15 @@
     } catch (err) {
       // A session that is not a workspace's has no workspace to show, which is not a problem to report.
       if (alive && workspace) problem = `The workspace could not be read: ${String(err)}`;
+      return;
     }
+    await loadGradings();
+  }
+  async function loadGradings() {
+    try {
+      const value = await api.WorkspaceGradings(sessionId);
+      if (alive) gradings = value;
+    } catch { /* the grading is not there to read (an older server): the tab shows nothing */ }
   }
   async function save(what) {
     saving = what; saved = ''; problem = '';
@@ -66,7 +79,9 @@
     loadWorkspace();
     const timer = setInterval(() => { if (follow && running && !busy) load(cursors[index], index, true); }, 5000);
     const watching = setInterval(loadWorkspace, 5000);
-    return () => { alive = false; clearInterval(timer); clearInterval(watching); };
+    // A run that is going is looked at more often, so its end shows soon.
+    const grading = setInterval(() => { if (gradings?.gradings.some(run => run.state === 'queued' || run.state === 'running')) loadGradings(); }, 1500);
+    return () => { alive = false; clearInterval(timer); clearInterval(watching); clearInterval(grading); };
   });
 </script>
 
@@ -86,6 +101,7 @@
         {#if workspace}
           <dt>Container</dt><dd><strong>{workspace.state}</strong>{#if workspace.agent_restarts}{' · restarted '}{workspace.agent_restarts} time{workspace.agent_restarts === 1 ? '' : 's'}{/if}</dd>
           <dt>TODO ({todoNote})</dt><dd>{#if ticked.length}{ticked.join(', ')} ticked by the student{:else}nothing ticked{/if}. Nothing checked these ticks.</dd>
+          {#if standing}{@const line = gradeLine(standing)}<dt>Grade</dt><dd><strong>{line.text}</strong>{#if line.note}{' '}<span class="muted">({line.note})</span>{/if}</dd>{/if}
           <dt>Submissions</dt><dd>{#if latestSubmission}{workspace.submissions.length} · latest {latestSubmission.final ? 'is the final one' : 'was made by the student pressing Save'}, {localDateTime(latestSubmission.submitted_at)}{:else}none yet{/if}</dd>
         {/if}
       </dl>
@@ -116,6 +132,7 @@
         {#snippet panel(id)}
           {#if id === 'history'}{@render history()}
           {:else if id === 'files'}<WorkspaceFiles {workspace} />
+          {:else if id === 'grading'}<WorkspaceGrading {sessionId} {workspace} {gradings} onChanged={loadGradings} />
           {:else}<WorkspaceTerminals {workspace} />{/if}
         {/snippet}
       </Tabs>

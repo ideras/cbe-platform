@@ -603,6 +603,47 @@ export async function WorkspaceTranscript(id) {
   if (text === undefined) throw new Error('Requested record or image is unavailable, missing or purged.');
   return text;
 }
+// Grading (Phase 6): the runs of the first student, newest first, in workspaceData.gradings = { todos, runs }; a run carries what the
+// detail shows (results, stdout, stderr), and the list leaves the output out, as the server's does.
+let gradeExamResult = { queued: [1, 2], skipped: [] };
+let gradeFailure = '';
+const gradingRuns = () => workspaceData?.gradings?.runs ?? null;
+export async function WorkspaceGradings(id) {
+  calls.workspace = calls.workspace ?? [];
+  calls.workspace.push({ call: 'WorkspaceGradings', id });
+  if (!workspaceData || workspaceData.session.session_id !== id) throw new Error('Requested record or image is unavailable, missing or purged.');
+  const gradings = workspaceData.gradings;
+  return { session_id: id, todos: structuredClone(gradings?.todos ?? []), gradings: (gradings?.runs ?? []).map(({ stdout, stderr, stdout_truncated, stderr_truncated, ...rest }) => structuredClone(rest)) };
+}
+export async function WorkspaceGrading(id) {
+  calls.workspace.push({ call: 'WorkspaceGrading', id });
+  const run = gradingRuns()?.find(item => item.id === id);
+  if (!run) throw new Error('Requested record or image is unavailable, missing or purged.');
+  return structuredClone(run);
+}
+export async function GradeStudent(sessionId, submissionId) {
+  calls.workspace.push({ call: 'GradeStudent', sessionId, submissionId });
+  if (gradeFailure) throw new Error(gradeFailure);
+  const runs = workspaceData.gradings.runs;
+  const id = Math.max(0, ...runs.map(run => run.id)) + 1;
+  runs.unshift({ id, submission: submissionId || workspaceData.session.submissions.at(-1).id, state: 'queued', failure: '', failure_text: '', queued_at: '2035-01-01T22:25:00Z', confirmed: false, results: [], stdout: '', stderr: '', skipped: [] });
+  return id;
+}
+export async function GradeExam(sessionIds) {
+  calls.workspace = calls.workspace ?? [];
+  calls.workspace.push({ call: 'GradeExam', sessionIds });
+  if (gradeFailure) throw new Error(gradeFailure);
+  return structuredClone(gradeExamResult);
+}
+export async function ConfirmGrading(id, confirm) {
+  calls.workspace.push({ call: 'ConfirmGrading', id, confirm });
+  if (gradeFailure) throw new Error(gradeFailure);
+  const runs = gradingRuns();
+  const run = runs?.find(item => item.id === id);
+  if (!run || (confirm && run.state !== 'done')) throw new Error('The server refused the change: only a run that is done can be confirmed.');
+  if (confirm) for (const other of runs) other.confirmed = other.id === id;
+  else run.confirmed = false;
+}
 export async function SaveWorkspaceZip(sessionId, submissionId) { calls.workspace.push({ call: 'SaveWorkspaceZip', sessionId, submissionId }); return saveCancelled ? '' : `${workspaceSavePath}-files.zip`; }
 export async function SaveWorkspaceReport(sessionId) { calls.workspace.push({ call: 'SaveWorkspaceReport', sessionId }); return saveCancelled ? '' : `${workspaceSavePath}-report.md`; }
 Object.assign(window.ProctorHarness, {
@@ -611,4 +652,8 @@ Object.assign(window.ProctorHarness, {
   workspace(roster, data = null) { workspaceRoster = roster; workspaceData = data; },
   workspaceRoster(roster) { workspaceRoster = roster; },
   workspaceReadFails(message) { workspaceReadFails = message; },
+  // What the next request to grade the class answers, what makes a grading call fail, and a change to a run (a run that ends).
+  gradeExamResult(value) { gradeExamResult = value; },
+  gradeFails(message) { gradeFailure = message; },
+  gradingRun(id, change) { Object.assign(gradingRuns().find(run => run.id === id), change); },
 });

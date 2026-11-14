@@ -2,7 +2,7 @@
   import Icon from '../../../../shared/theme/Icon.svelte';
   import { remainingTime } from '../../../../shared/exam/timing.js';
   import { localTime } from './dates.js';
-  import { workspaceBadge, activityText, todoText, todoNote, useText } from './workspace.js';
+  import { workspaceBadge, activityText, todoText, todoNote, useText, gradeLine } from './workspace.js';
   import { inProgress, canForce, needsAttention, duration, sound, networkBadge, focusBadge, lifecycleBadge, lockLabel, lowTime, loginGate, remoteFindings, appRelease } from './roster.js';
   // serverVersion is the server's release, which each student's application is compared with.
   // workspace is the student's workspace on a workspace exam, null while they have none, and undefined for an exam that has no workspaces.
@@ -71,6 +71,9 @@
           <div class="todo"><span class="key">TODO:{' '}</span><span class="value">{todoText(workspace)}</span> <em>({todoNote})</em></div>
         </div>
         {#if workspace.submissions}<small>{workspace.submissions} submission{workspace.submissions === 1 ? '' : 's'}{#if workspace.last_submission_at}{' · last '}{localTime(workspace.last_submission_at, '')}{/if}{#if workspace.submitted_final}{' · '}<strong>final made</strong>{/if}</small>{:else}<small>Nothing submitted yet</small>{/if}
+        {#if gradeLine(workspace.grade)}{@const grade = gradeLine(workspace.grade)}
+          <div class="grade tone-{grade.tone}"><span class="key">Grade:{' '}</span><span class="value">{grade.text}</span>{#if grade.note}{' '}<em>({grade.note})</em>{/if}</div>
+        {/if}
         {#if workspace.agent_restarts}<small>Workspace restarted {workspace.agent_restarts} time{workspace.agent_restarts === 1 ? '' : 's'}</small>{/if}
       {:else}
         <small>No workspace yet</small>
@@ -123,6 +126,10 @@
   .focus, .lock { background: var(--alert-fill); color: var(--alert-text); }
   .neutral { background: var(--bg-secondary); color: var(--text-main); }
   .todo em { color: var(--text-muted); font-size: .76rem; font-style: normal; }
+  .grade em { color: var(--text-muted); font-size: .76rem; font-style: normal; }
+  .tone-ok .value { color: var(--ok-text); font-weight: 700; }
+  .tone-lock .value { color: var(--alert-text); font-weight: 600; }
+  .tone-active .value { color: var(--action-hover); }
   .remaining { margin-top: .1rem; font-family: var(--font-mono); font-size: 1rem; }
   .remaining .key { font-size: .76rem; }
   .remaining strong { color: inherit; font-weight: 700; }

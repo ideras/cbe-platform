@@ -35,6 +35,8 @@ type WorkspaceStudent struct {
 	Submissions      int        `json:"submissions"`
 	LastSubmissionAt *time.Time `json:"last_submission_at"`
 	Final            bool       `json:"submitted_final"`
+	// Grade is the student's grade as it stands, advisory until Confirmed: the confirmed run, or the latest; nil before any grading.
+	Grade *WorkspaceGrade `json:"grade"`
 }
 
 // WorkspaceRoster is the roster of an exam's workspaces; nil in the view when the exam is not a workspace exam.
@@ -45,7 +47,7 @@ type WorkspaceRoster struct {
 func validWorkspaceRoster(roster WorkspaceRoster) error {
 	seen := map[string]bool{}
 	for _, row := range roster.Students {
-		if !validID(row.SessionID) || seen[row.SessionID] || row.State == "" || row.TodoDone < 0 || row.TodoDone > row.TodoTotal || row.Submissions < 0 {
+		if !validID(row.SessionID) || seen[row.SessionID] || row.State == "" || row.TodoDone < 0 || row.TodoDone > row.TodoTotal || row.Submissions < 0 || !validGrade(row.Grade) {
 			return errors.New("Invalid workspace roster.")
 		}
 		seen[row.SessionID] = true
