@@ -12,6 +12,7 @@
   import ConnectionWarning from './ConnectionWarning.svelte';
   import SoundStatus from './SoundStatus.svelte';
   import Workspace from './workspace/Workspace.svelte';
+  import WorkspaceStatus from './workspace/WorkspaceStatus.svelte';
   import Toasts from './Toasts.svelte';
   import Card from '../../../../shared/theme/Card.svelte';
   import Icon from '../../../../shared/theme/Icon.svelte';
@@ -61,6 +62,8 @@
   // what the student has typed and not yet saved is still there when the exam is unlocked.
   let workspace = $derived(view.workspace ?? null);
   let workspaceShown = $derived(Boolean(workspace) && (view.phase === 'exam' || view.phase === 'locked'));
+  // What the workspace tells of its connection and saves, shown in the toolbar (the room below it is the editor's).
+  let ide = $state(null);
   let page = $derived(forwardOnly ? Math.min(view.exercise ?? 0, exercises.length - 1) : selected);
   let exercise = $derived(exercises[page]);
   let lastPage = $derived(page >= exercises.length - 1);
@@ -308,7 +311,9 @@
       stale={view.timing_stale || !!bridgeError} locked={examLocked} complete={view.phase === 'complete'}
       saveText={workspace ? '' : view.save_error ? 'Not saved' : view.save_state === 'saving' || revision > view.acknowledged_revision ? 'Saving…' : 'Saved'}
       {scaleIndex} onSmaller={() => changeScale(-1)} onLarger={() => changeScale(1)} calculator={calcAvailable} onCalculator={openCalculator} bind:calcButton
-      onWarning={notice => notifier.post(notice.key, notice.text, { kind: 'warning' })} />
+      onWarning={notice => notifier.post(notice.key, notice.text, { kind: 'warning' })}>
+      {#if workspaceShown && ide}<WorkspaceStatus {...ide} />{/if}
+    </ExamToolbar>
     {#if view.status && view.phase !== 'complete'}<details class="timing-details"><summary>Timing details</summary><p>State: {view.status.status}. Server report: {view.status.server_time}.</p><p>Deadline: {view.status.deadline_at}. Grace ends: {view.status.grace_until}.</p></details>{/if}
   {/if}
   {#if view.phase === 'login'}
@@ -430,7 +435,7 @@
     <div class="exam-main workspace-host" style:--exam-scale={scales[scaleIndex]} hidden={examLocked}>
       {@render notices()}
       {#if view.phase === 'exam' && captureBlocked}{@render retest()}{/if}
-      <Workspace {api} workspace={view.workspace} finishing={view.submitting} onFinish={finishWorkspace} notify={note => notifier.post(note.key, note.text, { kind: note.kind })} />
+      <Workspace {api} workspace={view.workspace} finishing={view.submitting} onFinish={finishWorkspace} onStatus={status => { ide = status; }} notify={note => notifier.post(note.key, note.text, { kind: note.kind })} />
     </div>
   {/if}
 </main>

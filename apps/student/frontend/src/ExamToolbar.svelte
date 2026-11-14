@@ -3,7 +3,7 @@
   import Icon from '../../../../shared/theme/Icon.svelte';
   import { effectiveRemaining, timeChip, TimeWarnings, parseTime } from '../../../../shared/exam/timing.js';
   let { title, position = '', status, statusObservation, ageMillis = 0, stale = false, locked = false, complete = false,
-    saveText = '', scaleIndex = 1, onSmaller, onLarger, calculator = false, onCalculator, onWarning = () => {}, calcButton = $bindable(null) } = $props();
+    saveText = '', scaleIndex = 1, onSmaller, onLarger, calculator = false, onCalculator, onWarning = () => {}, calcButton = $bindable(null), children } = $props();
   let toolbar;
   let remaining = $state(null);
   let reported = null, arrival = 0, reportAge = 0;
@@ -36,6 +36,8 @@
   <span class="time-chip {chip.kind}" aria-label="Remaining time">{chip.text}</span>
   {#if locked && !complete}<span>Locked</span>{/if}
   {#if status?.ends_at}<span class="ends">Ends {new Date(parseTime(status.ends_at)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>{/if}
+  <!-- A workspace exam tells its connection and saves here, where it takes no room from the editor. -->
+  {#if !complete}{@render children?.()}{/if}
   {#if !complete}<span class="save" title={saveText}>{saveText}</span>
     <div class="size"><button aria-label="Smaller text" disabled={scaleIndex === 0} onclick={onSmaller}>A−</button><button aria-label="Larger text" disabled={scaleIndex === 4} onclick={onLarger}>A+</button></div>
   {/if}

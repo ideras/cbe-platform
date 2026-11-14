@@ -1,11 +1,10 @@
 <script>
-  import { onMount, untrack } from 'svelte';
+  import { onMount, tick, untrack } from 'svelte';
   import Icon from '../../../../../shared/theme/Icon.svelte';
   import ConfirmDialog from '../ConfirmDialog.svelte';
   import EditorPane from './EditorPane.svelte';
   import FileTree from './FileTree.svelte';
   import NameDialog from './NameDialog.svelte';
-  import StatusBar from './StatusBar.svelte';
   import TerminalPane from './TerminalPane.svelte';
   import TodoPanel from './TodoPanel.svelte';
   import { WorkspaceModel } from './model.js';
@@ -15,8 +14,9 @@
 
   // The student's workspace: instructions and TODO list, the files, the editor, the terminals, and what the connection is doing. The
   // application's Go side holds the connection; this page shows what the model (model.js) makes of it and tells it what the student
-  // does. `workspace` is the application's view of it, `api` the application's calls, `notify` posts a toast.
-  let { api, workspace, notify, onFinish, finishing = false } = $props();
+  // does. `workspace` is the application's view of it, `api` the application's calls, `notify` posts a toast, and `onStatus` hears the
+  // connection and the saves, which the application tells in its toolbar (the room below is the editor's).
+  let { api, workspace, notify, onFinish, finishing = false, onStatus = () => {} } = $props();
   const model = new WorkspaceModel({
     transport: makeTransport(api),
     notify: note => notify(note),
@@ -47,13 +47,34 @@
 
   // What the application says about the connection, on every snapshot of it.
   $effect(() => { const view = workspace; untrack(() => model.setView(view)); });
-  // The server's word on the time left and the last snapshot, with the moment it was heard.
-  let observed = $state(Date.now());
-  let lastLeft = null;
+  // What the toolbar tells, handed over when one of its parts changes (the values are compared one by one, so a burst of file changes is not).
+  const connection = $derived(snap.connection);
+  const unsaved = $derived(snap.unsaved);
+  const lastSave = $derived(snap.lastSave);
+  const lastSnapshotAt = $derived(workspace.status?.last_snapshot_at ?? null);
+  const restarts = $derived(workspace.status?.agent_restarts ?? 0);
+  $effect(() => { const status = { connection, unsaved, lastSave, lastSnapshotAt, restarts }; untrack(() => onStatus(status)); });
+
+  // The terminals take room only while there is one to show. `terminalWanted` is the student's wish (what Run, Check and the Terminal
+  // button say, and Hide takes back); the panel is there when it is wanted and a terminal exists. Hiding keeps the terminals running.
+  let terminalWanted = $state(false);
+  const terminalVisible = $derived(terminalWanted && snap.terminals.length > 0);
+  let focusWhenShown = false;
+  $effect(() => { if (terminalVisible && focusWhenShown) { focusWhenShown = false; tick().then(() => focusPane('terminal')); } });
+  // A panel that goes away with the focus in it leaves the focus nowhere: it goes to the editor.
+  let wasVisible = false;
   $effect(() => {
-    const left = workspace.status?.seconds_left ?? null;
-    if (left !== lastLeft) { lastLeft = left; observed = Date.now(); }
+    const visible = terminalVisible;
+    if (wasVisible && !visible) queueMicrotask(() => { if (!document.activeElement || document.activeElement === document.body) editor?.focus(); });
+    wasVisible = visible;
   });
+  function hideTerminal() { terminalWanted = false; editor?.focus(); }
+  async function toggleTerminal() {
+    if (terminalVisible) { hideTerminal(); return; }
+    terminalWanted = true; focusWhenShown = true;
+    if (snap.terminals.length === 0) await model.openTerminal();
+  }
+  function run(which) { terminalWanted = true; model.run(which); }
 
   onMount(() => {
     model.setTodoState(workspace.done ?? {});
@@ -72,7 +93,7 @@
     window.addEventListener('resize', measure);
     measure();
     const measuring = setInterval(measure, 500);
-    return () => { clearInterval(measuring); window.removeEventListener('resize', measure); stopOutput?.(); stopMessage?.(); stopGuard(); window.removeEventListener('keydown', keys, true); window.removeEventListener('beforeunload', warn); model.close(); };
+    return () => { clearInterval(measuring); window.removeEventListener('resize', measure); onStatus(null); stopOutput?.(); stopMessage?.(); stopGuard(); window.removeEventListener('keydown', keys, true); window.removeEventListener('beforeunload', warn); model.close(); };
   });
   const warn = event => { if (model.snapshot().unsaved) { event.preventDefault(); event.returnValue = ''; } };
 
@@ -91,8 +112,10 @@
       model.saveAll().then(ok => { if (!ok) notify({ kind: 'warning', key: 'save-all', text: 'Some changes could not be saved yet.' }); });
     } else if (event.key === 'F6') {
       event.preventDefault();
-      const here = order.findIndex(name => event.target.closest?.(`[data-pane="${name}"]`));
-      focusPane(order[(here + (event.shiftKey ? order.length - 1 : 1)) % order.length]);
+      // A hidden terminal panel is not a stop.
+      const stops = order.filter(name => name !== 'terminal' || terminalVisible);
+      const here = stops.findIndex(name => event.target.closest?.(`[data-pane="${name}"]`));
+      focusPane(stops[(here + (event.shiftKey ? stops.length - 1 : 1)) % stops.length]);
     }
   }
 
@@ -162,33 +185,38 @@
       {#if banner.retry}<button type="button" onclick={() => model.transport.reconnect().catch(() => {})}>Use this window</button>{/if}
     </p>
   {/if}
-  <aside class="side">
-    <div data-pane="todo" class="todo-box"><TodoPanel instructions={workspace.instructions} todos={workspace.todos} done={snap.todo} disabled={disabled} onToggle={(id, done) => model.setTodo(id, done)} /></div>
-    <div data-pane="tree" class="tree-box" bind:this={tree}>
-      <FileTree folders={snap.folders} expanded={snap.expanded} activePath={snap.activePath} readOnly={disabled}
-        onToggle={path => model.toggleFolder(path)} onOpen={open}
-        onNew={(kind, folder) => { naming = { kind, folder }; }} onRename={path => { naming = { kind: 'rename', path, folder: dirname(path) }; }} onDelete={path => { deleting = path; }} />
+  <div class="panes">
+    <aside class="side">
+      <div data-pane="todo" class="todo-box"><TodoPanel instructions={workspace.instructions} todos={workspace.todos} done={snap.todo} disabled={disabled} onToggle={(id, done) => model.setTodo(id, done)} /></div>
+      <div data-pane="tree" class="tree-box" bind:this={tree}>
+        <FileTree folders={snap.folders} expanded={snap.expanded} activePath={snap.activePath} readOnly={disabled}
+          onToggle={path => model.toggleFolder(path)} onOpen={open}
+          onNew={(kind, folder) => { naming = { kind, folder }; }} onRename={path => { naming = { kind: 'rename', path, folder: dirname(path) }; }} onDelete={path => { deleting = path; }} />
+      </div>
+    </aside>
+    <div class="main" class:with-terminal={terminalVisible}>
+      <div class="actions" role="toolbar" aria-label="Run, check and submit">
+        {#if snap.canRun}<button type="button" onclick={() => run('run')} disabled={disabled}><Icon name="arrowRight" size={16} />Run</button>{/if}
+        {#if snap.canCheck}<button type="button" onclick={() => run('check')} disabled={disabled}><Icon name="check" size={16} />Check</button>{/if}
+        <!-- The terminals take room only when wanted: this shows the panel (opening a terminal if there is none) and hides it again. -->
+        {#if snap.terminalAllowed || snap.terminals.length > 0}
+          <button type="button" aria-pressed={terminalVisible} aria-controls="terminal-panel" onclick={toggleTerminal} disabled={snap.terminals.length === 0 && disabled}
+            title={terminalVisible ? 'Hide the terminals (they keep running)' : snap.terminals.length ? 'Show the terminals' : 'Open a terminal'}>
+            <Icon name="chevron" size={14} /><span>Terminal{snap.terminals.length && !terminalVisible ? ` (${snap.terminals.length})` : ''}</span>
+          </button>
+        {/if}
+        <span class="spacer"></span>
+        {#if snap.lastSubmit}<span class="submitted" role="status">Submitted {clock(snap.lastSubmit.at)}</span>{/if}
+        <button type="button" class="primary" onclick={submit} disabled={disabled || submitting}><Icon name="fileCheck" size={16} />Submit</button>
+        <button type="button" onclick={() => { confirmingFinish = true; }} disabled={disabled}><Icon name="done" size={16} />Finish exam…</button>
+      </div>
+      <div class="editor-box" data-pane="editor">
+        <EditorPane bind:this={editor} {model} tabs={snap.tabs} activePath={snap.activePath} readOnly={disabled} onClose={path => model.closeTab(path)} />
+      </div>
+      <div class="terminal-box" id="terminal-panel" data-pane="terminal" hidden={!terminalVisible}>
+        <TerminalPane {model} terminals={snap.terminals} activeTerm={snap.activeTerm} terminalAllowed={snap.terminalAllowed} readOnly={disabled} onHide={hideTerminal} />
+      </div>
     </div>
-  </aside>
-  <div class="main">
-    <div class="actions" role="toolbar" aria-label="Run, check and submit">
-      {#if snap.canRun}<button type="button" onclick={() => model.run('run')} disabled={disabled}><Icon name="arrowRight" size={16} />Run</button>{/if}
-      {#if snap.canCheck}<button type="button" onclick={() => model.run('check')} disabled={disabled}><Icon name="check" size={16} />Check</button>{/if}
-      <span class="spacer"></span>
-      {#if snap.lastSubmit}<span class="submitted" role="status">Submitted {clock(snap.lastSubmit.at)}</span>{/if}
-      <button type="button" class="primary" onclick={submit} disabled={disabled || submitting}><Icon name="fileCheck" size={16} />Submit</button>
-      <button type="button" onclick={() => { confirmingFinish = true; }} disabled={disabled}><Icon name="done" size={16} />Finish exam…</button>
-    </div>
-    <div class="editor-box" data-pane="editor">
-      <EditorPane bind:this={editor} {model} tabs={snap.tabs} activePath={snap.activePath} readOnly={disabled} onClose={path => model.closeTab(path)} />
-    </div>
-    <div class="terminal-box" data-pane="terminal">
-      <TerminalPane {model} terminals={snap.terminals} activeTerm={snap.activeTerm} terminalAllowed={snap.terminalAllowed} readOnly={disabled} />
-    </div>
-  </div>
-  <div class="bottom">
-    <StatusBar connection={snap.connection} unsaved={snap.unsaved} lastSave={snap.lastSave} lastSnapshotAt={workspace.status?.last_snapshot_at ?? null}
-      secondsLeft={workspace.status?.seconds_left ?? null} {observed} restarts={workspace.status?.agent_restarts ?? 0} />
   </div>
 </div>
 {#if naming}
@@ -222,24 +250,31 @@
   </ConfirmDialog>
 {/if}
 <style>
-  .ide { display: grid; grid-template-columns: minmax(15rem, 21rem) minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto; gap: var(--space-2); height: calc(100vh - var(--ide-top, 8rem) - 1.5rem); min-height: 32rem; }
-  .banner { grid-column: 1 / -1; display: flex; align-items: center; gap: var(--space-2); margin: 0; padding: .5rem .75rem; border-radius: var(--radius-ctl); border: 1px solid var(--border-subtle); background: var(--warn-fill); color: var(--warn-text); font-size: var(--text-sm); }
+  /* The workspace fills the window below the toolbar. Its rows are the banner (when there is one) and the panes, which take the rest. */
+  .ide { display: flex; flex-direction: column; gap: var(--space-2); height: calc(100vh - var(--ide-top, 8rem) - 1.5rem); min-height: 32rem; }
+  .banner { display: flex; align-items: center; gap: var(--space-2); margin: 0; padding: .5rem .75rem; border-radius: var(--radius-ctl); border: 1px solid var(--border-subtle); background: var(--warn-fill); color: var(--warn-text); font-size: var(--text-sm); }
   .banner.pending { background: var(--info-fill, var(--bg-raised)); color: var(--text-main); }
   .banner.danger { background: var(--alert-fill); color: var(--alert-text); }
   .banner button { margin: 0 0 0 auto; }
+  .panes { flex: 1 1 0; min-height: 0; display: grid; grid-template-columns: minmax(15rem, 21rem) minmax(0, 1fr); gap: var(--space-2); }
   .side { display: grid; grid-template-rows: minmax(0, 2fr) minmax(0, 3fr); gap: var(--space-2); min-height: 0; min-width: 0; }
   .todo-box { min-height: 0; overflow: auto; padding-right: .15rem; }
   .tree-box { min-height: 0; display: grid; }
-  .main { display: grid; grid-template-rows: auto minmax(0, 3fr) minmax(7rem, 2fr); gap: var(--space-2); min-height: 0; min-width: 0; }
+  /* The editor has all the room until a terminal is wanted, and then about two thirds of it. */
+  .main { display: grid; grid-template-rows: auto minmax(0, 1fr); gap: var(--space-2); min-height: 0; min-width: 0; }
+  .main.with-terminal { grid-template-rows: auto minmax(0, 13fr) minmax(8rem, 7fr); }
   .editor-box, .terminal-box { min-height: 0; display: grid; }
-  .actions { display: flex; align-items: center; gap: var(--space-2); }
+  .terminal-box[hidden] { display: none; }
+  .actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
   .actions button { display: inline-flex; align-items: center; gap: .35rem; margin: 0; }
+  .actions button[aria-pressed="true"] { background: var(--selection-fill); }
+  .actions button[aria-pressed="true"] :global(svg) { transform: rotate(90deg); }
   .spacer { flex: 1; }
   .submitted { color: var(--ok-text); font-size: var(--text-sm); }
-  .bottom { grid-column: 1 / -1; }
   .note { display: flex; gap: var(--space-2); }
   @media (max-width: 900px) {
-    .ide { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto minmax(36rem, 1fr) auto; height: auto; }
+    .ide { height: auto; }
+    .panes { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(36rem, 1fr); }
     .side { grid-template-rows: auto minmax(12rem, 16rem); }
     .todo-box { max-height: 16rem; }
   }

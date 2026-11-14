@@ -1,5 +1,5 @@
 <script>
-  import { onMount, untrack } from 'svelte';
+  import { onMount, tick, untrack } from 'svelte';
   import { EditorState, Compartment, Annotation } from '@codemirror/state';
   import { EditorView, keymap, lineNumbers, highlightActiveLineGutter, highlightSpecialChars, drawSelection, dropCursor } from '@codemirror/view';
   import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
@@ -29,6 +29,16 @@
   // Two tabs with the same name say which folder they are in.
   const label = tab => tabs.some(other => other.id !== tab.id && basename(other.path) === basename(tab.path)) ? `${basename(tab.path)} (${dirname(tab.path) || '/'})` : basename(tab.path);
 
+  // The size of the code text, on top of the application's A− and A+ (which size the whole workspace, files and buttons too): a student
+  // who wants bigger code need not make everything else bigger, which would take the room the code needs. Ctrl and + − 0 do it from the
+  // keyboard, as in a code editor. It is kept while the application runs and is not written anywhere.
+  const ZOOMS = [0.85, 1, 1.15, 1.3, 1.5, 1.75, 2];
+  let zoomIndex = $state(1);
+  const zoom = delta => { zoomIndex = delta === 0 ? 1 : Math.max(0, Math.min(ZOOMS.length - 1, zoomIndex + delta)); };
+  $effect(() => { zoomIndex; if (view) tick().then(() => view?.requestMeasure()); });
+  // A click leaves the focus where the student was working (the editor); a key press on the button keeps it on the button.
+  const zoomClick = (delta, event) => { zoom(delta); if (event.detail > 0) view?.focus(); };
+
   const accessConfig = locked => [EditorState.readOnly.of(locked), EditorView.contentAttributes.of(locked ? { 'aria-readonly': 'true' } : {})];
 
   function makeState(tab, text, language) {
@@ -38,6 +48,8 @@
       syntaxHighlighting(highlightColors), language,
       keymap.of([
         { key: 'Mod-s', preventDefault: true, run: () => { model.save(model.tabs.find(item => item.id === tab.id)?.path ?? tab.path).catch(() => {}); return true; } },
+        { key: 'Mod-=', run: () => { zoom(1); return true; } }, { key: 'Mod-+', run: () => { zoom(1); return true; } },
+        { key: 'Mod--', run: () => { zoom(-1); return true; } }, { key: 'Mod-0', run: () => { zoom(0); return true; } },
         indentWithTab, ...closeBracketsKeymap, ...defaultKeymap, ...searchKeymap, ...historyKeymap, ...foldKeymap,
       ]),
       EditorView.contentAttributes.of({ 'aria-label': `Editor for ${tab.path}`, spellcheck: 'false' }),
@@ -117,7 +129,7 @@
     else if (event.key === 'Delete' || (event.key === 'w' && (event.ctrlKey || event.metaKey))) { event.preventDefault(); onClose(tabs[index].path); }
   }
 </script>
-<section class="editor" aria-label="Editor">
+<section class="editor" aria-label="Editor" style:--code-zoom={ZOOMS[zoomIndex]}>
   <div class="tabbar">
     <div class="tabs" role="tablist" aria-label="Open files">
       {#each tabs as tab, index (tab.id)}
@@ -129,6 +141,11 @@
         </button>
       {/each}
       {#if tabs.length === 0}<span class="none">No file open. Open one from the file tree.</span>{/if}
+    </div>
+    <!-- The names start with what is drawn on the buttons, as WCAG's "label in name" asks (a person who says "A plus" to a voice control must reach it). -->
+    <div class="zoom" role="group" aria-label="Code text size">
+      <button type="button" aria-label="A− Smaller code text" title="Smaller code text (Ctrl and −)" disabled={zoomIndex === 0} onclick={event => zoomClick(-1, event)}>A−</button>
+      <button type="button" aria-label="A+ Larger code text" title="Larger code text (Ctrl and +)" disabled={zoomIndex === ZOOMS.length - 1} onclick={event => zoomClick(1, event)}>A+</button>
     </div>
     {#if active}<button type="button" class="close-active" aria-label="Close {label(active)}" title="Close this file" onclick={() => onClose(active.path)}><Icon name="close" size={14} /></button>{/if}
   </div>
@@ -156,6 +173,10 @@
   .tabs { display: flex; flex: 1 1 auto; align-items: stretch; gap: 1px; min-width: 0; overflow-x: auto; }
   .tab { display: inline-flex; align-items: center; flex: none; gap: .25rem; margin: 0; padding: .35rem .5rem .35rem .7rem; border: 0; border-bottom: 3px solid var(--transparent); border-radius: 0; background: var(--bg-secondary); box-shadow: none; color: var(--text-main); font-family: var(--font-mono); font-size: var(--text-sm); }
   .tab.front { background: var(--bg-raised); border-bottom-color: var(--action-primary); font-weight: 700; }
+  .zoom { display: flex; flex: none; align-items: stretch; }
+  .zoom button { margin: 0; padding: .25rem .5rem; border: 0; border-radius: 0; background: var(--transparent); box-shadow: none; color: var(--text-main); font-size: var(--text-sm); font-weight: 700; }
+  .zoom button:disabled { opacity: .45; }
+  .zoom button:focus-visible { outline: 2px solid var(--action-primary); outline-offset: -2px; }
   .tab:focus-visible, .close-active:focus-visible { outline: 2px solid var(--action-primary); outline-offset: -2px; }
   .close { display: inline-flex; padding: .1rem; border-radius: 4px; color: var(--text-muted); }
   .close:hover { color: var(--alert-text); background: var(--hover-fill); }
@@ -164,7 +185,7 @@
   .none { padding: .5rem .75rem; color: var(--text-muted); font-size: var(--text-sm); }
   .panel { position: relative; display: flex; flex-direction: column; min-height: 0; }
   .host { flex: 1 1 0; min-height: 0; overflow: hidden; }
-  .host :global(.cm-editor) { height: 100%; font-size: var(--text-sm); }
+  .host :global(.cm-editor) { height: 100%; font-size: calc(var(--text-sm) * var(--code-zoom, 1)); }
   .host:focus-within { box-shadow: inset 0 0 0 2px var(--focus-halo); }
   .notice { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); padding: .45rem .75rem; background: var(--warn-fill); color: var(--warn-text); border-bottom: 1px solid var(--border-subtle); font-size: var(--text-sm); }
   .notice.conflict { background: var(--alert-fill); color: var(--alert-text); }

