@@ -74,7 +74,7 @@ Phase 4 is not ticked in Appendix D and Phase 5 should wait for it (standing rul
 5. **Blocked pastes are told to the student and are not logged.** Phase 5's event log should take the page's `blocked` callback (`workspace/Workspace.svelte`) and send it.
 6. **The terminal's keys.** A running program takes the keyboard, Ctrl+S is the terminal's and not "save" there, and F6 is how a keyboard user leaves a terminal. A student has to be told the last one; `student-ide.md` has the table, and `STUDENT-NOTICE.md` (which you review) does not mention it yet.
 7. **Two small pre-existing accessibility findings in the exam toolbar** (the A− and A+ buttons' label does not hold their text) were left alone, per rule 7.
-8. **The bundle grew** (the page's script went from about 780 kB to 916 kB, xterm.js being most of it); Wails serves it from memory, so it costs a little start-up time and nothing on the wire.
+8. **The page's script is now about 916 kB** (it was not measured before the IDE, and xterm.js is a large part of it); Wails serves it from memory, so it costs a little start-up time and nothing on the wire.
 
 ## Deviations from the plan, and conflicts found (standing rule 1)
 
