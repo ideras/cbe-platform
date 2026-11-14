@@ -8,6 +8,7 @@ import (
 	"mime"
 	"mime/multipart"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 
@@ -23,6 +24,14 @@ type WorkspaceAPI interface {
 	Student(ctx context.Context, session string) (workspace.StudentView, error)
 	Admin(ctx context.Context, session string) (workspace.AdminSession, error)
 	SnapshotTar(ctx context.Context, id int64, w io.Writer) error
+	Roster(ctx context.Context, examID string) ([]workspace.RosterEntry, error)
+	SnapshotTree(ctx context.Context, id int64) ([]workspace.TreeEntry, error)
+	SnapshotFile(ctx context.Context, id int64, path string) (workspace.FileContent, error)
+	SubmissionTree(ctx context.Context, id int64) ([]workspace.TreeEntry, error)
+	SubmissionFile(ctx context.Context, id int64, path string) (workspace.FileContent, error)
+	SubmissionZip(ctx context.Context, id int64, w io.Writer) error
+	Report(ctx context.Context, session string) (string, error)
+	OpenCast(ctx context.Context, id int64) (*os.File, workspace.TerminalRecord, error)
 }
 
 // maxImportBytes is the most a package import may be: the document and the two bundles.
@@ -153,5 +162,132 @@ func workspaceSnapshotHandler(api WorkspaceAPI, logger *slog.Logger) http.Handle
 			}
 			logger.Error("workspace snapshot download", "error", err)
 		}
+	}
+}
+
+func idOf(w http.ResponseWriter, r *http.Request, what string) (int64, bool) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil || id <= 0 {
+		writeError(w, http.StatusBadRequest, "invalid "+what)
+		return 0, false
+	}
+	return id, true
+}
+
+// workspaceRosterHandler lists the workspaces of an exam's students (404 when the exam is not a workspace exam).
+func workspaceRosterHandler(api WorkspaceAPI, logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		roster, err := api.Roster(r.Context(), r.PathValue("id"))
+		if err != nil {
+			workspaceError(w, logger, "roster", err)
+			return
+		}
+		writeJSON(w, http.StatusOK, struct {
+			Students []workspace.RosterEntry `json:"students"`
+		}{roster})
+	}
+}
+
+// workspaceTreeHandler lists the files of a snapshot or a submission.
+func workspaceTreeHandler(api WorkspaceAPI, logger *slog.Logger, submission bool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, ok := idOf(w, r, "id")
+		if !ok {
+			return
+		}
+		var entries []workspace.TreeEntry
+		var err error
+		if submission {
+			entries, err = api.SubmissionTree(r.Context(), id)
+		} else {
+			entries, err = api.SnapshotTree(r.Context(), id)
+		}
+		if err != nil {
+			workspaceError(w, logger, "tree", err)
+			return
+		}
+		writeJSON(w, http.StatusOK, struct {
+			Entries []workspace.TreeEntry `json:"entries"`
+		}{entries})
+	}
+}
+
+// workspaceFileHandler reads one file of a snapshot or a submission, as text for the viewer.
+func workspaceFileHandler(api WorkspaceAPI, logger *slog.Logger, submission bool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, ok := idOf(w, r, "id")
+		if !ok {
+			return
+		}
+		query, ok := proctorQuery(w, r, "path")
+		if !ok {
+			return
+		}
+		var file workspace.FileContent
+		var err error
+		if submission {
+			file, err = api.SubmissionFile(r.Context(), id, query.Get("path"))
+		} else {
+			file, err = api.SnapshotFile(r.Context(), id, query.Get("path"))
+		}
+		if err != nil {
+			workspaceError(w, logger, "file", err)
+			return
+		}
+		writeJSON(w, http.StatusOK, file)
+	}
+}
+
+// workspaceZipHandler downloads a submission's files as a zip.
+func workspaceZipHandler(api WorkspaceAPI, logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, ok := idOf(w, r, "submission")
+		if !ok {
+			return
+		}
+		_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(5 * time.Minute))
+		w.Header().Set("Content-Type", "application/zip")
+		w.Header().Set("Cache-Control", "no-store")
+		if err := api.SubmissionZip(r.Context(), id, w); err != nil {
+			if errors.Is(err, workspace.ErrNotFound) {
+				w.Header().Del("Content-Type")
+				writeError(w, http.StatusNotFound, "not found")
+				return
+			}
+			logger.Error("workspace submission download", "error", err)
+		}
+	}
+}
+
+// workspaceReportHandler downloads the Markdown report of a student's latest submission.
+func workspaceReportHandler(api WorkspaceAPI, logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		report, err := api.Report(r.Context(), r.PathValue("id"))
+		if err != nil {
+			workspaceError(w, logger, "report", err)
+			return
+		}
+		w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		_, _ = io.WriteString(w, report)
+	}
+}
+
+// workspaceCastHandler downloads a terminal's transcript, an asciinema v2 file.
+func workspaceCastHandler(api WorkspaceAPI, logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, ok := idOf(w, r, "terminal")
+		if !ok {
+			return
+		}
+		file, _, err := api.OpenCast(r.Context(), id)
+		if err != nil {
+			workspaceError(w, logger, "transcript", err)
+			return
+		}
+		defer file.Close()
+		w.Header().Set("Content-Type", "application/x-asciicast")
+		w.Header().Set("Cache-Control", "no-store")
+		_, _ = io.Copy(w, file)
 	}
 }

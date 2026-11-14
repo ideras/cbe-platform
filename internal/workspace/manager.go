@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"exam-platform/internal/runner"
@@ -94,6 +95,10 @@ type Manager struct {
 	// that have a running container.
 	activity  map[string]time.Time
 	recorders map[string]*recorder
+
+	statsMu sync.Mutex
+	stats   map[string]runner.Stats
+	statsAt time.Time
 }
 
 // NewManager makes the manager of the exam server's workspace sessions.
@@ -301,8 +306,18 @@ func (m *Manager) Status(ctx context.Context, session string) (ClientStatus, err
 func (m *Manager) Supervise(ctx context.Context) {
 	ticker := time.NewTicker(m.opts.Tick)
 	defer ticker.Stop()
+	var refreshing atomic.Bool
+	lastStats := time.Time{}
 	for {
 		m.SuperviseOnce(ctx)
+		// What the containers use is asked of the runner every ten seconds, apart from the round, which it must not slow down.
+		if time.Since(lastStats) >= 10*time.Second && refreshing.CompareAndSwap(false, true) {
+			lastStats = time.Now()
+			go func() {
+				defer refreshing.Store(false)
+				m.refreshStats(ctx)
+			}()
+		}
 		select {
 		case <-ctx.Done():
 			return

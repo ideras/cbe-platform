@@ -72,14 +72,37 @@ func (s *Service) Student(ctx context.Context, session string) (StudentView, err
 
 // AdminSession is what a proctor reads about one student's workspace.
 type AdminSession struct {
-	SessionID      string          `json:"session_id"`
-	ExamID         string          `json:"exam_id"`
-	State          string          `json:"state"`
-	AgentRestarts  int             `json:"agent_restarts"`
-	LastSnapshotAt *time.Time      `json:"last_snapshot_at,omitempty"`
-	Failure        string          `json:"failure,omitempty"`
-	Snapshots      []AdminSnap     `json:"snapshots"`
-	Done           map[string]bool `json:"done"`
+	SessionID      string            `json:"session_id"`
+	ExamID         string            `json:"exam_id"`
+	State          string            `json:"state"`
+	AgentRestarts  int               `json:"agent_restarts"`
+	LastSnapshotAt *time.Time        `json:"last_snapshot_at,omitempty"`
+	Failure        string            `json:"failure,omitempty"`
+	Snapshots      []AdminSnap       `json:"snapshots"`
+	Submissions    []AdminSubmission `json:"submissions"`
+	Terminals      []AdminTerminal   `json:"terminals"`
+	Done           map[string]bool   `json:"done"`
+}
+
+// AdminSubmission is a row of a student's submission list; Final says it was made at the end of the exam.
+type AdminSubmission struct {
+	ID         int64     `json:"id"`
+	SnapshotID int64     `json:"snapshot"`
+	Final      bool      `json:"final"`
+	At         time.Time `json:"submitted_at"`
+	Files      int       `json:"files"`
+	Bytes      int64     `json:"bytes"`
+}
+
+// AdminTerminal is a row of a student's transcript list.
+type AdminTerminal struct {
+	ID        int64      `json:"id"`
+	Kind      string     `json:"kind"`
+	StartedAt time.Time  `json:"started_at"`
+	EndedAt   *time.Time `json:"ended_at,omitempty"`
+	ExitCode  *int       `json:"exit_code,omitempty"`
+	Bytes     int64      `json:"bytes"`
+	Truncated bool       `json:"truncated,omitempty"`
 }
 
 // AdminSnap is a row of a student's snapshot list.
@@ -102,9 +125,23 @@ func (s *Service) Admin(ctx context.Context, session string) (AdminSession, erro
 	if err != nil {
 		return AdminSession{}, err
 	}
-	out := AdminSession{SessionID: session, ExamID: info.ExamID, State: info.State, AgentRestarts: info.AgentRestarts, LastSnapshotAt: info.LastSnapshotAt, Failure: info.Failure, Snapshots: []AdminSnap{}, Done: map[string]bool{}}
+	out := AdminSession{SessionID: session, ExamID: info.ExamID, State: info.State, AgentRestarts: info.AgentRestarts, LastSnapshotAt: info.LastSnapshotAt, Failure: info.Failure, Snapshots: []AdminSnap{}, Submissions: []AdminSubmission{}, Terminals: []AdminTerminal{}, Done: map[string]bool{}}
 	for _, snap := range snapshots {
 		out.Snapshots = append(out.Snapshots, AdminSnap{ID: snap.ID, Reason: snap.Reason, At: snap.TakenAt, Files: snap.Files, Bytes: snap.Bytes, Hash: snap.ManifestHash})
+	}
+	submissions, err := s.Repo.Submissions(ctx, session)
+	if err != nil {
+		return AdminSession{}, err
+	}
+	for _, item := range submissions {
+		out.Submissions = append(out.Submissions, AdminSubmission{ID: item.ID, SnapshotID: item.SnapshotID, Final: item.Kind == SubmissionFinal, At: item.SubmittedAt, Files: item.Files, Bytes: item.Bytes})
+	}
+	terminals, err := s.Repo.Terminals(ctx, session)
+	if err != nil {
+		return AdminSession{}, err
+	}
+	for _, item := range terminals {
+		out.Terminals = append(out.Terminals, AdminTerminal{ID: item.ID, Kind: item.Kind, StartedAt: item.StartedAt, EndedAt: item.EndedAt, ExitCode: item.ExitCode, Bytes: item.Bytes, Truncated: item.Truncated})
 	}
 	if info.State != StateNew {
 		if out.Done, err = s.Repo.Todo(ctx, session); err != nil {

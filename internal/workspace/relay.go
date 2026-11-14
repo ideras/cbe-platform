@@ -199,7 +199,11 @@ func (r *relay) attach() bool {
 	r.agent = agent
 	r.mu.Unlock()
 	r.sendStatus()
+	// The student's connection ending ends the relay, and so the read of the agent: without this a relay whose student has gone waits
+	// for the agent to say something, which can be a long time.
+	stop := context.AfterFunc(r.ctx, func() { agent.Close() })
 	r.fromAgent(agent)
+	stop()
 	agent.Close()
 	r.mu.Lock()
 	r.agent = nil
