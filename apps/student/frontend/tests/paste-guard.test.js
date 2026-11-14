@@ -47,7 +47,7 @@ test('a paste from outside is stopped before anything sees it, and one from insi
   const win = fakeWindow();
   const guard = new PasteGuard();
   const blocked = [];
-  guardWindow(win, guard, kind => blocked.push(kind));
+  guardWindow(win, guard, (kind, detail) => blocked.push({ kind, ...detail }));
   const seen = [];
   win.addEventListener('paste', () => seen.push('editor'), true); // an editor listening later in the same phase
   win.fire('copy', { clipboardData: clip('copied inside') });
@@ -57,7 +57,7 @@ test('a paste from outside is stopped before anything sees it, and one from insi
   seen.length = 0;
   const outside = win.fire('paste', { clipboardData: clip('from a web page') });
   assert.equal(outside.defaultPrevented, true);
-  assert.deepEqual(blocked, ['paste']);
+  assert.deepEqual(blocked, [{ kind: 'paste', target: 'other', bytes: 15 }]);
   assert.deepEqual(seen, [], 'the editor never saw the paste');
 });
 
@@ -75,14 +75,15 @@ test('a drag inside the application is a copy; a drop of files or of other text 
   const win = fakeWindow('dragged selection');
   const guard = new PasteGuard();
   const blocked = [];
-  guardWindow(win, guard, kind => blocked.push(kind));
+  guardWindow(win, guard, (kind, detail) => blocked.push({ kind, ...detail }));
   win.fire('dragstart');
   const text = text => ({ files: [], items: [], getData: () => text });
   assert.equal(win.fire('drop', { dataTransfer: text('dragged selection') }).defaultPrevented, false);
   assert.equal(win.fire('drop', { dataTransfer: text('something else') }).defaultPrevented, true);
   assert.equal(win.fire('drop', { dataTransfer: { files: [{}], items: [], getData: () => 'dragged selection' } }).defaultPrevented, true);
   assert.equal(win.fire('drop', { dataTransfer: { files: [], items: [{ kind: 'file' }], getData: () => '' } }).defaultPrevented, true);
-  assert.deepEqual(blocked, ['drop', 'drop', 'drop']);
+  assert.deepEqual(blocked.map(item => item.kind), ['drop', 'drop', 'drop']);
+  assert.deepEqual(blocked.map(item => item.bytes), [14, 17, 0]);
   assert.equal(win.fire('dragover').defaultPrevented, true, 'the page takes the drop, so the webview does not open the file');
 });
 

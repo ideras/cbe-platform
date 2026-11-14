@@ -241,6 +241,14 @@
     } catch (problem) { fail(problem); await refresh(); }
     finally { busy = false; }
   }
+  // A workspace exam is finished by the student's choice (the IDE has asked first): its files were saved and a copy submitted, and the
+  // session is ended as a question exam's is, with no answers, since a workspace has none.
+  async function finishWorkspace() {
+    busy = true; notifier.clear('action');
+    try { apply(await api.Submit({}, 0)); }
+    catch (problem) { fail(problem); await refresh(); }
+    finally { busy = false; }
+  }
   function go(index) { selected = index; confirmingAdvance = false; confirmingSubmit = false; window.scrollTo?.({ top: 0 }); }
   async function advance() {
     if (!canSubmit || captureBlocked || !forwardOnly || lastPage) return;
@@ -422,7 +430,7 @@
     <div class="exam-main workspace-host" style:--exam-scale={scales[scaleIndex]} hidden={examLocked}>
       {@render notices()}
       {#if view.phase === 'exam' && captureBlocked}{@render retest()}{/if}
-      <Workspace {api} workspace={view.workspace} notify={note => notifier.post(note.key, note.text, { kind: note.kind })} />
+      <Workspace {api} workspace={view.workspace} finishing={view.submitting} onFinish={finishWorkspace} notify={note => notifier.post(note.key, note.text, { kind: note.kind })} />
     </div>
   {/if}
 </main>

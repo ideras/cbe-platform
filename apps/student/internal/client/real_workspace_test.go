@@ -251,4 +251,15 @@ func TestRealWorkspaceFinishTheExamplePackage(t *testing.T) {
 		t.Fatalf("submit = %v", submitted)
 	}
 	t.Logf("submitted as snapshot %v", submitted["snapshot"])
+	// The student ends the exam, as the page does once they have confirmed: the application's final submit, with no answers.
+	if _, err := s.Submit(map[string]string{}, 0); err != nil {
+		t.Fatal(err)
+	}
+	view = waitView(t, s, func(v View) bool { return v.Phase == "complete" })
+	if view.Final == nil || view.Workspace == nil || view.Workspace.Connection == connConnected {
+		t.Errorf("after finishing: final %+v, workspace %+v", view.Final, view.Workspace)
+	}
+	if _, err := s.WorkspaceRequest(`{"type":"fs.list","path":""}`); err == nil {
+		t.Error("a finished exam took a request")
+	}
 }

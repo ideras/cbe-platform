@@ -20,8 +20,9 @@ export class PasteGuard {
 }
 
 // Wires a guard to a window: what is copied or cut anywhere in the page is noted, and a paste or a drop that is not that text, or that
-// brings files, is stopped before any editor or terminal sees it. `blocked(kind)` is told each time ("paste" or "drop"). It returns
-// the function that takes the listeners off again.
+// brings files, is stopped before any editor or terminal sees it. `blocked(kind, { target, bytes })` is told each time: kind is "paste"
+// or "drop", target is where it was aimed ("editor", "terminal" or "other") and bytes how much text it had (never the text itself: the
+// instructor is told that it happened, not what it said). It returns the function that takes the listeners off again.
 export function guardWindow(win, guard, blocked) {
   const doc = win.document;
   const selected = () => win.getSelection?.()?.toString() ?? '';
@@ -29,17 +30,21 @@ export function guardWindow(win, guard, blocked) {
   const copied = event => guard.noteCopy(event.clipboardData?.getData('text/plain') || selected());
   const dragged = () => guard.noteCopy(selected());
   const stop = event => { event.preventDefault(); event.stopPropagation(); event.stopImmediatePropagation(); };
+  const aimedAt = event => event.target?.closest?.('.cm-editor') ? 'editor' : event.target?.closest?.('.xterm') ? 'terminal' : 'other';
+  const size = text => new TextEncoder().encode(text ?? '').length;
   const pasted = event => {
-    if (guard.allows(event.clipboardData?.getData('text/plain'))) return;
+    const text = event.clipboardData?.getData('text/plain');
+    if (guard.allows(text)) return;
     stop(event);
-    blocked('paste');
+    blocked('paste', { target: aimedAt(event), bytes: size(text) });
   };
   const dropped = event => {
     const transfer = event.dataTransfer;
     const files = transfer?.files?.length || [...(transfer?.items ?? [])].some(item => item.kind === 'file');
-    if (!files && guard.allows(transfer?.getData('text/plain'))) return;
+    const text = transfer?.getData('text/plain');
+    if (!files && guard.allows(text)) return;
     stop(event);
-    blocked('drop');
+    blocked('drop', { target: aimedAt(event), bytes: size(text) });
   };
   // A drop target is a page that takes the drop: without this the webview would open the dropped file in place of the exam.
   const over = event => event.preventDefault();

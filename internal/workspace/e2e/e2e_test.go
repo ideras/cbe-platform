@@ -14,6 +14,7 @@ package e2e
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -852,7 +853,7 @@ func phaseD(t *testing.T, r *rig) {
 		t.Fatalf("the student could not finish the package: %v", err)
 	}
 
-	// The proctor's side: the session, its snapshots, what the student ticked, and the files of the submission.
+	// The proctor's side: the session, its history, its snapshots and submissions, its transcripts, the downloads and the roster.
 	var list struct {
 		Sessions []struct {
 			ID      string `json:"session_id"`
@@ -873,15 +874,40 @@ func phaseD(t *testing.T, r *rig) {
 	}
 	r.state.Sessions["student"] = student
 	r.save()
-	var admin struct {
-		adminSession
-		Done map[string]bool `json:"done"`
+	type adminView struct {
+		State     string          `json:"state"`
+		Done      map[string]bool `json:"done"`
+		Snapshots []struct {
+			ID     int64  `json:"id"`
+			Reason string `json:"reason"`
+		} `json:"snapshots"`
+		Submissions []struct {
+			ID         int64 `json:"id"`
+			SnapshotID int64 `json:"snapshot"`
+			Final      bool  `json:"final"`
+		} `json:"submissions"`
+		Terminals []struct {
+			ID       int64  `json:"id"`
+			Kind     string `json:"kind"`
+			ExitCode *int   `json:"exit_code"`
+			Bytes    int64  `json:"bytes"`
+			EndedAt  string `json:"ended_at"`
+		} `json:"terminals"`
 	}
-	if err := json.Unmarshal(r.admin("GET", "/admin/workspace/session/"+student.ID, "", nil, 200), &admin); err != nil {
-		t.Fatal(err)
-	}
+	var admin adminView
+	// The student finished: within a round of the supervisor the last snapshot and the final submission are made.
+	workspacetest.Eventually(t, 30*time.Second, "the final submission", func() bool {
+		admin = adminView{}
+		if err := json.Unmarshal(r.admin("GET", "/admin/workspace/session/"+student.ID, "", nil, 200), &admin); err != nil {
+			t.Fatal(err)
+		}
+		return admin.State == "frozen" && len(admin.Submissions) > 0 && admin.Submissions[len(admin.Submissions)-1].Final
+	})
 	if !admin.Done["t1"] || !admin.Done["t2"] || !admin.Done["t3"] {
 		t.Errorf("the TODO ticks: %v", admin.Done)
+	}
+	if len(admin.Submissions) != 2 || admin.Submissions[0].Final {
+		t.Fatalf("submissions = %+v (the student's Submit, then the end of the exam)", admin.Submissions)
 	}
 	var submit int64
 	for _, snap := range admin.Snapshots {
@@ -889,25 +915,167 @@ func phaseD(t *testing.T, r *rig) {
 			submit = snap.ID
 		}
 	}
-	if submit == 0 {
-		t.Fatalf("no submission: %+v", admin)
+	if submit == 0 || admin.Snapshots[len(admin.Snapshots)-1].Reason != "final" {
+		t.Fatalf("snapshots = %+v", admin.Snapshots)
 	}
+	// A snapshot is everything, build products too; a submission is what the exam submits.
 	files := r.snapshotFiles(submit)
-	if !strings.Contains(files["src/list.cpp"], "head_ = new Node{value, head_};") || !strings.Contains(files["src/list.cpp"], "insert_sorted") {
-		t.Errorf("the submission's list.cpp: %q", files["src/list.cpp"])
+	if !strings.Contains(files["src/list.cpp"], "head_ = new Node{value, head_};") || !strings.Contains(files["tests/mine.cpp"], "mine: ok") {
+		t.Errorf("the snapshot's files: list.cpp %q", files["src/list.cpp"])
 	}
-	if !strings.Contains(files["tests/mine.cpp"], "mine: ok") {
-		t.Errorf("the student's own test is not in the submission: %q", files["tests/mine.cpp"])
-	}
-	for _, name := range []string{"Makefile", "include/list.hpp", "src/main.cpp", "tests/sample_test.cpp", "build/list_demo", "build/sample_test"} {
+	for _, name := range []string{"Makefile", "include/list.hpp", "src/main.cpp", "tests/sample_test.cpp", "build/list_demo", "build/sample_test", "made_in_the_terminal.txt"} {
 		if _, found := files[name]; !found {
+			t.Errorf("%s is not in the snapshot", name)
+		}
+	}
+	final := admin.Submissions[1]
+	var tree struct {
+		Entries []struct {
+			Path string `json:"path"`
+			Type string `json:"type"`
+		} `json:"entries"`
+	}
+	if err := json.Unmarshal(r.admin("GET", fmt.Sprintf("/admin/workspace/submission/%d/tree", final.ID), "", nil, 200), &tree); err != nil {
+		t.Fatal(err)
+	}
+	submitted := map[string]bool{}
+	for _, entry := range tree.Entries {
+		if entry.Type == "file" {
+			submitted[entry.Path] = true
+		}
+		if strings.HasPrefix(entry.Path, "build") || strings.HasSuffix(entry.Path, ".o") {
+			t.Errorf("%s is in the submission, and the exam ignores it", entry.Path)
+		}
+	}
+	for _, name := range []string{"Makefile", "include/list.hpp", "src/list.cpp", "src/main.cpp", "tests/sample_test.cpp", "tests/mine.cpp", "made_in_the_terminal.txt"} {
+		if !submitted[name] {
 			t.Errorf("%s is not in the submission", name)
 		}
 	}
 	for name := range files {
 		if strings.Contains(name, "hidden") || strings.Contains(files[name], "HIDDEN-CASES-MARKER") {
-			t.Errorf("the submission has something of the grading bundle: %s", name)
+			t.Errorf("the snapshot has something of the grading bundle: %s", name)
 		}
+	}
+	// The zip of the submission is the submission: the same files, with the same bytes.
+	archive, err := zip.NewReader(bytes.NewReader(r.admin("GET", fmt.Sprintf("/admin/workspace/submission/%d/zip", final.ID), "", nil, 200)), 1<<31)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inZip := map[string]string{}
+	for _, entry := range archive.File {
+		file, _ := entry.Open()
+		data, _ := io.ReadAll(file)
+		file.Close()
+		inZip[entry.Name] = string(data)
+	}
+	if len(inZip) != len(submitted) {
+		t.Errorf("the zip has %d files, the submission %d", len(inZip), len(submitted))
+	}
+	for name := range submitted {
+		if inZip[name] != files[name] && name != "made_in_the_terminal.txt" {
+			t.Errorf("%s in the zip is not what the snapshot has", name)
+		}
+	}
+	// The report has the work, the ticks, and says whose ticks they are.
+	report := string(r.admin("GET", "/admin/workspace/session/"+student.ID+"/report", "", nil, 200))
+	for _, want := range []string{"## Instructions", "self-reported", "- [x] Implement `push_front`", "head_ = new Node{value, head_};", "### `tests/mine.cpp`"} {
+		if !strings.Contains(report, want) {
+			t.Errorf("the report lacks %q", want)
+		}
+	}
+	if strings.Contains(report, "HIDDEN-CASES-MARKER") || strings.Contains(report, "build/list_demo") {
+		t.Error("the report has what it must not")
+	}
+	// The transcripts: the first Check fails, the second passes, the Run printed the list, and every one replays.
+	casts := map[string][]string{}
+	for _, term := range admin.Terminals {
+		data := r.admin("GET", fmt.Sprintf("/admin/workspace/terminal/%d/cast", term.ID), "", nil, 200)
+		lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+		if len(lines) < 1 || !strings.HasPrefix(lines[0], `{"version":2`) {
+			t.Fatalf("transcript %d has no header: %q", term.ID, lines[:1])
+		}
+		var text strings.Builder
+		last := -1.0
+		for _, line := range lines[1:] {
+			var event []any
+			if err := json.Unmarshal([]byte(line), &event); err != nil || len(event) != 3 || event[1] != "o" || event[0].(float64) < last {
+				t.Fatalf("transcript %d: %q does not replay (%v)", term.ID, line, err)
+			}
+			last = event[0].(float64)
+			text.WriteString(event[2].(string))
+		}
+		casts[term.Kind] = append(casts[term.Kind], text.String())
+		if term.EndedAt == "" || term.Bytes == 0 {
+			t.Errorf("transcript %d is not closed: %+v", term.ID, term)
+		}
+	}
+	if len(casts["check"]) != 2 || !strings.Contains(casts["check"][0], "FAILED") || !strings.Contains(casts["check"][1], "push_front: ok") || len(casts["run"]) != 1 ||
+		!strings.Contains(casts["run"][0], "1 2 3") || !strings.Contains(casts["run"][0], "g++") || len(casts["shell"]) != 1 || !strings.Contains(casts["shell"][0], "touch made_in_the_terminal.txt") {
+		t.Errorf("transcripts: %d checks, %d runs, %d shells: %q", len(casts["check"]), len(casts["run"]), len(casts["shell"]), casts)
+	}
+	// The history, as the proctor's window reads it.
+	var kinds []string
+	var exits []any
+	cursor := ""
+	for {
+		path := "/admin/session/" + student.ID + "/timeline?limit=200"
+		if cursor != "" {
+			path += "&cursor=" + cursor
+		}
+		var page struct {
+			Items []struct {
+				Event *struct {
+					Type   string         `json:"event_type"`
+					Detail map[string]any `json:"detail"`
+				} `json:"event"`
+			} `json:"items"`
+			Next *string `json:"next_cursor"`
+		}
+		if err := json.Unmarshal(r.admin("GET", path, "", nil, 200), &page); err != nil {
+			t.Fatal(err)
+		}
+		for _, item := range page.Items {
+			if item.Event == nil {
+				continue
+			}
+			switch kind := item.Event.Type; {
+			case strings.HasPrefix(kind, "workspace.") || strings.HasPrefix(kind, "file.") || strings.HasPrefix(kind, "pty.") || strings.HasPrefix(kind, "run.") || kind == "todo.set":
+				kinds = append(kinds, kind)
+				if kind == "run.started" {
+					exits = append(exits, item.Event.Detail["which"], item.Event.Detail["exit_code"])
+				}
+			}
+		}
+		if page.Next == nil {
+			break
+		}
+		cursor = *page.Next
+	}
+	joined := strings.Join(kinds, " ")
+	for _, want := range []string{"workspace.opened", "pty.opened", "run.started", "file.saved", "file.created", "todo.set", "workspace.submitted", "workspace.disconnected"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("the history lacks %s: %s", want, joined)
+		}
+	}
+	if strings.Count(joined, "workspace.submitted") != 2 || strings.Count(joined, "todo.set") != 3 || !strings.HasSuffix(joined, "workspace.submitted") && !strings.HasSuffix(joined, "workspace.disconnected") {
+		t.Errorf("history: %s", joined)
+	}
+	if fmt.Sprint(exits) != "[check 1 check 0 run 0]" && fmt.Sprint(exits) != "[check 1 run 0 check 0]" && fmt.Sprint(exits) != "[check 1 check 0 run 0]" {
+		t.Errorf("how the runs ended: %v", exits)
+	}
+	// The roster, with the TODO progress, which the proctor is told is the student's own.
+	var roster struct {
+		Students []struct {
+			Account   string `json:"account_number"`
+			Done      int    `json:"todo_done"`
+			Total     int    `json:"todo_total"`
+			Final     bool   `json:"submitted_final"`
+			Submitted int    `json:"submissions"`
+		} `json:"students"`
+	}
+	if err := json.Unmarshal(r.admin("GET", "/admin/workspace/exam/"+examID+"/roster", "", nil, 200), &roster); err != nil || len(roster.Students) != 1 || roster.Students[0].Done != 3 || roster.Students[0].Total != 3 || !roster.Students[0].Final || roster.Students[0].Submitted != 2 {
+		t.Errorf("roster = %+v, %v", roster, err)
 	}
 	r.stop()
 }

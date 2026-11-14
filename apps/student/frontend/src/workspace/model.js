@@ -613,6 +613,12 @@ export class WorkspaceModel {
     this.changed();
   }
 
+  // The application stopped a paste or a drop: the server is told where it was aimed and how big it was, for the instructor's history.
+  reportPaste({ target, bytes }) {
+    if (this.readOnly) return;
+    this.call('paste.blocked', { target, bytes }).catch(() => {});
+  }
+
   // ----- TODO and Submit ---------------------------------------------------------------------------------------------------------
 
   async setTodo(id, done) {

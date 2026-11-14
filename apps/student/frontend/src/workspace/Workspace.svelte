@@ -16,7 +16,7 @@
   // The student's workspace: instructions and TODO list, the files, the editor, the terminals, and what the connection is doing. The
   // application's Go side holds the connection; this page shows what the model (model.js) makes of it and tells it what the student
   // does. `workspace` is the application's view of it, `api` the application's calls, `notify` posts a toast.
-  let { api, workspace, notify } = $props();
+  let { api, workspace, notify, onFinish, finishing = false } = $props();
   const model = new WorkspaceModel({
     transport: makeTransport(api),
     notify: note => notify(note),
@@ -41,6 +41,8 @@
   let naming = $state(null); // { kind: 'file' | 'folder' | 'rename', folder, path }
   let deleting = $state(null); // the path to confirm
   let submitting = $state(false);
+  let confirmingFinish = $state(false);
+  let finishWorking = $state(false);
   let blockedAt = 0;
 
   // What the application says about the connection, on every snapshot of it.
@@ -58,7 +60,8 @@
     const stopOutput = api.OnWorkspaceOutput(event => model.output(event.term, decodeOutput(event.data)));
     const stopMessage = api.OnWorkspaceMessage(text => { try { model.handleMessage(JSON.parse(text)); } catch { /* not a message of ours */ } });
     const guard = new PasteGuard();
-    const stopGuard = guardWindow(window, guard, kind => {
+    const stopGuard = guardWindow(window, guard, (kind, detail) => {
+      model.reportPaste(detail);
       // One notice for a burst of attempts.
       if (Date.now() - blockedAt < 3000) return;
       blockedAt = Date.now();
@@ -110,11 +113,29 @@
     if (submitting) return;
     submitting = true;
     try {
-      if (await model.submit()) notify({ kind: 'info', key: 'submitted', text: 'Your work was submitted. You can keep working and submit again until the time is up; the last submission counts.' });
+      if (await model.submit()) notify({ kind: 'info', key: 'submitted', text: 'Your work was submitted. You can keep working and submit again until the time is up; the last submission counts. Press Finish exam when you are done.' });
     } finally { submitting = false; }
+  }
+  // Finishing the exam is final, so it is asked about first. Once it is confirmed the files are saved and a copy is submitted (if either
+  // cannot be done the exam is not finished, and the student is told why), and then the application ends the session.
+  async function finish() {
+    if (finishWorking) return;
+    finishWorking = true;
+    try {
+      if (!(await model.saveAll())) {
+        confirmingFinish = false;
+        notify({ kind: 'error', key: 'finish', text: 'Some changes could not be saved, so the exam was not finished. Resolve the file marked as changed or unsaved, then finish again.' });
+        return;
+      }
+      // The copy is made by the server when the session ends anyway; this one is the student's own, made now, with the files they see.
+      await model.submit();
+      confirmingFinish = false;
+      await onFinish();
+    } finally { finishWorking = false; }
   }
   const clock = value => new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   const banner = $derived.by(() => {
+    if (finishing) return { text: 'Finishing your exam… waiting for the server to confirm. Nothing can be changed now.', kind: 'pending' };
     switch (snap.connection) {
       case 'connecting': return { text: 'Connecting to your workspace…', kind: 'pending' };
       case 'reconnecting': return { text: 'Reconnecting… The editors and terminals are read-only until the connection is back. What you typed is kept and will be saved then.', kind: 'warning' };
@@ -129,7 +150,8 @@
         return null;
     }
   });
-  const disabled = $derived(snap.readOnly);
+  const disabled = $derived(snap.readOnly || finishing);
+  const ticked = $derived(workspace.todos.filter(item => snap.todo[item.id]).length);
   const confirmName = $derived(deleting ? basename(deleting) : '');
   const deletingFolder = $derived(deleting ? snap.folders.get(dirname(deleting))?.entries.find(entry => entry.name === basename(deleting))?.kind === 'dir' : false);
 </script>
@@ -155,6 +177,7 @@
       <span class="spacer"></span>
       {#if snap.lastSubmit}<span class="submitted" role="status">Submitted {clock(snap.lastSubmit.at)}</span>{/if}
       <button type="button" class="primary" onclick={submit} disabled={disabled || submitting}><Icon name="fileCheck" size={16} />Submit</button>
+      <button type="button" onclick={() => { confirmingFinish = true; }} disabled={disabled}><Icon name="done" size={16} />Finish exam…</button>
     </div>
     <div class="editor-box" data-pane="editor">
       <EditorPane bind:this={editor} {model} tabs={snap.tabs} activePath={snap.activePath} readOnly={disabled} onClose={path => model.closeTab(path)} />
@@ -172,6 +195,26 @@
   <NameDialog title={naming.kind === 'rename' ? `Rename ${basename(naming.path)}` : naming.kind === 'folder' ? 'New folder' : 'New file'} label={naming.kind === 'rename' ? 'New name' : 'Name'}
     initial={naming.kind === 'rename' ? basename(naming.path) : ''} where={naming.kind === 'rename' ? '' : naming.folder || 'the project folder'} confirmLabel={naming.kind === 'rename' ? 'Rename' : 'Create'}
     onSubmit={create} onCancel={() => { naming = null; }} />
+{/if}
+{#if confirmingFinish}
+  <ConfirmDialog tone="alarm" eyebrow="Final step" icon="fileCheck" danger title="Finish your exam now?" subtitle={workspace.title} confirmLabel="Finish my exam" cancelLabel="Keep working"
+    disabled={disabled || finishWorking} onConfirm={finish} onCancel={() => { if (!finishWorking) confirmingFinish = false; }}>
+    <div class="fact ok">
+      <span class="mk"><Icon name="check" size={13} /></span>
+      <div>
+        <p class="h">Your files are saved, and a copy is submitted, when you finish.</p>
+        <p>{snap.unsaved ? 'You have changes that are not saved yet: they are saved first.' : 'Everything you have typed is saved.'} {snap.lastSubmit ? `Your last submission was at ${clock(snap.lastSubmit.at)}.` : 'You have not pressed Submit yet.'}</p>
+      </div>
+    </div>
+    <div class="fact {ticked < workspace.todos.length ? 'warn' : 'ok'}">
+      <span class="mk"><Icon name={ticked < workspace.todos.length ? 'warning' : 'check'} size={13} /></span>
+      <div>
+        <p class="h">You have ticked {ticked} of {workspace.todos.length} items of the TODO list.</p>
+        <p>Your instructor sees your ticks as what you say you did; they are not checked.</p>
+      </div>
+    </div>
+    <p class="note alert"><Icon name="warning" size={16} /><span><strong>This is final:</strong> you will not be able to change your files, run anything or open the workspace again.</span></p>
+  </ConfirmDialog>
 {/if}
 {#if deleting}
   <ConfirmDialog icon="deleteExam" danger title="Delete {confirmName}?" subtitle={deleting} confirmLabel="Delete" cancelLabel="Keep it" disabled={disabled} onConfirm={confirmDelete} onCancel={() => { deleting = null; }}>

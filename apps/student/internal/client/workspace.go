@@ -83,7 +83,7 @@ type WorkspaceOptions struct {
 
 // The kinds of request the page may make. The server checks every one of them again; this is the first gate, not the only one.
 var workspaceRequestTypes = []string{"fs.list", "fs.read", "fs.write", "fs.create", "fs.mkdir", "fs.rename", "fs.delete",
-	"pty.open", "pty.attach", "pty.list", "pty.resize", "pty.close", "run.start", "todo.set", "submit"}
+	"pty.open", "pty.attach", "pty.list", "pty.resize", "pty.close", "run.start", "todo.set", "submit", "paste.blocked"}
 
 const (
 	connIdle         = "idle"
