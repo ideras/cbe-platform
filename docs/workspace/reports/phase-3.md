@@ -2,7 +2,7 @@
 
 **Date:** 2026-11-13. **Branch:** `feat/workspace-phase-3-runner-relay` (from `feat/workspace-phase-2-image-agent`, which is pushed). **Plan:** `.agents/WORKSPACE-PLAN.md` v1.1.
 **Status:** done; the acceptance items are met on the one runtime the plan chose (rootless Podman), with the two things that were not
-possible here named under "Not run". Decisions `P3-1` to `P3-21` are proposed and wait for the owner. **The branch is not pushed.**
+possible here named under "Not run". The owner confirmed decisions `P3-1` to `P3-21` as proposed (P3-22) and allowed the push; the branch is pushed.
 
 ## What changed
 
