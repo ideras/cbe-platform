@@ -30,7 +30,7 @@ func New(clock clock.Clock, sessions SessionAPI, logger *slog.Logger, options ..
 	if cfg.Rules != nil {
 		mux.HandleFunc("GET /rules", rulesHandler(cfg.Rules, logger))
 	}
-	mux.Handle("POST /login", loginHandler(sessions, logger))
+	mux.Handle("POST /login", loginHandler(sessions, logger, cfg.Workspace))
 	mux.Handle("GET /session-status", StudentAuth(sessions, logger, http.HandlerFunc(statusHandler)))
 	mux.Handle("GET /exam", StudentAuth(sessions, logger, examHandler(sessions, logger)))
 	mux.Handle("POST /autosave", StudentAuth(sessions, logger, answerHandler(sessions, logger, cfg.MaxJSONBytes, false)))
@@ -39,6 +39,13 @@ func New(clock clock.Clock, sessions SessionAPI, logger *slog.Logger, options ..
 	mux.Handle("POST /heartbeat", StudentAuth(sessions, logger, heartbeatHandler(sessions, logger)))
 	mux.Handle("POST /event", StudentAuth(sessions, logger, eventHandler(sessions, logger)))
 	admin := http.NewServeMux()
+	if cfg.Workspace != nil {
+		mux.Handle("GET /workspace", StudentAuth(sessions, logger, workspaceViewHandler(cfg.Workspace, logger)))
+		mux.Handle("GET /workspace/ws", StudentAuth(sessions, logger, workspaceSocketHandler(cfg.Workspace, logger)))
+		admin.Handle("POST /admin/class/{id}/workspace-exam", importWorkspaceHandler(cfg.Workspace, logger))
+		admin.Handle("GET /admin/workspace/session/{id}", workspaceAdminHandler(cfg.Workspace, logger))
+		admin.Handle("GET /admin/workspace/snapshot/{id}/tar", workspaceSnapshotHandler(cfg.Workspace, logger))
+	}
 	if cfg.Screenshots != nil {
 		mux.Handle("POST /screenshot", StudentAuth(sessions, logger, screenshotUploadHandler(cfg.Screenshots, logger)))
 		admin.Handle("GET /admin/screenshot/{id}", screenshotGetHandler(cfg.Screenshots, logger, false))

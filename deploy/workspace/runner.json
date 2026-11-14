@@ -1,0 +1,17 @@
+{
+  "socket": "/data/cbe-platform/ipc/runner.sock",
+  "socket_group": "cbe-ipc",
+  "secret_file": "/data/cbe-platform/ipc/runner.secret",
+  "runtime_socket": "unix:///run/user/1001/podman/podman.sock",
+  "quota_socket": "/run/cbe-quota/helper.sock",
+  "work_root": "/data/cbe-platform/work",
+  "run_root": "/data/cbe-platform/run",
+  "state_root": "/data/cbe-platform/runner",
+  "images": { "cbe/cpp20": "localhost/cbe/cpp20:latest" },
+  "max": { "cpu": 2, "memory_mb": 2048, "disk_mb": 500 },
+  "default": { "cpu": 1, "memory_mb": 1024, "disk_mb": 100 },
+  "pids": 256,
+  "inodes": 20000,
+  "tmp_mb": 64,
+  "stop_seconds": 5
+}

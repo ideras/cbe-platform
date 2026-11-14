@@ -1,0 +1,15 @@
+[Unit]
+Description=CBE runner: the only holder of the container runtime's socket (user unit of cbe-runner, with lingering)
+After=podman.socket
+Wants=podman.socket
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/cbe-runner -config /etc/cbe-platform/runner.json
+Restart=on-failure
+RestartSec=2
+# The containers it makes are the runtime's, not this unit's: stopping the runner leaves them running (Phase 3: they are found again).
+KillMode=process
+
+[Install]
+WantedBy=default.target

@@ -113,7 +113,22 @@ func (ts *Terminals) Open(request *agentproto.PTYOpen) (*Terminal, error) {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
 	if len(ts.byID) >= agentproto.MaxTerminals {
-		return nil, agentproto.Errorf(agentproto.CodeLimit, "at most %d terminals can be open; close one first", agentproto.MaxTerminals)
+		// A terminal whose program has ended is kept for its output, but it is not one the student is using: the Run and Check buttons
+		// leave one each time. When the table is full the oldest of them makes room (decision P3-9).
+		var drop *Terminal
+		for _, t := range ts.byID {
+			t.mu.Lock()
+			finished := t.exited
+			t.mu.Unlock()
+			if finished && (drop == nil || t.id < drop.id) {
+				drop = t
+			}
+		}
+		if drop == nil {
+			return nil, agentproto.Errorf(agentproto.CodeLimit, "at most %d terminals can be open; close one first", agentproto.MaxTerminals)
+		}
+		delete(ts.byID, drop.id)
+		drop.stop()
 	}
 	masterFD, slaveFD, err := openPTY()
 	if err != nil {
