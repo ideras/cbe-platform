@@ -16,19 +16,20 @@ import (
 
 // Operation names, as they appear in the report.
 const (
-	OpLogin     = "login"
-	OpReady     = "workspace ready after login"
-	OpHeartbeat = "heartbeat (HTTP)"
-	OpList      = "open a folder (fs.list)"
-	OpOpen      = "open a file (fs.read)"
-	OpSave      = "autosave (fs.write)"
-	OpCreate    = "new file (fs.create)"
-	OpDelete    = "delete a file (fs.delete)"
-	OpEcho      = "terminal echo"
-	OpBuild     = "make after an edit"
-	OpStorm     = "make of everything, all at once"
-	OpSubmit    = "submit (a snapshot)"
-	OpTodo      = "tick a TODO"
+	OpLogin      = "login"
+	OpReady      = "workspace ready after login"
+	OpHeartbeat  = "heartbeat (HTTP)"
+	OpList       = "open a folder (fs.list)"
+	OpOpen       = "open a file (fs.read)"
+	OpSave       = "autosave (fs.write)"
+	OpCreate     = "new file (fs.create)"
+	OpDelete     = "delete a file (fs.delete)"
+	OpEcho       = "terminal echo"
+	OpFirstBuild = "first make of the project (all of it)"
+	OpBuild      = "make after an edit"
+	OpStorm      = "make of everything, all at once"
+	OpSubmit     = "submit (a snapshot)"
+	OpTodo       = "tick a TODO"
 )
 
 // sample is one measurement and when, from the start of the steady state, it was made.
@@ -155,7 +156,7 @@ func summarize(op string, s *opStats) OpSummary {
 func (r *Recorder) Summary() Summary {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	order := []string{OpLogin, OpReady, OpHeartbeat, OpList, OpOpen, OpSave, OpCreate, OpDelete, OpTodo, OpEcho, OpBuild, OpStorm, OpSubmit}
+	order := []string{OpLogin, OpReady, OpHeartbeat, OpList, OpOpen, OpSave, OpCreate, OpDelete, OpTodo, OpEcho, OpFirstBuild, OpBuild, OpStorm, OpSubmit}
 	var names []string
 	seen := map[string]bool{}
 	for _, name := range order {

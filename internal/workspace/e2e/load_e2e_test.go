@@ -56,7 +56,11 @@ func phaseLoad(t *testing.T, r *rig) {
 
 	// What the machine does: the exam server and the runner, the control group the containers run in, and the runner's own figures for the containers.
 	uid := strings.Split(strings.TrimPrefix(env(t, "CBE_E2E_RUNTIME_SOCKET"), "/run/user/"), "/")[0]
-	host := &loadtest.Host{Pids: map[string]int{"exam_server": r.cmd.Process.Pid}, Names: map[string]string{"runner": "cbe-runner"},
+	pids := map[string]int{"exam_server": r.cmd.Process.Pid}
+	if pid, err := strconv.Atoi(os.Getenv("CBE_E2E_RUNNER_PID")); err == nil {
+		pids["runner"] = pid
+	}
+	host := &loadtest.Host{Pids: pids,
 		Groups: map[string]string{"containers_slice": "/sys/fs/cgroup/user.slice/user-" + uid + ".slice"},
 		Extra: func() map[string]float64 {
 			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)

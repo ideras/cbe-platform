@@ -349,6 +349,132 @@ func TestRealRunner(t *testing.T) {
 		}
 	})
 
+	// Phase 8, security checklist: nothing a student makes in /work leads out of it, and the container holds nothing but /work and the agent's folder.
+	t.Run("nothing leads out of /work, and the container sees only what it was given", func(t *testing.T) {
+		ca, cb := a.connect(), b.connect()
+		secret := randomID("host-secret")
+		if _, err := cb.Do(&agentproto.FSCreate{Header: agentproto.Header{Type: agentproto.TypeFSCreate}, Path: secret + ".txt", Content: "OTHER-STUDENT-" + secret}, 10*time.Second); err != nil {
+			t.Fatal(err)
+		}
+		// Links of every kind a student can make in a terminal: to the container's files, to the root through /proc, upwards, and a hard link to
+		// a file of the image (which is on another file system, so there is none).
+		code, out := a.run(ca, "mkdir -p esc/sub; ln -s /etc/passwd esc/to-etc; ln -s /proc/self/root esc/to-proc-root; ln -s /proc/1/root esc/to-proc1-root; ln -s / esc/to-slash; "+
+			"ln -s ../../.. esc/sub/up; ln -s ../.. esc/up2; ln -s /run/cbe esc/to-agent-dir; ln /etc/hostname esc/hard 2>/dev/null; echo hard=$?")
+		if code != 0 || strings.Contains(out, "hard=0") {
+			t.Fatalf("making the links: %d %q (a hard link to a file of the image was made)", code, out)
+		}
+		refused := 0
+		for _, path := range []string{"esc/to-etc", "esc/to-proc-root/etc/passwd", "esc/to-proc1-root/etc/passwd", "esc/to-slash/etc/passwd", "esc/sub/up/etc/passwd", "esc/up2/etc/passwd",
+			"esc/to-agent-dir", "esc/sub/up/run/cbe", "esc/hard"} {
+			reply, err := ca.Do(&agentproto.FSRead{Header: agentproto.Header{Type: agentproto.TypeFSRead}, Path: path}, 10*time.Second)
+			if err == nil {
+				t.Errorf("fs.read %s led out of /work: %+v", path, reply)
+			} else {
+				refused++
+			}
+		}
+		t.Logf("%d reads through links and a missing hard link were refused (the hard link was not made: %q)", refused, strings.TrimSpace(strings.ReplaceAll(out, "\r", "")))
+		for _, path := range []string{"esc/to-slash", "esc/to-proc-root", "esc/up2", "esc/to-agent-dir"} {
+			if reply, err := ca.Do(&agentproto.FSList{Header: agentproto.Header{Type: agentproto.TypeFSList}, Path: path}, 10*time.Second); err == nil && len(reply.Entries) > 0 {
+				t.Errorf("fs.list %s led out of /work: %+v", path, reply.Entries)
+			}
+		}
+		for _, path := range []string{"../etc/passwd", "/etc/passwd", "esc/../../x", "a/../../x", ""} {
+			if _, err := ca.Do(&agentproto.FSWrite{Header: agentproto.Header{Type: agentproto.TypeFSWrite}, Path: path, Content: "x"}, 10*time.Second); err == nil {
+				t.Errorf("fs.write %q was taken", path)
+			}
+		}
+		// The snapshot takes the links as links, and never what they point at.
+		archive, err := runner.Archive(ctx, a.session, "/work/esc")
+		if err != nil {
+			t.Fatal(err)
+		}
+		links := 0
+		reader := tar.NewReader(archive)
+		for {
+			header, err := reader.Next()
+			if err != nil {
+				break
+			}
+			switch header.Typeflag {
+			case tar.TypeSymlink:
+				links++
+			case tar.TypeReg, tar.TypeLink:
+				data, _ := io.ReadAll(reader)
+				if strings.Contains(string(data), "root:") {
+					t.Errorf("the archive holds the content of a file outside /work in %s", header.Name)
+				}
+			}
+		}
+		archive.Close()
+		t.Logf("the archive of the links has %d symbolic links and the content of nothing outside /work", links)
+		if links < 6 {
+			t.Errorf("the archive has %d links, want the 7 the student made as links", links)
+		}
+		// The container holds the starter's own files, the other student's are not there, and the host's are not.
+		if _, out := a.run(ca, "find / -xdev -name '"+secret+"*' 2>/dev/null; find / -name '"+secret+"*' 2>/dev/null; echo found-end"); strings.Contains(out, secret) {
+			t.Errorf("the other student's file is visible from this container: %q", out)
+		}
+		if _, out := a.run(ca, "for p in /data /host /var/run/docker.sock /run/podman /run/user /var/lib/containers; do [ -e $p ] && echo present:$p; done; echo checked"); strings.Contains(out, "present:") || !strings.Contains(out, "checked") {
+			t.Errorf("the host is visible from the container: %q", out)
+		}
+		// Mounts: the only ones that are not the runtime's own (its tmpfs for /run, /tmp and /var/tmp, /proc, /sys, /dev) are /work and the agent's
+		// folder, which are folders of the host's disk, and no mount shows a folder of the host's besides those.
+		_, mounts := a.run(ca, "awk '{for (i = 1; i <= NF; i++) if ($i == \"-\") { print $5, $(i+1); break }}' /proc/self/mountinfo")
+		extra := []string{}
+		for _, line := range strings.Split(mounts, "\n") {
+			fields := strings.Fields(line)
+			if len(fields) != 2 {
+				continue
+			}
+			mount, kind := fields[0], fields[1]
+			switch {
+			case mount == "/":
+				if kind != "overlay" {
+					extra = append(extra, line)
+				}
+			case mount == "/tmp" || mount == "/run" || mount == "/var/tmp":
+				if kind != "tmpfs" {
+					extra = append(extra, line)
+				}
+			case mount == "/work" || mount == "/run/cbe":
+				if kind == "tmpfs" || kind == "overlay" {
+					extra = append(extra, line+" (a bind mount of the host is a disk's)")
+				}
+			case strings.HasPrefix(mount, "/proc"), strings.HasPrefix(mount, "/sys"), strings.HasPrefix(mount, "/dev"), strings.HasPrefix(mount, "/etc/"), strings.HasPrefix(mount, "/run/"):
+			default:
+				extra = append(extra, line)
+			}
+		}
+		t.Logf("mounts (point and file system):\n%s", strings.TrimSpace(strings.ReplaceAll(mounts, "\r", "")))
+		if len(extra) != 0 {
+			t.Errorf("the container has mounts nobody asked for: %v\nall of them:\n%s", extra, mounts)
+		}
+		// A student cannot become anyone else or get any privilege: no capability, no new privileges, no setuid helper that works.
+		if _, out := a.run(ca, "grep -E '^(CapEff|CapBnd|NoNewPrivs|Seccomp):' /proc/self/status; id -u"); !strings.Contains(out, "CapEff:\t0000000000000000") || !strings.Contains(out, "NoNewPrivs:\t1") || !strings.Contains(out, "Seccomp:\t2") {
+			t.Errorf("privileges of a student's program: %q", out)
+		}
+		t.Logf("privileges of a student's program: %s", strings.Join(strings.Fields(strings.ReplaceAll(out, "\r", "")), " "))
+		// Creating files without end is stopped by the limit on files (20,000), and the other student is not touched.
+		_, out = a.run(ca, "mkdir -p many && cd many && seq 1 25000 | xargs -n 500 touch 2>&1 | tail -1; ls | wc -l")
+		lines := strings.Fields(out)
+		if len(lines) == 0 {
+			t.Fatalf("counting the files: %q", out)
+		}
+		t.Logf("a student asked for 25,000 files and got %s (the limit is %d)", lines[len(lines)-1], 20000)
+		if count := lines[len(lines)-1]; count == "25000" {
+			t.Errorf("a student made 25,000 files: the limit on files did not hold (%q)", out)
+		}
+		if _, err := cb.Do(&agentproto.FSCreate{Header: agentproto.Header{Type: agentproto.TypeFSCreate}, Path: "b-after-inodes.txt", Content: "x"}, 10*time.Second); err != nil {
+			t.Errorf("the other student cannot create a file after the first filled its files: %v", err)
+		}
+		a.run(ca, "rm -rf many esc")
+		ca.Close()
+		cb.Close()
+		status, err := runner.Status(ctx, a.session)
+		t.Logf("the container after all this: %+v (%v)", status, err)
+	})
+
 	t.Run("the exam server's account cannot reach the runtime or a student's files", func(t *testing.T) {
 		if _, err := os.Stat("/run/user/1001/podman/podman.sock"); err == nil {
 			t.Error("the runtime's socket can be looked at by the exam server's account")

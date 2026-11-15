@@ -2,7 +2,9 @@ package client
 
 import (
 	"encoding/json"
+	"io/fs"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -110,6 +112,16 @@ func TestRealWorkspaceFinishTheExamplePackage(t *testing.T) {
 	base, account, pin := os.Getenv("CBE_E2E_SERVER_URL"), os.Getenv("CBE_E2E_ACCOUNT"), os.Getenv("CBE_E2E_PIN")
 	if base == "" {
 		t.Skip("CBE_E2E_SERVER_URL is not set: this test needs a real exam server (deploy/workspace/test-server.sh)")
+	}
+	// Everything the application could write to the student's disk goes under one folder (the home, the configuration, the cache and the
+	// temporary folder), which the end of the test reads: the plan says the student's own machine keeps no workspace files (rule 11).
+	disk := t.TempDir()
+	for name, folder := range map[string]string{"HOME": "home", "USERPROFILE": "home", "XDG_CONFIG_HOME": "config", "XDG_CACHE_HOME": "cache", "XDG_DATA_HOME": "data",
+		"XDG_STATE_HOME": "state", "APPDATA": "appdata", "LOCALAPPDATA": "localappdata", "TMPDIR": "tmp", "TMP": "tmp", "TEMP": "tmp"} {
+		if err := os.MkdirAll(filepath.Join(disk, folder), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv(name, filepath.Join(disk, folder))
 	}
 	student := &page{output: map[uint32]*strings.Builder{}, exits: map[uint32]float64{}}
 	opts := DefaultOptions()
@@ -264,4 +276,33 @@ func TestRealWorkspaceFinishTheExamplePackage(t *testing.T) {
 	if _, err := s.WorkspaceRequest(`{"type":"fs.list","path":""}`); err == nil {
 		t.Error("a finished exam took a request")
 	}
+	// The student's disk holds nothing of the workspace: no file's content, no file's name, no terminal's text.
+	for _, mark := range []string{"Node** at = &head_", "mine: ok", "made_in_the_terminal", "tests/mine.cpp", "insert_sorted(5)", "push_front: ok"} {
+		checkNotOnDisk(t, disk, mark)
+	}
+}
+
+// checkNotOnDisk fails if a text is in a file under root, or in the name of anything there.
+func checkNotOnDisk(t *testing.T, root, text string) {
+	t.Helper()
+	files := 0
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if strings.Contains(entry.Name(), text) {
+			t.Errorf("the name of %s holds %q", path, text)
+		}
+		if entry.Type().IsRegular() {
+			files++
+			if data, err := os.ReadFile(path); err == nil && strings.Contains(string(data), text) {
+				t.Errorf("%s holds %q: the student's disk keeps workspace data", path, text)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("the disk of the application has %d files and none holds %q", files, text)
 }

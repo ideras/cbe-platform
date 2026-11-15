@@ -1,0 +1,48 @@
+[lane 1] == FuzzDecodeRequest (./internal/agentproto) 5m  start 10:33:37
+[lane 1] fuzz: elapsed: 5m0s, execs: 15426974 (51075/sec), new interesting: 73 (total: 619)
+[lane 1] fuzz: elapsed: 5m0s, execs: 15426974 (0/sec), new interesting: 73 (total: 619)
+[lane 1] PASS
+[lane 1] ok  	exam-platform/internal/agentproto	300.105s
+[lane 1] == FuzzDecodeRequest done 10:38:38
+[lane 1] == FuzzReadFrame (./internal/agentproto) 5m  start 10:38:38
+[lane 1] fuzz: elapsed: 5m0s, execs: 11234452 (32574/sec), new interesting: 0 (total: 18)
+[lane 1] fuzz: elapsed: 5m0s, execs: 11234452 (0/sec), new interesting: 0 (total: 18)
+[lane 1] PASS
+[lane 1] ok  	exam-platform/internal/agentproto	300.079s
+[lane 1] == FuzzReadFrame done 10:43:38
+[lane 1] == FuzzCheckPath (./internal/agentproto) 5m  start 10:43:38
+[lane 1] fuzz: elapsed: 5m0s, execs: 12506666 (50250/sec), new interesting: 4 (total: 95)
+[lane 1] fuzz: elapsed: 5m0s, execs: 12506666 (0/sec), new interesting: 4 (total: 95)
+[lane 1] PASS
+[lane 1] ok  	exam-platform/internal/agentproto	300.162s
+[lane 1] == FuzzCheckPath done 10:48:39
+[lane 1] == FuzzWorkspaceServerMessage (./internal/client) 5m  start 10:48:39
+[lane 1] fuzz: elapsed: 5m0s, execs: 2897246 (9237/sec), new interesting: 474 (total: 492)
+[lane 1] fuzz: elapsed: 5m0s, execs: 2897246 (0/sec), new interesting: 474 (total: 492)
+[lane 1] PASS
+[lane 1] ok  	exam-platform/apps/student/internal/client	300.172s
+[lane 1] == FuzzWorkspaceServerMessage done 10:54:09
+[lane 2] == FuzzStudentMessages (./internal/httpapi) 5m  start 10:33:37
+[lane 2] fuzz: elapsed: 5m0s, execs: 353046 (1286/sec), new interesting: 194 (total: 260)
+[lane 2] fuzz: elapsed: 5m1s, execs: 353046 (0/sec), new interesting: 194 (total: 260)
+[lane 2] PASS
+[lane 2] ok  	exam-platform/internal/httpapi	301.240s
+[lane 2] == FuzzStudentMessages done 10:38:39
+[lane 2] == FuzzHostileAgent (./internal/httpapi) 5m  start 10:38:39
+[lane 2] fuzz: elapsed: 5m0s, execs: 135031 (0/sec), new interesting: 52 (total: 74)
+[lane 2] fuzz: elapsed: 5m1s, execs: 135031 (0/sec), new interesting: 52 (total: 74)
+[lane 2] PASS
+[lane 2] ok  	exam-platform/internal/httpapi	301.224s
+[lane 2] == FuzzHostileAgent done 10:43:42
+[lane 2] == FuzzFilePaths (./internal/agent) 5m  start 10:43:42
+[lane 2] fuzz: elapsed: 5m0s, execs: 1938705 (9170/sec), new interesting: 116 (total: 303)
+[lane 2] fuzz: elapsed: 5m0s, execs: 1938705 (0/sec), new interesting: 116 (total: 303)
+[lane 2] PASS
+[lane 2] ok  	exam-platform/internal/agent	300.122s
+[lane 2] == FuzzFilePaths done 10:48:43
+[lane 2] == FuzzWorkspacePageRequest (./internal/client) 5m  start 10:48:43
+[lane 2] fuzz: elapsed: 5m0s, execs: 2905362 (11085/sec), new interesting: 492 (total: 507)
+[lane 2] fuzz: elapsed: 5m0s, execs: 2905362 (0/sec), new interesting: 492 (total: 507)
+[lane 2] PASS
+[lane 2] ok  	exam-platform/apps/student/internal/client	300.160s
+[lane 2] == FuzzWorkspacePageRequest done 10:54:11

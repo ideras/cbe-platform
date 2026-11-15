@@ -42,6 +42,7 @@ type student struct {
 	versions map[string]string
 	units    []string
 	counter  int
+	built    bool
 	gone     bool
 }
 
@@ -413,6 +414,41 @@ func (s *student) echo(ctx context.Context) {
 	_ = s.keys(ctx, term, "\x15") // Ctrl-U: the line is empty again
 }
 
+// typist is a student's writing of a file of notes while their programs build, as the IDE's autosave goes on whatever the terminals are doing: a
+// save every few seconds, with no relation to the stretches of work, so that the autosave is measured while the machine is busy too.
+func (s *student) typist(ctx context.Context) {
+	rnd := rand.New(rand.NewSource(s.rnd.Int63()))
+	path := "notes-" + s.account + ".txt"
+	if _, err := s.timed(ctx, OpCreate, "fs.create", map[string]any{"path": path, "content": "Notes of " + s.account + "\n"}); err != nil {
+		return
+	}
+	reply, err := s.timed(ctx, OpOpen, "fs.read", map[string]any{"path": path})
+	if err != nil {
+		return
+	}
+	content, _ := reply["content"].(string)
+	version, _ := reply["version"].(string)
+	for line := 0; ctx.Err() == nil; line++ {
+		if !s.sleep(ctx, 2*time.Second+time.Duration(rnd.Int63n(int64(4*time.Second)))) {
+			return
+		}
+		if line%40 == 39 {
+			content = "Notes of " + s.account + "\n"
+		}
+		content += fmt.Sprintf("line %d: the list is sorted when insert_sorted keeps it in order\n", line)
+		reply, err := s.timed(ctx, OpSave, "fs.write", map[string]any{"path": path, "content": content, "base_version": version})
+		if err != nil {
+			// The connection ended or the file changed under us (a reconnection): read it again and go on.
+			if again, err := s.timed(ctx, OpOpen, "fs.read", map[string]any{"path": path}); err == nil {
+				content, _ = again["content"].(string)
+				version, _ = again["version"].(string)
+			}
+			continue
+		}
+		version, _ = reply["version"].(string)
+	}
+}
+
 func (s *student) sleep(ctx context.Context, d time.Duration) bool {
 	select {
 	case <-time.After(d):
@@ -509,7 +545,12 @@ func (s *student) cycle(ctx context.Context) error {
 		return err
 	}
 	s.echo(ctx)
-	if err := s.make(ctx, OpBuild, "make"); err != nil && ctx.Err() == nil {
+	// The first make of a student builds everything (nothing is built in a new container); the ones after an edit build a unit and link.
+	op := OpBuild
+	if !s.built {
+		op, s.built = OpFirstBuild, true
+	}
+	if err := s.make(ctx, op, "make"); err != nil && ctx.Err() == nil {
 		return err
 	}
 	switch s.rnd.Intn(6) {
