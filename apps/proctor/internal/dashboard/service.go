@@ -144,7 +144,10 @@ type Service struct {
 	notWorkspace     map[string]bool
 	pendingExam      *examdoc.Exam
 	pendingExamClass string
-	pendingClass     *pendingFile
+	// pendingWorkspace is the workspace package a preview showed, for the class pendingWorkspaceClass (Phase 7).
+	pendingWorkspace      *pendingWorkspace
+	pendingWorkspaceClass string
+	pendingClass          *pendingFile
 	// pendingRoster is the file previewed as the new roster of the existing class pendingRosterClass.
 	pendingRoster      *pendingFile
 	pendingRosterClass string
@@ -203,6 +206,7 @@ func (s *Service) ServiceShutdown() {
 	s.token, s.credentialFile, s.pendingCredential = "", "", nil
 	s.opts.Token = ""
 	s.pendingExam, s.pendingExamClass, s.pendingClass, s.pendingRoster, s.pendingRosterClass = nil, "", nil, nil, ""
+	s.pendingWorkspace, s.pendingWorkspaceClass = nil, ""
 	s.pendingExamSource, s.downloadParent, s.downloadFolder = nil, "", ""
 	s.downloadProgress = DownloadProgress{}
 	s.view.Connected = false
@@ -603,6 +607,10 @@ func validateCatalog(catalog Catalog) error {
 			return errors.New("Invalid exam catalog entry; previous observations retained.")
 		}
 		seen[exam.ID] = true
+		// A workspace exam says so, with its TODO items and the state of its own image; a question exam says none of it (Phase 7).
+		if exam.Kind != "" && exam.Kind != "workspace" || exam.Kind == "" && (exam.Todos != nil || exam.Image != nil) || exam.Kind == "workspace" && (exam.Todos == nil || *exam.Todos < 0 || exam.Image == nil) || !validImage(exam.Image) {
+			return errors.New("Invalid exam catalog entry; previous observations retained.")
+		}
 		if exam.Published {
 			published++
 			if exam.ClassID != catalog.CurrentClassID || exam.ClassName != catalog.CurrentClassName {

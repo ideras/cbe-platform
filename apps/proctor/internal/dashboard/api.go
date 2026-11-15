@@ -215,6 +215,11 @@ type ExamEntry struct {
 	LockedSessions int `json:"locked_sessions"`
 	// Tools is the exam's effective tools configuration; omitted when the exam has no calculator.
 	Tools *calc.Tools `json:"tools,omitempty"`
+	// Kind is "workspace" for a workspace exam and empty for a question exam. Todos and Image are only there for a workspace exam: how many TODO
+	// items it has, and the state of its own image (state none when its package has no image folder).
+	Kind  string     `json:"kind,omitempty"`
+	Todos *int       `json:"todos,omitempty"`
+	Image *ExamImage `json:"image,omitempty"`
 }
 
 // SettingsValues are the monitoring values the Settings page edits, in whole milliseconds.

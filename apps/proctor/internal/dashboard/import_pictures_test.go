@@ -17,7 +17,7 @@ import (
 // once the exam is previewed.
 func TestImportedExamEmbedsItsPicturesAndKeepsTheReferenceInTheSource(t *testing.T) {
 	f := newPublishFixture(t, examID)
-	f.server.reply = func(w http.ResponseWriter, r *http.Request, body []byte) bool {
+	f.server.setReply(func(w http.ResponseWriter, r *http.Request, body []byte) bool {
 		switch {
 		case r.Method == "POST" && r.URL.Path == examRoute && r.URL.Query().Get("dry_run") == "true":
 			checkedExam(w)
@@ -28,7 +28,7 @@ func TestImportedExamEmbedsItsPicturesAndKeepsTheReferenceInTheSource(t *testing
 			return false
 		}
 		return true
-	}
+	})
 	var figure bytes.Buffer
 	if err := png.Encode(&figure, image.NewGray(image.Rect(0, 0, 8, 8))); err != nil {
 		t.Fatal(err)

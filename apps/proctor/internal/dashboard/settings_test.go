@@ -12,8 +12,7 @@ import (
 func TestReadingTheSettingsLeavesTheDashboardIdle(t *testing.T) {
 	f := newPublishFixture(t, "")
 	fake := f.server
-	fake.mu.Lock()
-	fake.reply = func(w http.ResponseWriter, r *http.Request, _ []byte) bool {
+	fake.setReply(func(w http.ResponseWriter, r *http.Request, _ []byte) bool {
 		if r.URL.Path != "/admin/settings" {
 			return false
 		}
@@ -21,8 +20,7 @@ func TestReadingTheSettingsLeavesTheDashboardIdle(t *testing.T) {
 			CaptureInterval: 5000, LockAwayAfter: 300000, LockNoContactAfter: 300000, IncidentCaptures: 60, SessionCaptures: 200,
 			DefaultGrace: 30000}, UpdatedAt: "2026-10-20T00:00:00Z"})
 		return true
-	}
-	fake.mu.Unlock()
+	})
 	values, err := f.Service.Settings()
 	if err != nil {
 		t.Fatal(err)
@@ -47,8 +45,7 @@ func TestReadingTheSettingsLeavesTheDashboardIdle(t *testing.T) {
 func TestSavingTheSettingsReleasesTheDashboard(t *testing.T) {
 	f := newPublishFixture(t, "")
 	fake := f.server
-	fake.mu.Lock()
-	fake.reply = func(w http.ResponseWriter, r *http.Request, _ []byte) bool {
+	fake.setReply(func(w http.ResponseWriter, r *http.Request, _ []byte) bool {
 		if r.URL.Path != "/admin/settings" {
 			return false
 		}
@@ -62,8 +59,7 @@ func TestSavingTheSettingsReleasesTheDashboard(t *testing.T) {
 			CaptureInterval: 5000, LockAwayAfter: 300000, LockNoContactAfter: 300000, IncidentCaptures: 60, SessionCaptures: 200,
 			DefaultGrace: 30000}, UpdatedAt: "2026-10-20T00:00:00Z"})
 		return true
-	}
-	fake.mu.Unlock()
+	})
 	saved, err := f.Service.SaveSettings(SettingsValues{HeartbeatInterval: 10000, OverdueThreshold: 25000, FocusThreshold: 3000,
 		AlertInterval: 2000, CaptureInterval: 4000, LockAwayAfter: 600000, LockNoContactAfter: 420000, IncidentCaptures: 150,
 		SessionCaptures: 300, DefaultGrace: 45000}, "2026-10-20T00:00:00Z")
@@ -93,8 +89,7 @@ func TestSavingTheSettingsReleasesTheDashboard(t *testing.T) {
 func TestAStaleSaveSaysAnotherProctorSavedFirst(t *testing.T) {
 	f := newPublishFixture(t, "")
 	fake := f.server
-	fake.mu.Lock()
-	fake.reply = func(w http.ResponseWriter, r *http.Request, _ []byte) bool {
+	fake.setReply(func(w http.ResponseWriter, r *http.Request, _ []byte) bool {
 		if r.URL.Path != "/admin/settings" || r.Method != http.MethodPut {
 			return false
 		}
@@ -102,8 +97,7 @@ func TestAStaleSaveSaysAnotherProctorSavedFirst(t *testing.T) {
 		w.WriteHeader(http.StatusConflict)
 		_, _ = w.Write([]byte(`{"error":"the settings changed; reload them and try again"}`))
 		return true
-	}
-	fake.mu.Unlock()
+	})
 	_, err := f.Service.SaveSettings(SettingsValues{HeartbeatInterval: 10000}, "2026-10-20T00:00:00Z")
 	if err == nil || !strings.HasPrefix(err.Error(), "Another proctor saved the settings first.") {
 		t.Fatalf("a stale save = %v", err)
