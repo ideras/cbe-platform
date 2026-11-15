@@ -94,7 +94,7 @@ Not in the plan's four, but in its tasks: **fuzzing** (task 2) done; **Windows b
 
 ## Left behind
 
-Nothing from the runs: the scripts remove their containers, folders and private runners and report what they find (`test-security.sh`, `test-load.sh`, `test-grading.sh` and `test-image.sh` each ended clean); the runtime holds only the old `snapprobe`. A probe container of my own (`statprobe-p8`, to read what Podman says of a busy container) was removed. **Nothing was installed or changed on the host**: the installed runner is still the Phase 7 build, the slice still has the backstop, no unit or file under `/etc` was touched.
+Nothing from the runs: the scripts remove their containers, folders and private runners and report what they find (`test-security.sh`, `test-load.sh`, `test-grading.sh` and `test-image.sh` each ended clean); the runtime holds only the old `snapprobe`, and `podman images` the course image and the spike's three. **One thing the image-build tests do leave** is untagged layers (`<none>:<none>`; 17 of them, from today's Phase 7 and Phase 8 test builds): I removed them with `podman image prune` after looking that all were from today and none had a child; `images.md` says the same of any exam's builds. A probe container of my own (`statprobe-p8`, to read what Podman says of a busy container) was removed. **Nothing was installed or changed on the host**: the installed runner is still the Phase 7 build, the slice still has the backstop, no unit or file under `/etc` was touched.
 
 ## For the owner
 
