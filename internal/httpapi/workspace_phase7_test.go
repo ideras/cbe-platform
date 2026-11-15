@@ -173,6 +173,21 @@ func TestAnExamWithItsOwnImageIsBuiltBeforeItIsPublishedAndUsedByItsContainers(t
 	}
 }
 
+// Phase 8: the Containerfile's warnings are shown and kept unless the exam says image_warnings: off, and then the runner is told not to make them.
+func TestTheWarningsOfAnImageAreKeptUnlessTheExamSwitchesThemOff(t *testing.T) {
+	unpinned := map[string]string{"Containerfile": "FROM cbe/cpp20\nUSER root\nRUN apt-get install -y libfoo-dev\nUSER 1000:1000\n"}
+	on := newWorkspaceFixtureWith(t, nil, fixtureOptions{image: unpinned, unpublished: true})
+	view := on.built(t)
+	if view.Build == nil || len(view.Build.Warnings) != 1 || on.runner.Builds[0].Request.NoWarnings {
+		t.Fatalf("by default: %+v %+v", view.Build, on.runner.Builds[0].Request)
+	}
+	off := newWorkspaceFixtureWith(t, func(d *workspace.Document) { no := false; d.Workspace.ImageWarnings = &no }, fixtureOptions{image: unpinned, unpublished: true})
+	view = off.built(t)
+	if view.State != workspace.ImageReady || view.Build == nil || len(view.Build.Warnings) != 0 || !off.runner.Builds[0].Request.NoWarnings {
+		t.Errorf("with the warnings off: %+v %+v", view.Build, off.runner.Builds[0].Request)
+	}
+}
+
 // Nothing of the image reaches a student: the view of the workspace has no image and no Containerfile.
 func TestTheStudentNeverSeesTheImageOrItsContainerfile(t *testing.T) {
 	f := imageFixture(t)

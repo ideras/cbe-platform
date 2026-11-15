@@ -95,6 +95,7 @@ One `key: value` per line. A value may be in quotes. A line that starts with `#`
 | `ignore` | no | What is left out of a submission. Default: `[build/**, **/*.o, **/*.out, **/__pycache__/**, .cache/**]`. `ignore: []` ignores nothing. |
 | `resources` | no | `cpu=1, memory=1g, disk=100m`: the same `setting=value` syntax as `calculator`. Each setting is optional. Defaults: 1 core, 1 GiB, 100 MiB. See [Limits](#limits). |
 | `grade_timeout` | no | How long a grading run of this exam may take, from `10s` to `30m` (for example `grade_timeout: 10m`). Default: the server's setting, 5 minutes. A run that takes longer is stopped and fails. |
+| `image_warnings` | no | `on` (default) or `off`. With `off`, the Containerfile checker's **warnings** (a package installed without a version, an `ADD` from a URL with no checksum) are not printed by `examc`, not shown in the import preview and not written in the build log; its problems are never switched off. Only meaningful for a package with `image/`. |
 | `snapshot` | no | How often the server snapshots a student's files while they change, from `10s` to `10m`. Default: the server's setting (60 seconds). Submitting, losing the container's agent and the deadline always take a snapshot. |
 | `navigation` | **not allowed** | A workspace exam is one page. |
 | `pin`, `focus_threshold` | **not allowed** | As in a question exam: the proctor enters the PIN when importing, and the focus threshold is a setting of the proctor application. |

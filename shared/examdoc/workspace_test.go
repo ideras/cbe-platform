@@ -713,6 +713,39 @@ func TestAnImageFolderIsBundledAndItsContainerfileChecked(t *testing.T) {
 	}
 }
 
+// Phase 8: the Containerfile checker's warnings are on unless the front matter says image_warnings: off; its problems are never switched off.
+func TestTheWarningsOfAnImageCanBeSwitchedOff(t *testing.T) {
+	unpinned := fstest.MapFS{"image/Containerfile": {Data: []byte("FROM cbe/cpp20\nUSER root\nRUN apt-get install -y libfoo-dev\nUSER 1000:1000\n")}}
+	_, onBundles, err := CompileWorkspaceFS(pkg(okFront, "[ ] a\n", unpinned))
+	if err != nil || len(onBundles.ImageWarnings) != 1 {
+		t.Fatalf("by default: %v %q", err, onBundles.ImageWarnings)
+	}
+	offExam, offBundles, err := CompileWorkspaceFS(pkg(okFront+"image_warnings: off\n", "[ ] a\n", unpinned))
+	if err != nil || len(offBundles.ImageWarnings) != 0 || offBundles.Image == nil {
+		t.Fatalf("off: %v %q %+v", err, offBundles.ImageWarnings, offBundles.Image)
+	}
+	if offExam.Workspace.ImageWarnings == nil || *offExam.Workspace.ImageWarnings {
+		t.Errorf("the document does not say the warnings are off: %v", offExam.Workspace.ImageWarnings)
+	}
+	// Saying on is the same as saying nothing: the same document, byte for byte.
+	plain, _, _ := CompileWorkspaceFS(pkg(okFront, "[ ] a\n", unpinned))
+	said, saidBundles, err := CompileWorkspaceFS(pkg(okFront+"image_warnings: on\n", "[ ] a\n", unpinned))
+	if err != nil || len(saidBundles.ImageWarnings) != 1 || !bytes.Equal(encode(t, plain), encode(t, said)) {
+		t.Errorf("on: %v %q", err, saidBundles.ImageWarnings)
+	}
+	if strings.Contains(string(encode(t, plain)), "image_warnings") {
+		t.Error("the default is written in the document")
+	}
+	// A problem stays a problem with the warnings off.
+	other := fstest.MapFS{"image/Containerfile": {Data: []byte("FROM ubuntu:24.04\nRUN apt-get install -y libfoo-dev\n")}}
+	if problems := workspaceProblems(t, pkg(okFront+"image_warnings: off\n", "[ ] a\n", other)); !strings.Contains(problems.Error(), "image/Containerfile line 1") {
+		t.Errorf("a FROM that is not the course image with the warnings off: %v", problems)
+	}
+	if problems := workspaceProblems(t, pkg(okFront+"image_warnings: maybe\n", "[ ] a\n")); !strings.Contains(problems.Error(), "image_warnings must be on or off") {
+		t.Errorf("a value that is not on or off: %v", problems)
+	}
+}
+
 // The example package with its own image: its compiled document names the image bundle, and the bundle is the context of a Containerfile
 // that builds a library in one stage and installs it in the other, both from the course image.
 func TestTheImageExampleMatchesItsCompiledDocument(t *testing.T) {

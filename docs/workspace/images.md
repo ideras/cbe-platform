@@ -45,7 +45,8 @@ The rules (the compiler, the server and the runner apply the same code, `shared/
 **Warnings** (never a failure): a package install with no version (`apt-get install` without `name=version`, `apk add`, `pip install` without `==`, `npm install` without
 `@version`, `gem install`), and an `ADD` from a URL with no `--checksum`. An `apt` install is not warned about when the file points apt at a dated archive snapshot
 (`snapshot.ubuntu.com`), which fixes the versions the way `images/cpp20` does. `build/examc` prints them when the package is compiled, the import preview shows
-them, and the build log repeats them.
+them, and the build log repeats them. **They can be switched off for an exam** with `image_warnings: off` in the front matter of `workspace.md` (`on` is the default and the same as
+not saying it): they are then not printed, not shown in the import preview, not in the build log and not kept with the build. The problems (the rules of the table above) are never switched off.
 
 **HTTPS.** The course image has no certificates, so a step that reaches an HTTPS archive has none to trust. The build lends the server's certificate bundle as
 `ca.crt` in the context; mount it for the one step that needs it, as `images/cpp20/Containerfile` does, and it stays out of the image:

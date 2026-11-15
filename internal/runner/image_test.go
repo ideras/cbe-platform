@@ -70,6 +70,27 @@ func (r *rig) noContainersLeft(t *testing.T) {
 	}
 }
 
+// Phase 8: an exam that says image_warnings: off has the checker's warnings neither in the log nor in the result.
+func TestTheWarningsOfAContainerfileCanBeLeftOutOfABuild(t *testing.T) {
+	r := newRig(t)
+	lendCA(t, "THE HOST'S CERTIFICATES")
+	request := r.buildRequest()
+	request.NoWarnings = true
+	result, err := r.svc.BuildImage(context.Background(), request, bytes.NewReader(archive(t, map[string]string{"Containerfile": plainContainerfile})))
+	if err != nil || !result.OK {
+		t.Fatalf("%+v %v", result, err)
+	}
+	if len(result.Warnings) != 0 || strings.Contains(result.Log, "warning:") || !strings.Contains(result.Log, "Verified: made from cbe/cpp20") {
+		t.Errorf("warnings %q in\n%s", result.Warnings, result.Log)
+	}
+	// A Containerfile that is refused is still refused, and says why.
+	request.Rebuild = true
+	refused, err := r.svc.BuildImage(context.Background(), request, bytes.NewReader(archive(t, map[string]string{"Containerfile": "FROM ubuntu:24.04\n"})))
+	if err != nil || refused.OK || refused.Failure != FailContainerfile {
+		t.Errorf("a refused Containerfile: %+v %v", refused, err)
+	}
+}
+
 func TestAnImageIsBuiltPinnedVerifiedAndTagged(t *testing.T) {
 	r := newRig(t)
 	lendCA(t, "THE HOST'S CERTIFICATES")

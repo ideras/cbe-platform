@@ -71,6 +71,9 @@ type BuildRequest struct {
 	Image          string `json:"image"`
 	Rebuild        bool   `json:"rebuild,omitempty"`
 	TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
+	// NoWarnings leaves the Containerfile checker's warnings out of the log and of the result (the exam says `image_warnings: off`). Its problems
+	// are never left out.
+	NoWarnings bool `json:"no_warnings,omitempty"`
 }
 
 // The ways a build can fail, in BuildResult.Failure.
@@ -300,10 +303,12 @@ func (s *Service) BuildImageLive(ctx context.Context, req BuildRequest, buildCon
 	}
 	fmt.Fprintf(log, "Base image: %s is %s\n            digest %s (%s)\n", req.Image, reference, digest, pinnedBy)
 	fmt.Fprintf(log, "Build context: %d bytes, sha256:%s\n", len(raw), hex.EncodeToString(rawSum[:]))
-	for _, warning := range check.Warnings {
-		fmt.Fprintf(log, "warning: Containerfile %s\n", warning)
+	if !req.NoWarnings {
+		for _, warning := range check.Warnings {
+			fmt.Fprintf(log, "warning: Containerfile %s\n", warning)
+		}
+		result.Warnings = check.Warnings
 	}
-	result.Warnings = check.Warnings
 	if len(check.Problems) > 0 {
 		for _, problem := range check.Problems {
 			fmt.Fprintf(log, "Containerfile %s\n", problem)

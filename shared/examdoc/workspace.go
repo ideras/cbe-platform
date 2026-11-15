@@ -84,6 +84,10 @@ type WorkspaceSettings struct {
 	SnapshotSeconds *int64 `json:"snapshot_seconds,omitempty"`
 	// GradeTimeoutSeconds is how long a grading run of this exam may take; nil means the server's default, 5 minutes.
 	GradeTimeoutSeconds *int64 `json:"grade_timeout_seconds,omitempty"`
+	// ImageWarnings is false when the front matter says `image_warnings: off`: the Containerfile checker's warnings (a package install with no
+	// version, an ADD from a URL with no checksum) are then neither shown nor kept. Nil is the default, on, and is how `on` is written too, so a
+	// package that says it compiles to the same document as one that does not.
+	ImageWarnings *bool `json:"image_warnings,omitempty"`
 }
 
 // Resources are the limits of the student's container.

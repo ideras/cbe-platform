@@ -559,7 +559,9 @@ func (r *Runner) BuildImage(ctx context.Context, req runner.BuildRequest, buildC
 	}
 	say("Base image: " + req.Image + " digest " + BaseDigest + "\n")
 	check := containerfile.Check(text, req.Image)
-	result.Warnings = check.Warnings
+	if !req.NoWarnings {
+		result.Warnings = check.Warnings
+	}
 	if len(check.Problems) > 0 {
 		result.Failure, result.Message = runner.FailContainerfile, "the Containerfile is not accepted: "+strings.Join(check.Problems, "; ")
 		say(result.Message + "\n")

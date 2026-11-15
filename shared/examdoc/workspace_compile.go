@@ -145,7 +145,9 @@ func CompileWorkspaceFS(pkg fs.FS) (WorkspaceExam, WorkspaceBundles, error) {
 			if bundle, ok := buildBundle(pkg, "image", add); ok {
 				if warnings, ok := checkContainerfile(pkg, exam.Workspace.Image, add); ok {
 					bundles.Image = &bundle
-					bundles.ImageWarnings = warnings
+					if exam.Workspace.ImageWarnings == nil || *exam.Workspace.ImageWarnings {
+						bundles.ImageWarnings = warnings
+					}
 					exam.ImageBundle = bundle.Hash
 				}
 			}
@@ -312,6 +314,16 @@ func parseWorkspaceFrontMatter(lines []string, report func(int, string, ...any))
 				report(line, "image must be the name of a course image, such as cbe/cpp20: lowercase words joined by / . _ or -, with no tag or digest (the server pins the version)")
 			default:
 				workspace.Image = value
+			}
+		case "image_warnings":
+			switch value {
+			case "on":
+				workspace.ImageWarnings = nil
+			case "off":
+				off := false
+				workspace.ImageWarnings = &off
+			default:
+				report(line, "image_warnings must be on or off")
 			}
 		case "terminal":
 			switch value {
