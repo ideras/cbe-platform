@@ -12,6 +12,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"exam-platform/shared/containerfile"
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/parser"
 	"github.com/yuin/goldmark/text"
@@ -110,11 +111,6 @@ func CompileWorkspaceFS(pkg fs.FS) (WorkspaceExam, WorkspaceBundles, error) {
 		}
 	}
 
-	// image/ (Phase 7)
-	if _, found := kinds["image"]; found {
-		add("image/: per-exam image customization is not supported yet; remove the folder and use a course image")
-	}
-
 	// project/ and grading/
 	switch mode, found := kinds["project"]; {
 	case !found:
@@ -136,6 +132,22 @@ func CompileWorkspaceFS(pkg fs.FS) (WorkspaceExam, WorkspaceBundles, error) {
 			} else {
 				bundles.Grading = &bundle
 				exam.GradingBundle = bundle.Hash
+			}
+		}
+	}
+
+	// image/: the build context of a per-exam image (Phase 7, decisions P7-2 to P7-5).
+	if mode, found := kinds["image"]; found {
+		switch {
+		case !mode.IsDir():
+			add("image must be a folder: it holds the Containerfile and the files it copies")
+		default:
+			if bundle, ok := buildBundle(pkg, "image", add); ok {
+				if warnings, ok := checkContainerfile(pkg, exam.Workspace.Image, add); ok {
+					bundles.Image = &bundle
+					bundles.ImageWarnings = warnings
+					exam.ImageBundle = bundle.Hash
+				}
 			}
 		}
 	}
@@ -162,6 +174,46 @@ func readSource(pkg fs.FS, name string) ([]byte, error) {
 		return nil, fmt.Errorf("the file is larger than %d MiB", maxWorkspaceSource>>20)
 	}
 	return data, nil
+}
+
+// checkContainerfile reads image/Containerfile and applies the platform's rules to it (shared/containerfile, which the server and the
+// runner apply again). It returns the warnings, and false when there are problems. image is the exam's course image, or "" when the front
+// matter did not give a usable one, which has been reported already.
+func checkContainerfile(pkg fs.FS, image string, add func(string, ...any)) ([]string, bool) {
+	info, err := fs.Lstat(pkg, "image/Containerfile")
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		add("image/Containerfile: missing: the image folder must hold a file called Containerfile (not Dockerfile) that starts with FROM <the exam's image>")
+		return nil, false
+	case err != nil:
+		add("image/Containerfile: %v", err)
+		return nil, false
+	case !info.Mode().IsRegular():
+		add("image/Containerfile: must be a regular file, not a folder or a link")
+		return nil, false
+	}
+	if _, err := fs.Lstat(pkg, "image/ca.crt"); err == nil {
+		add("image/ca.crt: this name is the host's certificate bundle, which the build lends to every Containerfile; rename your file")
+		return nil, false
+	}
+	data, err := fs.ReadFile(pkg, "image/Containerfile")
+	if err != nil {
+		add("image/Containerfile: %v", err)
+		return nil, false
+	}
+	if image == "" {
+		// The front matter's image is wrong or missing, and said so: there is nothing to compare the FROM with.
+		return nil, false
+	}
+	found := containerfile.Check(string(data), image)
+	for _, problem := range found.Problems {
+		add("image/Containerfile %s", problem)
+	}
+	warnings := make([]string, 0, len(found.Warnings))
+	for _, warning := range found.Warnings {
+		warnings = append(warnings, "image/Containerfile "+warning)
+	}
+	return warnings, len(found.Problems) == 0
 }
 
 // gradeProblem says what is wrong with grading/grade: it must be a regular file the system can run.

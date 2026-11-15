@@ -23,6 +23,12 @@ func (e *ActiveSessionsError) Error() string {
 	return fmt.Sprintf("%d students are still working in the current exam", e.Count)
 }
 
+// PublishBlockedError says why an exam cannot be published although it is a stored exam: its own image is not ready (workspace exams,
+// Phase 7). Reason is a sentence for the proctor.
+type PublishBlockedError struct{ Reason string }
+
+func (e *PublishBlockedError) Error() string { return e.Reason }
+
 // MaxListedExams bounds the exam catalog; the newest exams come first.
 const MaxListedExams = 500
 
@@ -50,6 +56,9 @@ type PublishTransaction interface {
 type Publisher struct {
 	repository PublishRepository
 	clock      clock.Clock
+	// Gate, when it is set, is asked before an exam is admitted to; an error stops the publication, and a *PublishBlockedError says why in words
+	// for the proctor. It runs before the transaction, never inside it.
+	Gate func(ctx context.Context, examID string) error
 }
 
 func NewPublisher(repository PublishRepository, clock clock.Clock) *Publisher {
@@ -143,7 +152,17 @@ func (p *Publisher) Publish(ctx context.Context, examID, expected string, allowA
 	if !validProctorID(examID) || !validExpected(expected) {
 		return PublishResult{}, ErrInvalidInput
 	}
+	if err := p.gate(ctx, examID); err != nil {
+		return PublishResult{}, err
+	}
 	return p.change(ctx, examID, expected, allowActive)
+}
+
+func (p *Publisher) gate(ctx context.Context, examID string) error {
+	if p.Gate == nil {
+		return nil
+	}
+	return p.Gate(ctx, examID)
 }
 
 // Unpublish closes admission. Students already in the exam keep their sessions.
@@ -158,6 +177,9 @@ func (p *Publisher) Unpublish(ctx context.Context, expected string, allowActive 
 func (p *Publisher) PublishWithEndTime(ctx context.Context, examID, expected string, allowActive bool, end *time.Time) (PublishResult, error) {
 	if !validProctorID(examID) || !validExpected(expected) {
 		return PublishResult{}, ErrInvalidInput
+	}
+	if err := p.gate(ctx, examID); err != nil {
+		return PublishResult{}, err
 	}
 	return p.change(ctx, examID, expected, allowActive, end)
 }

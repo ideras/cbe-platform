@@ -33,6 +33,7 @@ type meta struct {
 	Exam      string    `json:"exam"`
 	Name      string    `json:"name"`
 	Image     string    `json:"image"`
+	Build     string    `json:"build,omitempty"`
 	Resources Resources `json:"resources"`
 	Seeded    bool      `json:"seeded"`
 	CreatedAt time.Time `json:"created_at"`
@@ -50,6 +51,8 @@ type Service struct {
 	links map[string]*agentLink
 	// gradeSlots holds a token for every grading run going: at most GradeParallel at once (Phase 6).
 	gradeSlots chan struct{}
+	// buildSlot holds the token of the image build going: one at a time (Phase 7).
+	buildSlot chan struct{}
 }
 
 // NewService makes the runner's service. It makes the run and state folders, and adopts the containers that are already there
@@ -63,7 +66,7 @@ func NewService(cfg Config, rt Runtime, q Quota, logger *slog.Logger) (*Service,
 			return nil, err
 		}
 	}
-	s := &Service{cfg: cfg, rt: rt, quota: q, logger: logger, locks: map[string]*sync.Mutex{}, links: map[string]*agentLink{}, gradeSlots: make(chan struct{}, cfg.GradeParallel)}
+	s := &Service{cfg: cfg, rt: rt, quota: q, logger: logger, locks: map[string]*sync.Mutex{}, links: map[string]*agentLink{}, gradeSlots: make(chan struct{}, cfg.GradeParallel), buildSlot: make(chan struct{}, 1)}
 	return s, nil
 }
 
@@ -115,13 +118,20 @@ func (s *Service) Reconcile(ctx context.Context) (int, error) {
 	if swept := s.sweepGradings(ctx); swept > 0 {
 		s.logger.Info("grading containers left by a stopped runner were removed", "count", swept)
 	}
+	if swept := s.sweepVerifiers(ctx); swept > 0 {
+		s.logger.Info("checking containers left by a stopped runner were removed", "count", swept)
+	}
+	// A build that was going when the runner stopped was cancelled with it, and left its working containers.
+	for _, reference := range s.cfg.Images {
+		s.removeWorkingContainers(reference, 8)
+	}
 	for _, c := range list {
 		session := c.Labels[LabelSession]
 		if !ValidID(session) {
 			continue
 		}
 		if _, err := s.readMeta(session); err != nil {
-			_ = s.writeMeta(meta{Session: session, Exam: c.Labels[LabelExam], Name: c.Name, Image: c.Labels[LabelImage], Seeded: c.State != StateCreated, CreatedAt: time.Now().UTC()})
+			_ = s.writeMeta(meta{Session: session, Exam: c.Labels[LabelExam], Name: c.Name, Image: c.Labels[LabelImage], Build: c.Labels[LabelBuild], Seeded: c.State != StateCreated, CreatedAt: time.Now().UTC()})
 		}
 		if c.State == StateRunning || c.State == StatePaused {
 			s.ensureLink(session)
@@ -177,16 +187,13 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (Status, error)
 	// A container of this name without a note of ours (the runner stopped between the two) is taken over.
 	name := ContainerName(req.Exam, req.Session)
 	if found, err := s.rt.Inspect(ctx, name); err == nil && found.Labels[LabelManaged] == "1" && found.Labels[LabelSession] == req.Session {
-		m := meta{Session: req.Session, Exam: req.Exam, Name: name, Image: req.Image, Resources: resources, Seeded: found.State != StateCreated, CreatedAt: time.Now().UTC()}
+		m := meta{Session: req.Session, Exam: req.Exam, Name: name, Image: req.Image, Build: req.Build, Resources: resources, Seeded: found.State != StateCreated, CreatedAt: time.Now().UTC()}
 		if err := s.writeMeta(m); err != nil {
 			return Status{}, err
 		}
 		return s.statusLocked(ctx, m)
 	}
-	if _, err := s.rt.ImageInspect(ctx, reference); err != nil {
-		if errors.Is(err, ErrNotFound) {
-			return Status{}, fmt.Errorf("%w: the runtime does not have image %s", ErrNotFound, reference)
-		}
+	if err := s.checkImage(ctx, req.Exam, req.Build, reference); err != nil {
 		return Status{}, err
 	}
 	if _, err := s.quota.Create(req.Session, resources.DiskMB, s.cfg.Inodes); err != nil {
@@ -210,7 +217,7 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (Status, error)
 		cleanup()
 		return Status{}, fmt.Errorf("the container: %w", err)
 	}
-	m := meta{Session: req.Session, Exam: req.Exam, Name: name, Image: req.Image, Resources: resources, CreatedAt: time.Now().UTC()}
+	m := meta{Session: req.Session, Exam: req.Exam, Name: name, Image: req.Image, Build: req.Build, Resources: resources, CreatedAt: time.Now().UTC()}
 	if err := s.writeMeta(m); err != nil {
 		_ = s.rt.Remove(ctx, name)
 		cleanup()
@@ -503,6 +510,9 @@ func (s *Service) ConnectAgent(ctx context.Context, session string) (net.Conn, e
 
 // ImageInspect is image.inspect: whether an image is approved, and whether the runtime has it.
 func (s *Service) ImageInspect(ctx context.Context, name string) (ImageStatus, error) {
+	if match := builtNamePattern.FindStringSubmatch(name); match != nil {
+		return s.imageStatusOfBuilt(ctx, name, match)
+	}
 	status := ImageStatus{Name: name}
 	reference, approved := s.cfg.Images[name]
 	if !approved {

@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -17,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"exam-platform/internal/service"
 	"exam-platform/internal/workspace"
 	"exam-platform/internal/workspace/workspacetest"
 )
@@ -123,20 +125,37 @@ type workspaceFixture struct {
 	runner  *workspacetest.Runner
 	manager *workspace.Manager
 	grader  *workspace.Grader
-	service *workspace.Service
-	blobs   workspace.Blobs
-	repo    workspace.Repository
-	server  *httptest.Server
-	examID  string
-	options Options
-	starter []byte
-	grading []byte
-	dir     string
+	builder *workspace.ImageBuilder
+	// publisher is the one the routes use: it has the gate of an exam's own image, as the server's has.
+	publisher *service.Publisher
+	image     []byte
+	service   *workspace.Service
+	blobs     workspace.Blobs
+	repo      workspace.Repository
+	server    *httptest.Server
+	examID    string
+	options   Options
+	starter   []byte
+	grading   []byte
+	dir       string
+}
+
+// fixtureOptions are what a fixture adds to the default: an image bundle to import with the package, and whether to leave the exam unpublished.
+type fixtureOptions struct {
+	image       map[string]string
+	unpublished bool
+	// noImport leaves the stack with its class and no exam, for a test that imports its own package.
+	noImport bool
 }
 
 // newWorkspaceFixture has a class, a published workspace exam made by importing a package through the admin route, and a server on a
 // real socket.
 func newWorkspaceFixture(t *testing.T, change func(*workspace.Document)) *workspaceFixture {
+	t.Helper()
+	return newWorkspaceFixtureWith(t, change, fixtureOptions{})
+}
+
+func newWorkspaceFixtureWith(t *testing.T, change func(*workspace.Document), opts fixtureOptions) *workspaceFixture {
 	t.Helper()
 	f := &workspaceFixture{apiFixture: newUnpublishedAPIFixture(t)}
 	f.dir = t.TempDir()
@@ -156,9 +175,23 @@ func newWorkspaceFixture(t *testing.T, change func(*workspace.Document)) *worksp
 	graderDone := make(chan struct{})
 	go func() { f.grader.Run(graderCtx); close(graderDone) }()
 	t.Cleanup(func() { stopGrader(); <-graderDone })
-	f.service = &workspace.Service{Manager: f.manager, Repo: f.repo, Grader: f.grader, Importer: &workspace.Importer{Repo: f.repo, Runner: f.runner, Blobs: f.blobs, Now: f.clock.Now,
+	f.builder = workspace.NewImageBuilder(f.manager)
+	builderCtx, stopBuilder := context.WithCancel(context.Background())
+	builderDone := make(chan struct{})
+	go func() { f.builder.Run(builderCtx); close(builderDone) }()
+	t.Cleanup(func() { stopBuilder(); <-builderDone })
+	f.publisher = service.NewPublisher(f.store, f.clock)
+	f.publisher.Gate = func(ctx context.Context, examID string) error {
+		err := f.builder.CheckPublishable(ctx, examID)
+		var blocked *workspace.PublishBlocked
+		if errors.As(err, &blocked) {
+			return &service.PublishBlockedError{Reason: blocked.Reason}
+		}
+		return err
+	}
+	f.service = &workspace.Service{Manager: f.manager, Repo: f.repo, Grader: f.grader, Images: f.builder, Importer: &workspace.Importer{Repo: f.repo, Runner: f.runner, Blobs: f.blobs, Now: f.clock.Now,
 		Max: workspace.Resources{CPU: 2, MemoryMB: 2048, DiskMB: 500}, DefaultGrace: f.sessions.DefaultGraceSeconds}}
-	f.options = Options{AdminToken: testAdminToken, Workspace: f.service, Proctor: f.sessions, Rules: f.sessions}
+	f.options = Options{AdminToken: testAdminToken, Workspace: f.service, Proctor: f.sessions, Rules: f.sessions, Publisher: f.publisher}
 	f.router = New(f.clock, f.sessions, f.logger, f.options)
 	f.server = httptest.NewServer(f.router)
 	t.Cleanup(f.server.Close)
@@ -172,7 +205,16 @@ func newWorkspaceFixture(t *testing.T, change func(*workspace.Document)) *worksp
 		// An exam whose document names no grading bundle is imported without one.
 		grading, f.grading = nil, nil
 	}
-	body, contentType := importBody(t, doc, f.starter, grading, nil)
+	if opts.noImport {
+		return f
+	}
+	var extra map[string][]byte
+	if opts.image != nil {
+		f.image = tarOf(t, opts.image)
+		doc.ImageBundle = hashOf(f.image)
+		extra = map[string][]byte{"image": f.image}
+	}
+	body, contentType := importBody(t, doc, f.starter, grading, extra)
 	w := requestWithType(f.router, "POST", "/admin/class/"+apiClassID+"/workspace-exam", body, contentType, "Bearer "+testAdminToken)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("import = %d %s", w.Code, w.Body.String())
@@ -180,7 +222,9 @@ func newWorkspaceFixture(t *testing.T, change func(*workspace.Document)) *worksp
 	f.examID = decoded[struct {
 		ID string `json:"exam_id"`
 	}](t, w.Body.Bytes()).ID
-	f.publish(t, f.examID)
+	if !opts.unpublished {
+		f.publish(t, f.examID)
+	}
 	return f
 }
 

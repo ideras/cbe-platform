@@ -359,18 +359,27 @@ func TestWorkspaceProblemsNameTheirLines(t *testing.T) {
 		"workspace too large": {fstest.MapFS{"workspace.md": {Data: append([]byte("---\n"+okFront+"---\n"), bytes.Repeat([]byte("x"), 4<<20)...)}, "project/x": {}}, "workspace.md: the file is larger than 4 MiB"},
 
 		// 5 the package
-		"no workspace.md":    {fstest.MapFS{"project/x": {}}, "workspace.md is missing"},
-		"workspace.md dir":   {fstest.MapFS{"workspace.md/x": {}, "project/x": {}}, "workspace.md must be a regular file"},
-		"no project":         {fstest.MapFS{"workspace.md": {Data: []byte("---\n" + okFront + "---\n[ ] a\n")}}, "project/ is missing"},
-		"project is a file":  {pkg(okFront, "[ ] a\n", fstest.MapFS{"project": {Data: []byte("x")}}), "project must be a folder"},
-		"unknown entry":      {pkg(okFront, "[ ] a\n", fstest.MapFS{"notes.txt": {Data: []byte("x")}}), "notes.txt: a workspace package holds only workspace.md, project/, grading/, image/ and the pictures the instructions use"},
-		"image folder":       {pkg(okFront, "[ ] a\n", fstest.MapFS{"image/Containerfile": {Data: []byte("FROM x\n")}}), "image/: per-exam image customization is not supported yet"},
-		"grading is a file":  {pkg(okFront, "[ ] a\n", fstest.MapFS{"grading": {Data: []byte("x")}}), "grading must be a folder"},
-		"no grade":           {pkg(okFront, "[ ] a\n", fstest.MapFS{"grading/tests.txt": {Data: []byte("x")}}), "grading/grade: missing"},
-		"grade not run":      {pkg(okFront, "[ ] a\n", fstest.MapFS{"grading/grade": {Data: []byte("echo {}\n"), Mode: 0o644}}), "grading/grade: is not executable"},
-		"grade is a link":    {pkg(okFront, "[ ] a\n", fstest.MapFS{"grading/real": {Data: []byte("#!/bin/sh\n")}, "grading/grade": {Data: []byte("real"), Mode: fs.ModeSymlink | 0o777}}), "grading/grade: must be a regular file"},
-		"grade is a folder":  {pkg(okFront, "[ ] a\n", fstest.MapFS{"grading/grade/x": {Data: []byte("#!/bin/sh\n")}}), "grading/grade: must be a regular file"},
-		"grading not a link": {pkg(okFront, "[ ] a\n", fstest.MapFS{"grading": {Data: []byte("x"), Mode: fs.ModeSymlink | 0o777}}), "grading must be a folder"},
+		"no workspace.md":                 {fstest.MapFS{"project/x": {}}, "workspace.md is missing"},
+		"workspace.md dir":                {fstest.MapFS{"workspace.md/x": {}, "project/x": {}}, "workspace.md must be a regular file"},
+		"no project":                      {fstest.MapFS{"workspace.md": {Data: []byte("---\n" + okFront + "---\n[ ] a\n")}}, "project/ is missing"},
+		"project is a file":               {pkg(okFront, "[ ] a\n", fstest.MapFS{"project": {Data: []byte("x")}}), "project must be a folder"},
+		"unknown entry":                   {pkg(okFront, "[ ] a\n", fstest.MapFS{"notes.txt": {Data: []byte("x")}}), "notes.txt: a workspace package holds only workspace.md, project/, grading/, image/ and the pictures the instructions use"},
+		"image is a file":                 {pkg(okFront, "[ ] a\n", fstest.MapFS{"image": {Data: []byte("x")}}), "image must be a folder"},
+		"image no Containerfile":          {pkg(okFront, "[ ] a\n", fstest.MapFS{"image/setup.sh": {Data: []byte("x")}}), "image/Containerfile: missing"},
+		"image Dockerfile":                {pkg(okFront, "[ ] a\n", fstest.MapFS{"image/Dockerfile": {Data: []byte("FROM cbe/cpp20\n")}}), "image/Containerfile: missing"},
+		"image Containerfile is a folder": {pkg(okFront, "[ ] a\n", fstest.MapFS{"image/Containerfile/x": {Data: []byte("x")}}), "image/Containerfile: must be a regular file"},
+		"image other base":                {pkg(okFront, "[ ] a\n", fstest.MapFS{"image/Containerfile": {Data: []byte("FROM ubuntu:24.04\n")}}), "image/Containerfile line 1: FROM ubuntu:24.04: the only image"},
+		"image tagged base":               {pkg(okFront, "[ ] a\n", fstest.MapFS{"image/Containerfile": {Data: []byte("FROM cbe/cpp20:latest\n")}}), "image/Containerfile line 1: write the course image without a tag"},
+		"image host network":              {pkg(okFront, "[ ] a\n", fstest.MapFS{"image/Containerfile": {Data: []byte("FROM cbe/cpp20\nRUN --network=host true\n")}}), "image/Containerfile line 2: RUN --network=host is not allowed"},
+		"image volume":                    {pkg(okFront, "[ ] a\n", fstest.MapFS{"image/Containerfile": {Data: []byte("FROM cbe/cpp20\nVOLUME /etc\n")}}), "image/Containerfile line 2: VOLUME is not allowed"},
+		"image own ca.crt":                {pkg(okFront, "[ ] a\n", fstest.MapFS{"image/Containerfile": {Data: []byte("FROM cbe/cpp20\n")}, "image/ca.crt": {Data: []byte("x")}}), "image/ca.crt: this name is the host's certificate bundle"},
+		"image link out":                  {pkg(okFront, "[ ] a\n", fstest.MapFS{"image/Containerfile": {Data: []byte("FROM cbe/cpp20\n")}, "image/x": {Data: []byte("../../etc/passwd"), Mode: fs.ModeSymlink | 0o777}}), "image/x: the symbolic link"},
+		"grading is a file":               {pkg(okFront, "[ ] a\n", fstest.MapFS{"grading": {Data: []byte("x")}}), "grading must be a folder"},
+		"no grade":                        {pkg(okFront, "[ ] a\n", fstest.MapFS{"grading/tests.txt": {Data: []byte("x")}}), "grading/grade: missing"},
+		"grade not run":                   {pkg(okFront, "[ ] a\n", fstest.MapFS{"grading/grade": {Data: []byte("echo {}\n"), Mode: 0o644}}), "grading/grade: is not executable"},
+		"grade is a link":                 {pkg(okFront, "[ ] a\n", fstest.MapFS{"grading/real": {Data: []byte("#!/bin/sh\n")}, "grading/grade": {Data: []byte("real"), Mode: fs.ModeSymlink | 0o777}}), "grading/grade: must be a regular file"},
+		"grade is a folder":               {pkg(okFront, "[ ] a\n", fstest.MapFS{"grading/grade/x": {Data: []byte("#!/bin/sh\n")}}), "grading/grade: must be a regular file"},
+		"grading not a link":              {pkg(okFront, "[ ] a\n", fstest.MapFS{"grading": {Data: []byte("x"), Mode: fs.ModeSymlink | 0o777}}), "grading must be a folder"},
 
 		// 5.2 project/: the limits and what a bundle may not hold
 		"too many files":      {pkg(okFront, "[ ] a\n", manyFiles(2000)), "project/ holds more than 2000 files"},
@@ -427,14 +436,14 @@ func TestWorkspaceProblemsAreBounded(t *testing.T) {
 
 func TestWorkspaceProblemsComeTogether(t *testing.T) {
 	problems := workspaceProblems(t, fstest.MapFS{
-		"workspace.md":        {Data: []byte("---\ntitle: x\nduration: 1h\nimage: Bad Image\nterminal: maybe\n---\nSee [x](http://a.b)\n\n[ ] a {#same}\n[ ] b {#same}\n")},
-		"project/link":        {Data: []byte("/etc/shadow"), Mode: fs.ModeSymlink | 0o777},
-		"grading/a.txt":       {Data: []byte("x")},
-		"README.md":           {Data: []byte("x")},
-		"image/Containerfile": {Data: []byte("x")},
+		"workspace.md":   {Data: []byte("---\ntitle: x\nduration: 1h\nimage: Bad Image\nterminal: maybe\n---\nSee [x](http://a.b)\n\n[ ] a {#same}\n[ ] b {#same}\n")},
+		"project/link":   {Data: []byte("/etc/shadow"), Mode: fs.ModeSymlink | 0o777},
+		"grading/a.txt":  {Data: []byte("x")},
+		"README.md":      {Data: []byte("x")},
+		"image/setup.sh": {Data: []byte("x")},
 	}).Error()
 	for _, want := range []string{"line 4: image must be", "line 5: terminal must be on or off", "line 7: links are not allowed", `line 10: TODO id "same"`,
-		"project/link: the symbolic link", "grading/grade: missing", "README.md: a workspace package holds only", "image/: per-exam image customization"} {
+		"project/link: the symbolic link", "grading/grade: missing", "README.md: a workspace package holds only", "image/Containerfile: missing"} {
 		if !strings.Contains(problems, want) {
 			t.Errorf("missing %q in:\n%s", want, problems)
 		}
@@ -672,5 +681,62 @@ func TestGlobMatch(t *testing.T) {
 	list[0] = "changed"
 	if DefaultIgnore()[0] != "build/**" {
 		t.Error("DefaultIgnore returns its own slice")
+	}
+}
+
+func TestAnImageFolderIsBundledAndItsContainerfileChecked(t *testing.T) {
+	containerfile := "FROM cbe/cpp20\nUSER root\nRUN apt-get update && apt-get install -y libfoo-dev make=4.3-4.1build2\nCOPY extra/ /opt/extra/\nUSER 1000:1000\n"
+	files := pkg(okFront, "[ ] a\n", fstest.MapFS{"image/Containerfile": {Data: []byte(containerfile)}, "image/extra/lib.txt": {Data: []byte("a library")}})
+	exam, bundles, err := CompileWorkspaceFS(files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bundles.Image == nil || exam.ImageBundle != bundles.Image.Hash || !strings.HasPrefix(exam.ImageBundle, "sha256:") || bundles.Image.Files != 2 {
+		t.Fatalf("the image bundle: %+v, document %q", bundles.Image, exam.ImageBundle)
+	}
+	if len(bundles.ImageWarnings) != 1 || !strings.Contains(bundles.ImageWarnings[0], "image/Containerfile line 3: apt-get installs libfoo-dev without a version") {
+		t.Errorf("warnings: %q", bundles.ImageWarnings)
+	}
+	// The same package gives the same hash (a rebuild is a cache hit), and changing the Containerfile changes it.
+	again, _, _ := CompileWorkspaceFS(files)
+	if again.ImageBundle != exam.ImageBundle {
+		t.Error("the hash is not stable")
+	}
+	files["image/Containerfile"] = &fstest.MapFile{Data: []byte(containerfile + "ENV A=1\n")}
+	if changed, _, _ := CompileWorkspaceFS(files); changed.ImageBundle == exam.ImageBundle {
+		t.Error("a changed Containerfile has the same hash")
+	}
+	// A package without an image folder has none of it.
+	plain, plainBundles, err := CompileWorkspaceFS(pkg(okFront, "[ ] a\n"))
+	if err != nil || plain.ImageBundle != "" || plainBundles.Image != nil || plainBundles.ImageWarnings != nil {
+		t.Errorf("no image folder: %v %+v", err, plainBundles)
+	}
+}
+
+// The example package with its own image: its compiled document names the image bundle, and the bundle is the context of a Containerfile
+// that builds a library in one stage and installs it in the other, both from the course image.
+func TestTheImageExampleMatchesItsCompiledDocument(t *testing.T) {
+	exam, bundles, err := CompileWorkspaceDir("../../testdata/workspace/lab-image")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled := encode(t, exam)
+	if *update {
+		if err := os.WriteFile("../../testdata/workspace/lab-image.json", compiled, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	golden, err := os.ReadFile("../../testdata/workspace/lab-image.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(golden, compiled) {
+		t.Fatalf("testdata/workspace/lab-image.json is not the compiled testdata/workspace/lab-image; run go test ./... -update in shared/examdoc\n%s", compiled)
+	}
+	if bundles.Image == nil || exam.ImageBundle != bundles.Image.Hash || bundles.Image.Files != 3 || len(bundles.ImageWarnings) != 0 || exam.GradingBundle == "" {
+		t.Errorf("the image bundle: %+v, warnings %q", bundles.Image, bundles.ImageWarnings)
+	}
+	if exam.Workspace.Image != "cbe/cpp20" {
+		t.Errorf("image %q", exam.Workspace.Image)
 	}
 }

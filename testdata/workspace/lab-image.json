@@ -1,0 +1,38 @@
+{
+  "kind": "workspace",
+  "title": "Laboratory – a library the course image does not have",
+  "duration_seconds": 3600,
+  "grace_seconds": 120,
+  "workspace": {
+    "image": "cbe/cpp20",
+    "terminal": true,
+    "run": "make run",
+    "check": "make check",
+    "submit": [
+      "src/**",
+      "Makefile"
+    ],
+    "ignore": [
+      "build/**",
+      "**/*.o"
+    ],
+    "resources": {
+      "cpu": 1,
+      "memory_mb": 1024,
+      "disk_mb": 100
+    }
+  },
+  "content": {
+    "instructions": "<p>This exam has its own image: <code>libgreet</code> (the header <code>greet.hpp</code> and the library <code>-lgreet</code>) is installed in it, and in no other.\nMake <code>src/main.cpp</code> print the greeting that <code>libgreet</code> gives for your name, then run it with <code>make run</code>.</p>",
+    "todos": [
+      {
+        "id": "t1",
+        "text_html": "<code>make run</code> prints <code>hello, &lt;your name&gt;</code> using <code>libgreet</code>",
+        "points": 10
+      }
+    ]
+  },
+  "starter_bundle": "sha256:555ed208cb9565aa3d5bc968e935926ba35ac9a20445d4204e1ca7244d9683da",
+  "grading_bundle": "sha256:62956c48349fdfe5f6959b2ce6f8b4e4417e526d2b120403bb7d82ef33cee2a1",
+  "image_bundle": "sha256:defa7c8354689af310ead13e580d15b35e63e5a3533da403c4b9af3913464803"
+}

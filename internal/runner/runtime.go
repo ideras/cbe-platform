@@ -84,8 +84,27 @@ type RawStats struct {
 
 // ImageInfo is what the runtime says about an image.
 type ImageInfo struct {
-	ID     string
-	Labels map[string]string
+	ID string
+	// RepoDigests are the manifest digests the image is known by, each as `repository@sha256:…`.
+	RepoDigests []string
+	Labels      map[string]string
+	// User, Entrypoint, Cmd and WorkDir are the image's configuration: what a container made from it runs, and as whom.
+	User       string
+	Entrypoint []string
+	Cmd        []string
+	WorkDir    string
+	// Layers are the digests of the image's file system layers, the lowest first: an image made from another has the other's layers first.
+	Layers []string
+}
+
+// ImageBuildSpec is what the runtime is told about a build: the tag the image is given, its labels, whether to build without the cache, and
+// the memory the steps of the build may use together. The build has network (decision D11) and runs the file named Containerfile in the
+// context.
+type ImageBuildSpec struct {
+	Tag         string
+	Labels      map[string]string
+	NoCache     bool
+	MemoryBytes int64
 }
 
 // Runtime is the container runtime. Its only implementation talks the Docker Engine API (to rootless Podman or to Docker) through the
@@ -113,4 +132,12 @@ type Runtime interface {
 	Attach(ctx context.Context, name string, limit int64) (Collector, error)
 	// ImageInspect returns ErrNotFound when the runtime does not have the image.
 	ImageInspect(ctx context.Context, ref string) (ImageInfo, error)
+	// ImageBuild builds the Containerfile of a tar archive and tags the result. What the build prints goes to log, which is written to as it
+	// goes. A build that fails (a step that returns an error) is an error that wraps ErrBuildFailed and says what the builder said; ctx
+	// ends a build that goes on too long.
+	ImageBuild(ctx context.Context, spec ImageBuildSpec, buildContext io.Reader, log io.Writer) error
+	// ImageTag gives an image another name, and ImageRemove takes a name away (the image goes when its last name does, if nothing uses it);
+	// both return ErrNotFound for a name that is not there.
+	ImageTag(ctx context.Context, ref, tag string) error
+	ImageRemove(ctx context.Context, ref string) error
 }

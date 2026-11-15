@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"sync"
@@ -294,11 +295,61 @@ func (d *Docker) ImageInspect(ctx context.Context, ref string) (runner.ImageInfo
 	if err != nil {
 		return runner.ImageInfo{}, notFound(err)
 	}
-	info := runner.ImageInfo{ID: result.ID}
+	info := runner.ImageInfo{ID: result.ID, RepoDigests: result.RepoDigests, Layers: result.RootFS.Layers}
 	if result.Config != nil {
 		info.Labels = result.Config.Labels
+		info.User, info.Entrypoint, info.Cmd, info.WorkDir = result.Config.User, result.Config.Entrypoint, result.Config.Cmd, result.Config.WorkingDir
 	}
 	return info, nil
+}
+
+// ImageBuild builds the Containerfile in a tar context through the runtime's build call. The runtime answers with a stream of JSON objects:
+// {"stream": text} for what the build prints and {"error": …} when a step fails; the text goes to log as it comes.
+func (d *Docker) ImageBuild(ctx context.Context, spec runner.ImageBuildSpec, buildContext io.Reader, log io.Writer) error {
+	response, err := d.cli.ImageBuild(ctx, buildContext, client.ImageBuildOptions{Tags: []string{spec.Tag}, Dockerfile: "Containerfile", Remove: true, ForceRemove: true,
+		NoCache: spec.NoCache, Labels: spec.Labels, Memory: spec.MemoryBytes, MemorySwap: spec.MemoryBytes})
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	decoder := json.NewDecoder(response.Body)
+	for {
+		var line struct {
+			Stream      string `json:"stream"`
+			Error       string `json:"error"`
+			ErrorDetail struct {
+				Message string `json:"message"`
+			} `json:"errorDetail"`
+		}
+		if err := decoder.Decode(&line); err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			return err
+		}
+		if line.Stream != "" {
+			_, _ = io.WriteString(log, line.Stream)
+		}
+		if message := strings.TrimSpace(line.Error + line.ErrorDetail.Message); message != "" {
+			if line.Error != "" && line.ErrorDetail.Message != "" {
+				message = strings.TrimSpace(line.Error)
+			}
+			return fmt.Errorf("%w: %s", runner.ErrBuildFailed, message)
+		}
+	}
+}
+
+func (d *Docker) ImageTag(ctx context.Context, ref, tag string) error {
+	_, err := d.cli.ImageTag(ctx, client.ImageTagOptions{Source: ref, Target: tag})
+	return notFound(err)
+}
+
+func (d *Docker) ImageRemove(ctx context.Context, ref string) error {
+	_, err := d.cli.ImageRemove(ctx, ref, client.ImageRemoveOptions{})
+	return notFound(err)
 }
 
 var _ runner.Runtime = (*Docker)(nil)

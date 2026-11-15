@@ -9,6 +9,8 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -22,6 +24,7 @@ import (
 
 	"exam-platform/internal/agent"
 	"exam-platform/internal/runner"
+	"exam-platform/shared/containerfile"
 )
 
 // GradeCall is one grading run as the fake was asked for it: the request, the files of the submission and the files of the bundle.
@@ -30,6 +33,17 @@ type GradeCall struct {
 	Files   map[string]string
 	Bundle  map[string]string
 }
+
+// BuildCall is one image build as the fake was asked for it: the request and the files of the build context.
+type BuildCall struct {
+	Request runner.BuildRequest
+	Files   map[string]string
+	// Log sends text to whoever is watching the build, as the runner's stream does while a build goes; a hook calls it to print.
+	Log func(text string)
+}
+
+// BaseDigest is the digest the fake says its course image has.
+const BaseDigest = "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
 
 // Runner is the fake. Its methods are those of workspace.RunnerAPI.
 type Runner struct {
@@ -54,6 +68,18 @@ type Runner struct {
 	Gradings  []GradeCall
 	GradePeak int
 	gradeNow  int
+	// BuildHook, when set, decides what an image build returns; it is given the request and the files of the context. Without it a build
+	// applies the real checker to the Containerfile and, when it passes, makes the image: named by the exam and a hash of the context, with a
+	// cached answer for files that were built already (unless the request is a rebuild).
+	BuildHook func(ctx context.Context, call BuildCall) (runner.BuildResult, error)
+	// Builds lists the builds that were asked of it, and BuildPeak is the most that were going at once.
+	Builds    []BuildCall
+	BuildPeak int
+	buildNow  int
+	// Built are the images the runner has made, by name (cbe-exam/<exam>:<hash>), with the exam each was built for; Forget removes one.
+	Built map[string]string
+	// CreatedBuilds is the build each container was made from, by session ("" for the course image).
+	CreatedBuilds map[string]string
 	// Now is the clock the agents' heartbeats are stamped with; tests that move the exam server's clock move it too.
 	Now func() time.Time
 }
@@ -78,7 +104,8 @@ func New(tmp string) *Runner {
 	if err != nil {
 		panic(err)
 	}
-	return &Runner{dir: dir, sessions: map[string]*session{}, Images: map[string]bool{"cbe/cpp20": true}, SilentAgents: map[string]bool{}, Now: time.Now}
+	return &Runner{dir: dir, sessions: map[string]*session{}, Images: map[string]bool{"cbe/cpp20": true}, SilentAgents: map[string]bool{}, Now: time.Now,
+		Built: map[string]string{}, CreatedBuilds: map[string]string{}}
 }
 
 // Close stops every agent and removes the folders.
@@ -167,9 +194,13 @@ func (r *Runner) Create(_ context.Context, req runner.CreateRequest) (runner.Sta
 	if !r.Images[req.Image] {
 		return runner.Status{}, fmt.Errorf("%w: %q", runner.ErrNotApproved, req.Image)
 	}
+	if req.Build != "" && r.Built[runner.BuiltName(req.Exam, req.Build)] != req.Exam {
+		return runner.Status{}, fmt.Errorf("%w: the runtime does not have the image built for exam %s", runner.ErrNotFound, req.Exam)
+	}
 	if s := r.sessions[req.Session]; s != nil {
 		return r.status(req.Session, s), nil
 	}
+	r.CreatedBuilds[req.Session] = req.Build
 	base := filepath.Join(r.dir, req.Session)
 	s := &session{exam: req.Exam, image: req.Image, state: runner.StateCreated, work: filepath.Join(base, "work"), run: filepath.Join(base, "run"), res: req.Resources}
 	for _, dir := range []string{s.work, s.run} {
@@ -443,7 +474,100 @@ func (r *Runner) ConnectAgent(ctx context.Context, id string) (net.Conn, error) 
 }
 
 func (r *Runner) ImageInspect(_ context.Context, name string) (runner.ImageStatus, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if rest, built := strings.CutPrefix(name, "cbe-exam/"); built {
+		exam, _, _ := strings.Cut(rest, ":")
+		present := r.Built[name] != ""
+		return runner.ImageStatus{Name: name, Approved: present && r.Built[name] == exam, Present: present, ID: "sha256:fakebuilt"}, nil
+	}
 	return runner.ImageStatus{Name: name, Approved: r.Images[name], Present: r.Images[name], ID: "sha256:fake"}, nil
+}
+
+// Have makes the runner have the image of a build, for a BuildHook that makes an image of its own.
+func (r *Runner) Have(exam, hash string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.Built[runner.BuiltName(exam, hash)] = exam
+}
+
+// Forget makes the runner lose the image of a build, as a person removing it from the runtime would.
+func (r *Runner) Forget(exam, hash string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.Built, runner.BuiltName(exam, hash))
+}
+
+// BuildImage is image.build: it reads the build context (so that whoever writes it to a pipe is let go), notes the call, and returns what
+// BuildHook says, or what the default build makes of it.
+func (r *Runner) BuildImage(ctx context.Context, req runner.BuildRequest, buildContext io.Reader, onLog func(text string)) (runner.BuildResult, error) {
+	if onLog == nil {
+		onLog = func(string) {}
+	}
+	raw, err := io.ReadAll(buildContext)
+	if err != nil {
+		return runner.BuildResult{}, err
+	}
+	files, err := readFiles(bytes.NewReader(raw))
+	if err != nil {
+		return runner.BuildResult{}, fmt.Errorf("%w: the build context is not a tar archive: %v", runner.ErrBadRequest, err)
+	}
+	call := BuildCall{Request: req, Files: files, Log: onLog}
+	r.mu.Lock()
+	r.Builds = append(r.Builds, call)
+	hook := r.BuildHook
+	if r.buildNow++; r.buildNow > r.BuildPeak {
+		r.BuildPeak = r.buildNow
+	}
+	r.mu.Unlock()
+	defer func() {
+		r.mu.Lock()
+		r.buildNow--
+		r.mu.Unlock()
+	}()
+	if hook != nil {
+		result, err := hook(ctx, call)
+		result.Exam = req.Exam
+		return result, err
+	}
+	if !r.Images[req.Image] {
+		return runner.BuildResult{}, fmt.Errorf("%w: %q", runner.ErrNotApproved, req.Image)
+	}
+	text, found := files["Containerfile"]
+	if !found {
+		return runner.BuildResult{}, fmt.Errorf("%w: the build context has no file called Containerfile", runner.ErrBadRequest)
+	}
+	result := runner.BuildResult{Exam: req.Exam, BaseName: req.Image, BaseDigest: BaseDigest}
+	// say adds to the log and sends it on, as the runner does.
+	say := func(text string) {
+		result.Log += text
+		onLog(text)
+	}
+	say("Base image: " + req.Image + " digest " + BaseDigest + "\n")
+	check := containerfile.Check(text, req.Image)
+	result.Warnings = check.Warnings
+	if len(check.Problems) > 0 {
+		result.Failure, result.Message = runner.FailContainerfile, "the Containerfile is not accepted: "+strings.Join(check.Problems, "; ")
+		say(result.Message + "\n")
+		return result, nil
+	}
+	sum := sha256.Sum256(append([]byte(BaseDigest), raw...))
+	result.Hash = hex.EncodeToString(sum[:8])
+	result.Tag = runner.BuiltReference(req.Exam, result.Hash)
+	result.ImageID = "sha256:fake" + result.Hash
+	name := runner.BuiltName(req.Exam, result.Hash)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.Built[name] != "" && !req.Rebuild {
+		result.Cached = true
+		say("The image " + result.Tag + " is built already: nothing was built.\n")
+	} else {
+		say("STEP 1/1: FROM " + req.Image + "\n")
+		say("Verified. Tagged " + result.Tag + "\n")
+	}
+	r.Built[name] = req.Exam
+	result.OK = true
+	return result, nil
 }
 
 // readFiles reads a tar archive into name -> content.

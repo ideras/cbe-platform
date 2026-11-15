@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { workspaceBadge, activityText, todoText, useText, kindLabel, endText, sizeText, treeRows, parseCast, playbackPlan, numberedLines, plainText, gradeLine, gradingSummary, pointsText, failureLabel, gradeNote } from '../src/workspace.js';
+import { stepProgress, outputAgo, atEnd, imageChip, publishBlock, shortDigest, buildTime, buildLine, buildFailureLabel, workspaceBadge, activityText, todoText, useText, kindLabel, endText, sizeText, treeRows, parseCast, playbackPlan, numberedLines, plainText, gradeLine, gradingSummary, pointsText, failureLabel, gradeNote } from '../src/workspace.js';
 
 test('the roster says what the container is doing in words', () => {
   assert.deepEqual(workspaceBadge({ state: 'ready' }), { text: 'Running', tone: 'active' });
@@ -115,4 +115,69 @@ test('the class\'s grading is counted, and who a request to grade it would queue
   ];
   assert.deepEqual(gradingSummary(students), { waiting: 1, running: 1, done: 2, confirmed: 1, failed: 1, ungraded: 1, submitters: 6, gradable: 4 });
   assert.deepEqual(gradingSummary(undefined), { waiting: 0, running: 0, done: 0, confirmed: 0, failed: 0, ungraded: 0, submitters: 0, gradable: 0 });
+});
+
+test('an exam’s own image is told in the list in words, and publishing is blocked until it is ready', () => {
+  assert.equal(imageChip(null), null);
+  assert.equal(imageChip({ state: 'none' }), null);
+  assert.deepEqual(imageChip({ state: 'ready', ready: true }).text, 'Image ready');
+  assert.equal(imageChip({ state: 'ready', ready: true }).tone, 'ok');
+  assert.equal(imageChip({ state: 'not_built' }).tone, 'warn');
+  assert.equal(imageChip({ state: 'building' }).text, 'Building the image…');
+  assert.equal(imageChip({ state: 'failed', ready: false }).text, 'Build failed');
+  assert.equal(imageChip({ state: 'failed', ready: true }).text, 'Last build failed');
+  assert.equal(imageChip({ state: 'failed', ready: true }).tone, 'warn');
+  assert.equal(imageChip({ state: 'missing' }).tone, 'lock');
+  assert.equal(imageChip({ state: 'new thing' }).text, 'new thing');
+  const workspace = image => ({ kind: 'workspace', image });
+  assert.equal(publishBlock(workspace({ state: 'ready', ready: true })), '');
+  assert.equal(publishBlock(workspace({ state: 'none', ready: true })), '');
+  assert.equal(publishBlock({ kind: '' }), '');
+  assert.equal(publishBlock({ kind: '', image: { state: 'not_built' } }), '');
+  assert.match(publishBlock(workspace({ state: 'not_built', ready: false })), /Build the exam’s image before publishing/);
+  assert.match(publishBlock(workspace({ state: 'building', ready: false })), /being built/);
+  assert.match(publishBlock(workspace({ state: 'queued', ready: true })), /being built/);
+  assert.match(publishBlock(workspace({ state: 'failed', ready: false })), /failed/);
+  assert.equal(publishBlock(workspace({ state: 'failed', ready: true })), '');
+  assert.match(publishBlock(workspace({ state: 'missing', ready: false })), /Build the exam’s image/);
+});
+
+test('a build is told by its number, its state and how long it took', () => {
+  assert.equal(shortDigest('sha256:baac8cde6b9011521f80a878fc8fc475f9cf173da0ee274c2c0d316a9715cbb9'), 'sha256:baac8cde6b90…');
+  assert.equal(shortDigest('sha256:abc'), 'sha256:abc');
+  assert.equal(shortDigest(''), '');
+  assert.equal(shortDigest('abcdef0123456789'), 'abcdef012345…');
+  assert.equal(buildTime(0), '0 s');
+  assert.equal(buildTime(40), '< 1 s');
+  assert.equal(buildTime(3593), '4 s');
+  assert.equal(buildTime(65000), '1:05');
+  assert.equal(buildTime(-5), '0 s');
+  assert.equal(buildLine({ build_id: 3, state: 'ok' }), '#3 · ready');
+  assert.equal(buildLine({ build_id: 4, state: 'ok', cached: true }), '#4 · ready (already built)');
+  assert.equal(buildLine({ build_id: 5, state: 'failed', rebuild: true }), '#5 · failed · from scratch');
+  assert.equal(buildLine({ build_id: 6, state: 'running' }), '#6 · building…');
+  assert.equal(buildLine(null), '');
+  assert.match(buildFailureLabel('verify'), /contract/);
+  assert.match(buildFailureLabel('containerfile'), /not accepted/);
+  assert.equal(buildFailureLabel('something new'), 'The build failed');
+});
+
+test('where a build is going is told as a step, and how long it has been quiet', () => {
+  assert.equal(stepProgress(null), null);
+  assert.equal(stepProgress({ step: 0, steps: 0 }), null);
+  assert.equal(stepProgress({ state: 'running' }), null);
+  assert.deepEqual(stepProgress({ step: 1, steps: 9, step_text: 'FROM x' }), { text: 'Step 1 of 9', command: 'FROM x', percent: 0 });
+  assert.deepEqual(stepProgress({ step: 4, steps: 9, step_text: 'RUN make' }), { text: 'Step 4 of 9', command: 'RUN make', percent: 33 });
+  assert.equal(stepProgress({ step: 9, steps: 9 }).percent, 89);
+  assert.equal(stepProgress({ step: 12, steps: 9 }).percent, 100);
+  const now = Date.parse('2035-01-01T00:10:00Z');
+  assert.equal(outputAgo('2035-01-01T00:09:59Z', now), 'just now');
+  assert.equal(outputAgo('2035-01-01T00:09:15Z', now), '45 s ago');
+  assert.equal(outputAgo('2035-01-01T00:08:55Z', now), '1:05 ago');
+  assert.equal(outputAgo('2035-01-01T00:10:30Z', now), 'just now');
+  assert.equal(outputAgo(null, now), '');
+  assert.equal(outputAgo('garbage', now), '');
+  assert.equal(atEnd({ scrollHeight: 1000, scrollTop: 700, clientHeight: 300 }), true);
+  assert.equal(atEnd({ scrollHeight: 1000, scrollTop: 690, clientHeight: 300 }), true);
+  assert.equal(atEnd({ scrollHeight: 1000, scrollTop: 300, clientHeight: 300 }), false);
 });

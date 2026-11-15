@@ -21,6 +21,8 @@ const (
 	maxSeedBody = MaxSeedBytes + MaxSeedFiles*1024 + 1<<20
 	// maxGradeBody is a grading request: the submission, the bundle and the framing.
 	maxGradeBody = MaxSubmissionBytes + MaxSeedFiles*1024 + maxSeedBody + 1<<20
+	// maxBuildBody is an image build's request: the build context and the framing.
+	maxBuildBody = maxBuildContextBytes + maxBuildContextFiles*1024 + 1<<20
 )
 
 // UpgradeProtocol is what agent.connect upgrades the connection to: from then on it is the agent's own socket.
@@ -39,7 +41,7 @@ const UpgradeProtocol = "cbe-agent/1"
 //	GET  /v1/containers/{session}/agent            agent.connect      upgrades to a raw connection to the agent
 //	GET  /v1/images?name=                          image.inspect
 //	POST /v1/grading                               grading.run        multipart: request (JSON), submission (a tar), grading (a tar); answers the run's result
-//	POST /v1/images/build                          image.build: Phase 7, answered 501 until then
+//	POST /v1/images/build                          image.build        multipart: request (JSON), context (a tar); answers with a stream (below)
 //
 // Every request carries the shared secret as a bearer token. Anything else is 404 or 405; bodies are strict JSON, and a field that
 // is not in the request is refused, so there is no way to ask for a mount, a capability or a network.
@@ -51,7 +53,8 @@ func Handler(svc *Service, secret string, logger *slog.Logger) http.Handler {
 		w.WriteHeader(status)
 		_ = json.NewEncoder(w).Encode(value)
 	}
-	fail := func(w http.ResponseWriter, operation string, err error) {
+	// answer is the status and the words an error is answered with, and logs the ones that are the runner's own.
+	answer := func(operation string, err error) (int, string) {
 		status := http.StatusInternalServerError
 		switch {
 		case errors.Is(err, ErrBadRequest):
@@ -70,6 +73,10 @@ func Handler(svc *Service, secret string, logger *slog.Logger) http.Handler {
 			logger.Error("runner operation failed", "operation", operation, "error", err)
 			message = "the operation failed; see the runner's log"
 		}
+		return status, message
+	}
+	fail := func(w http.ResponseWriter, operation string, err error) {
+		status, message := answer(operation, err)
 		write(w, status, map[string]string{"error": message})
 	}
 	mux.HandleFunc("GET /v1/ping", func(w http.ResponseWriter, r *http.Request) {
@@ -174,11 +181,6 @@ func Handler(svc *Service, secret string, logger *slog.Logger) http.Handler {
 		}
 		write(w, http.StatusOK, status)
 	})
-	notYet := func(operation, phase string) http.HandlerFunc {
-		return func(w http.ResponseWriter, r *http.Request) {
-			write(w, http.StatusNotImplemented, map[string]string{"error": operation + " is built in " + phase + "; this runner does not have it yet"})
-		}
-	}
 	mux.HandleFunc("POST /v1/grading", func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, maxGradeBody)
 		reader, err := r.MultipartReader()
@@ -216,7 +218,46 @@ func Handler(svc *Service, secret string, logger *slog.Logger) http.Handler {
 		}
 		write(w, http.StatusOK, result)
 	})
-	mux.HandleFunc("POST /v1/images/build", notYet("image.build", "Phase 7"))
+	mux.HandleFunc("POST /v1/images/build", func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, maxBuildBody)
+		reader, err := r.MultipartReader()
+		if err != nil {
+			fail(w, "image.build", badRequest("image.build takes multipart/form-data with the parts request and context"))
+			return
+		}
+		first, err := reader.NextPart()
+		if err != nil || first.FormName() != "request" {
+			fail(w, "image.build", badRequest("the first part of image.build is request"))
+			return
+		}
+		var req BuildRequest
+		decoder := json.NewDecoder(io.LimitReader(first, maxJSONBody))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&req); err != nil || decoder.More() {
+			fail(w, "image.build", badRequest("the request is not the JSON image.build takes (exam, image, rebuild, timeout_seconds)"))
+			return
+		}
+		part, err := reader.NextPart()
+		if err != nil || part.FormName() != "context" {
+			fail(w, "image.build", badRequest("the second part of image.build is context"))
+			return
+		}
+		// What the build prints goes to the client as it is printed (below), and the result is the last message.
+		stream := newStreamWriter(w)
+		defer stream.close()
+		result, err := svc.BuildImageLive(r.Context(), req, part, stream)
+		if err != nil {
+			if stream.started() {
+				// The answer has begun, with its status: the failure is the last message of the stream.
+				status, message := answer("image.build", err)
+				stream.fail(status, message)
+				return
+			}
+			fail(w, "image.build", err)
+			return
+		}
+		stream.finish(result)
+	})
 	return authenticate(secret, mux, logger)
 }
 

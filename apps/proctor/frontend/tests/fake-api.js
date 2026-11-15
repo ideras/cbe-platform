@@ -657,3 +657,103 @@ Object.assign(window.ProctorHarness, {
   gradeFails(message) { gradeFailure = message; },
   gradingRun(id, change) { Object.assign(gradingRuns().find(run => run.id === id), change); },
 });
+
+// Importing a workspace package and building its own image (Phase 7). The exams of the catalog carry kind, todos and image, as the server's
+// do; `imageDetail` has what only the image dialog reads: the builds of an exam and their logs. A build does not move by itself: the test
+// moves it with the harness, so what the dialog shows at each step is the test's to check.
+let nextWorkspacePackage = null;
+let importWorkspaceFails = '';
+let buildFailure = '';
+let imageReadFails = '';
+const imageDetail = {};
+const IMAGE_DIGEST = 'sha256:baac8cde6b9011521f80a878fc8fc475f9cf173da0ee274c2c0d316a9715cbb9';
+calls.workspaceImport = { chosen: [], imported: [], discarded: 0, builds: [], reads: [], buildReads: [] };
+const examById = id => exams.find(item => item.exam_id === id);
+const buildOf = (id, state, extra = {}) => ({ build_id: id, state, failure: '', message: '', cached: false, rebuild: false, hash: state === 'ok' ? '0123456789abcdef' : '', base_name: 'cbe/cpp20', base_digest: IMAGE_DIGEST, warnings: [],
+  live: false, log_from: 0, log_next: 0, step: 0, steps: 0, step_text: '', last_output_at: null,
+  duration_ms: state === 'ok' || state === 'failed' ? 3600 : 0, queued_at: AT, started_at: state === 'queued' ? null : AT, finished_at: state === 'ok' || state === 'failed' ? AT : null, log: '', ...extra });
+// The state of an exam's image as the server's view says it, from the exam's entry and its builds.
+function imageView(id, withLog, logFrom = 0) {
+  const entry = examById(id);
+  if (!entry?.image) throw new Error('Requested record or image is unavailable, missing or purged.');
+  const detail = imageDetail[id] ?? { builds: [] };
+  const builds = detail.builds.map(({ log, ...rest }) => structuredClone(rest));
+  const latest = detail.builds[0];
+  const build = latest ? structuredClone(withLog ? latest : { ...latest, log: '' }) : null;
+  // A build that is waiting or going has its log read from an offset, with where it is, as the server's does; one that has ended has all of it.
+  if (build && (build.state === 'queued' || build.state === 'running')) {
+    const text = latest.log ?? '';
+    const from = logFrom >= 0 && logFrom <= text.length ? logFrom : 0;
+    Object.assign(build, { live: true, log: withLog ? text.slice(from) : '', log_from: withLog ? from : 0, log_next: withLog ? text.length : 0 });
+  } else if (build) {
+    Object.assign(build, { live: false, log_from: 0, log_next: build.log.length });
+  }
+  return { exam_id: id, state: entry.image.state, image: 'cbe/cpp20', present: entry.image.state === 'ready' ? true : null, ready: entry.image.ready, build, builds };
+}
+// Changes the state of an exam's image in the catalog to match its latest build.
+function settleImage(id) {
+  const entry = examById(id);
+  const detail = imageDetail[id];
+  const latest = detail.builds[0];
+  const good = detail.builds.some(item => item.state === 'ok');
+  entry.image = { exam_id: id, state: { queued: 'queued', running: 'building', ok: 'ready', failed: 'failed' }[latest.state], image: 'cbe/cpp20', ready: good, build: structuredClone({ ...latest, log: '' }), builds: [] };
+}
+export async function ChooseWorkspaceExam(classId) {
+  calls.workspaceImport.chosen.push(classId);
+  if (!nextWorkspacePackage) return { cancelled: true, folder: '', valid: false, problems: [], todos: [], image_warnings: [] };
+  return { cancelled: false, problems: [], todos: [], image_warnings: [], ...structuredClone(nextWorkspacePackage) };
+}
+export async function DiscardWorkspaceExam() { calls.workspaceImport.discarded++; nextWorkspacePackage = null; }
+export async function ImportWorkspaceExam(classId, pin) {
+  calls.workspaceImport.imported.push({ classId, pin });
+  if (importWorkspaceFails) throw new Error(importWorkspaceFails);
+  const file = nextWorkspacePackage; nextWorkspacePackage = null;
+  const id = '88888888-8888-4888-8888-888888888888';
+  const image = { exam_id: id, state: file.own_image ? 'not_built' : 'none', image: file.image, ready: !file.own_image, build: null, builds: [] };
+  exams = [{ exam_id: id, class_id: classId, title: file.title, exercise_count: 0, navigation: 'free', duration_seconds: file.duration_seconds, grace_seconds: 120, min_volume_percent: 80, created_at: AT, opens_at: null, closes_at: null, ends_at: null,
+    extra_grace_seconds: 0, total_sessions: 0, kind: 'workspace', todos: file.todos.length, image }, ...exams];
+  imageDetail[id] = { builds: [] };
+  return { exam_id: id };
+}
+export async function ExamImage(id, withLog, logFrom) {
+  calls.workspaceImport.reads.push({ id, withLog, logFrom });
+  if (imageReadFails) throw new Error(imageReadFails);
+  return imageView(id, withLog, logFrom);
+}
+export async function BuildExamImage(id, rebuild) {
+  calls.workspaceImport.builds.push({ id, rebuild });
+  if (buildFailure) throw new Error(buildFailure);
+  const detail = imageDetail[id] ?? (imageDetail[id] = { builds: [] });
+  if (detail.builds[0] && (detail.builds[0].state === 'queued' || detail.builds[0].state === 'running')) throw new Error('The server refused: this exam’s image is already waiting to be built or being built');
+  detail.builds.unshift(buildOf(Math.max(0, ...detail.builds.map(item => item.build_id)) + 1, 'queued', { rebuild }));
+  settleImage(id);
+  return imageView(id, false);
+}
+export async function ExamImageBuild(id, buildId) {
+  calls.workspaceImport.buildReads.push({ id, buildId });
+  const found = imageDetail[id]?.builds.find(item => item.build_id === buildId);
+  if (!found) throw new Error('Requested record or image is unavailable, missing or purged.');
+  return structuredClone(found);
+}
+Object.assign(window.ProctorHarness, {
+  // The package the next "Import workspace exam…" shows, what makes importing or building fail, and what makes reading an image fail.
+  workspacePackage(value) { nextWorkspacePackage = value; },
+  importWorkspaceFails(message) { importWorkspaceFails = message; },
+  buildFails(message) { buildFailure = message; },
+  imageReadFails(message) { imageReadFails = message; },
+  // Makes an exam a workspace exam with an image in a state, and the builds it has (newest first, with their logs).
+  workspaceExam(id, { state = 'not_built', ready = false, todos = 2, builds = [] } = {}) {
+    const entry = examById(id);
+    entry.kind = 'workspace'; entry.todos = todos; entry.exercise_count = 0;
+    imageDetail[id] = { builds: builds.map(item => buildOf(item.build_id, item.state, item)) };
+    entry.image = { exam_id: id, state, image: 'cbe/cpp20', ready, build: imageDetail[id].builds[0] ? { ...imageDetail[id].builds[0], log: '' } : null, builds: [] };
+  },
+  // A change to the latest build of an exam (a build that goes on, ends, or fails) and what the catalog then says.
+  imageBuild(id, change) {
+    const detail = imageDetail[id];
+    Object.assign(detail.builds[0], change);
+    const entry = examById(id);
+    const latest = detail.builds[0];
+    entry.image = { ...entry.image, state: { queued: 'queued', running: 'building', ok: 'ready', failed: 'failed' }[latest.state], ready: detail.builds.some(item => item.state === 'ok'), build: { ...latest, log: '' } };
+  },
+});

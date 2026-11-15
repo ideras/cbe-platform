@@ -21,7 +21,7 @@ import (
 type WorkspaceAPI interface {
 	OnLogin(session string)
 	Serve(w http.ResponseWriter, r *http.Request, session string)
-	Import(ctx context.Context, classID string, document, starter, grading []byte) (string, error)
+	Import(ctx context.Context, classID string, document, starter, grading, image []byte) (string, error)
 	Student(ctx context.Context, session string) (workspace.StudentView, error)
 	Admin(ctx context.Context, session string) (workspace.AdminSession, error)
 	SnapshotTar(ctx context.Context, id int64, w io.Writer) error
@@ -40,10 +40,15 @@ type WorkspaceAPI interface {
 	Grading(ctx context.Context, id int64) (workspace.AdminGrading, error)
 	ConfirmGrading(ctx context.Context, id int64) error
 	UnconfirmGrading(ctx context.Context, id int64) error
+	// Images (Phase 7): a proctor builds an exam's own image before publishing, and reads the build and its log.
+	StartImageBuild(ctx context.Context, examID string, rebuild bool) (workspace.ImageView, error)
+	ImageView(ctx context.Context, examID string, withLog bool, logFrom int64) (workspace.ImageView, error)
+	ImageBuildLog(ctx context.Context, examID string, id int64) (workspace.ImageBuildView, error)
+	ImageStates(ctx context.Context) (map[string]workspace.ExamImage, error)
 }
 
-// maxImportBytes is the most a package import may be: the document and the two bundles.
-const maxImportBytes = workspace.MaxDocumentBytes + 2*workspace.MaxBundleBytes + 1<<20
+// maxImportBytes is the most a package import may be: the document and the three bundles.
+const maxImportBytes = workspace.MaxDocumentBytes + 3*workspace.MaxBundleBytes + 1<<20
 
 func workspaceError(w http.ResponseWriter, logger *slog.Logger, operation string, err error) {
 	var invalid *workspace.ValidationError
@@ -54,6 +59,12 @@ func workspaceError(w http.ResponseWriter, logger *slog.Logger, operation string
 		writeError(w, http.StatusNotFound, "not found")
 	case errors.Is(err, workspace.ErrNoGrading):
 		writeError(w, http.StatusConflict, "this exam has no grading folder, so there is nothing to grade it with")
+	case errors.Is(err, workspace.ErrNoImage):
+		writeError(w, http.StatusConflict, "this exam has no image folder: it runs in its course image, so there is nothing to build")
+	case errors.Is(err, workspace.ErrBuildBusy):
+		writeError(w, http.StatusConflict, "this exam's image is already waiting to be built or being built")
+	case errors.Is(err, workspace.ErrImageNotBuilt):
+		writeError(w, http.StatusConflict, "this exam's own image has not been built")
 	case errors.Is(err, workspace.ErrNoSubmission):
 		writeError(w, http.StatusConflict, "this student has not submitted anything")
 	case errors.Is(err, workspace.ErrBusy):
@@ -71,7 +82,7 @@ func workspaceError(w http.ResponseWriter, logger *slog.Logger, operation string
 }
 
 // importWorkspaceHandler takes a workspace package: multipart form data with the compiled document (document), the starter bundle
-// (starter) and, when the package has one, the grading bundle (grading).
+// (starter) and, when the package has them, the grading bundle (grading) and the build context of the exam's own image (image).
 func importWorkspaceHandler(api WorkspaceAPI, logger *slog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// A package can be 40 MiB, which the server's usual limits of seconds for a request are too short for on a slow link.
@@ -85,7 +96,7 @@ func importWorkspaceHandler(api WorkspaceAPI, logger *slog.Logger) http.HandlerF
 		}
 		reader := multipart.NewReader(http.MaxBytesReader(w, r.Body, maxImportBytes), params["boundary"])
 		parts := map[string][]byte{}
-		limits := map[string]int64{"document": workspace.MaxDocumentBytes, "starter": workspace.MaxBundleBytes, "grading": workspace.MaxBundleBytes}
+		limits := map[string]int64{"document": workspace.MaxDocumentBytes, "starter": workspace.MaxBundleBytes, "grading": workspace.MaxBundleBytes, "image": workspace.MaxBundleBytes}
 		for {
 			part, err := reader.NextPart()
 			if errors.Is(err, io.EOF) {
@@ -97,7 +108,7 @@ func importWorkspaceHandler(api WorkspaceAPI, logger *slog.Logger) http.HandlerF
 			}
 			limit, known := limits[part.FormName()]
 			if !known {
-				writeError(w, http.StatusBadRequest, "unknown part "+strconv.Quote(part.FormName())+"; the parts are document, starter and grading")
+				writeError(w, http.StatusBadRequest, "unknown part "+strconv.Quote(part.FormName())+"; the parts are document, starter, grading and image")
 				return
 			}
 			if _, again := parts[part.FormName()]; again {
@@ -111,7 +122,7 @@ func importWorkspaceHandler(api WorkspaceAPI, logger *slog.Logger) http.HandlerF
 			}
 			parts[part.FormName()] = data
 		}
-		id, err := api.Import(r.Context(), r.PathValue("id"), parts["document"], parts["starter"], parts["grading"])
+		id, err := api.Import(r.Context(), r.PathValue("id"), parts["document"], parts["starter"], parts["grading"], parts["image"])
 		if err != nil {
 			workspaceError(w, logger, "import", err)
 			return

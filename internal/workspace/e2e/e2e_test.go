@@ -11,6 +11,7 @@
 //	CBE_E2E_STUDENT_TEST      for phase D: the student application's client tests, compiled (go test -c ./apps/student/internal/client)
 //	CBE_E2E_PACKAGE           a folder with what examc made of the example package: document.json, starter.tar, grading.tar
 //	CBE_E2E_PHASE=E           grading (Phase 6; grading_e2e_test.go), against a private runner: deploy/workspace/test-grading.sh
+//	CBE_E2E_PHASE=I           an exam's own image (Phase 7; image_e2e_test.go), against a private runner: deploy/workspace/test-image.sh
 package e2e
 
 import (
@@ -207,9 +208,16 @@ func (r *rig) admin(method, path, contentType string, body io.Reader, want int) 
 // importExam compiles the example package, gives it a title, a PIN and (if set) another length, imports it and returns its ID.
 func (r *rig) importExam(classID, title string, duration, grace int64) string {
 	r.t.Helper()
+	return r.importExamFrom(r.pkgDir, classID, title, duration, grace)
+}
+
+// importExamFrom imports what examc made of a package (document.json, starter.tar and, when the package has them, grading.tar and
+// image.tar) into a class. The exam is not published.
+func (r *rig) importExamFrom(dir, classID, title string, duration, grace int64) string {
+	r.t.Helper()
 	var exam map[string]any
 	read := func(name string) []byte {
-		data, err := os.ReadFile(filepath.Join(r.pkgDir, name))
+		data, err := os.ReadFile(filepath.Join(dir, name))
 		if err != nil {
 			r.t.Fatal(err)
 		}
@@ -225,7 +233,11 @@ func (r *rig) importExam(classID, title string, duration, grace int64) string {
 	document, _ := json.Marshal(exam)
 	var body bytes.Buffer
 	form := multipart.NewWriter(&body)
-	for name, data := range map[string][]byte{"document": document, "starter": read("starter.tar"), "grading": read("grading.tar")} {
+	parts := map[string][]byte{"document": document, "starter": read("starter.tar"), "grading": read("grading.tar")}
+	if _, err := os.Stat(filepath.Join(dir, "image.tar")); err == nil {
+		parts["image"] = read("image.tar")
+	}
+	for name, data := range parts {
 		part, _ := form.CreateFormField(name)
 		_, _ = part.Write(data)
 	}
@@ -382,6 +394,8 @@ func TestRealServer(t *testing.T) {
 		phaseD(t, r)
 	case "E":
 		phaseGrading(t, r)
+	case "I":
+		phaseImage(t, r)
 	case "M":
 		phaseManual(t, r)
 	case "cleanup":
@@ -393,7 +407,7 @@ func TestRealServer(t *testing.T) {
 			}
 		}
 	default:
-		t.Fatalf("CBE_E2E_PHASE must be A, B, C, D, E, M or cleanup, not %q", phase)
+		t.Fatalf("CBE_E2E_PHASE must be A, B, C, D, E, I, M or cleanup, not %q", phase)
 	}
 }
 

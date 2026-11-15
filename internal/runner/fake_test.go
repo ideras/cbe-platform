@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -31,6 +32,25 @@ type fakeRuntime struct {
 	// grading containers that have started and not ended, and peak the most there were at once.
 	run          func(ctx context.Context, c *fakeContainer) (exit int, out Output)
 	active, peak int
+	// infos is what the runtime says of an image it has (an image with no entry here is a plain one); build is what an image build does, in
+	// place of the default, which adds one layer to the base and tags it; agentSums is the SHA-256 the checking container prints for the
+	// agent of an image, by reference (the base's label when there is none).
+	infos         map[string]ImageInfo
+	build         func(ctx context.Context, spec ImageBuildSpec, buildContext []byte, log io.Writer) error
+	agentSums     map[string]string
+	builds        int
+	buildSpecs    []ImageBuildSpec
+	buildContexts [][]byte
+	buildActive   int
+	buildPeak     int
+}
+
+// theAgent is the hash the base image's label gives its agent; baseImage is the base's description: the course image of the plan.
+var theAgent = strings.Repeat("a", 64)
+
+func baseImage() ImageInfo {
+	return ImageInfo{ID: "sha256:image", RepoDigests: []string{"localhost/cbe/cpp20@sha256:" + strings.Repeat("b", 64)}, Labels: map[string]string{LabelAgent: theAgent, "io.cbe.course": "cpp20"},
+		User: "1000:1000", Entrypoint: []string{AgentPath}, Cmd: []string{}, WorkDir: "/work", Layers: []string{"sha256:layer1", "sha256:layer2"}}
 }
 
 type fakeContainer struct {
@@ -44,7 +64,8 @@ type fakeContainer struct {
 }
 
 func newFakeRuntime() *fakeRuntime {
-	return &fakeRuntime{containers: map[string]*fakeContainer{}, images: map[string]bool{"localhost/cbe/cpp20:latest": true}}
+	return &fakeRuntime{containers: map[string]*fakeContainer{}, images: map[string]bool{"localhost/cbe/cpp20:latest": true},
+		infos: map[string]ImageInfo{"localhost/cbe/cpp20:latest": baseImage()}, agentSums: map[string]string{}}
 }
 
 func (f *fakeRuntime) note(call string) { f.calls = append(f.calls, call) }
@@ -113,7 +134,17 @@ func (f *fakeRuntime) Wait(ctx context.Context, name string) (int, error) {
 		return 0, err
 	}
 	exit, out := 0, Output{}
-	if run != nil {
+	switch {
+	case len(c.spec.Entrypoint) > 0 && c.spec.Entrypoint[0] == "/usr/bin/sha256sum":
+		// The checking container of an image build: it prints the hash of the agent in the image it was made from.
+		f.mu.Lock()
+		sum, found := f.agentSums[c.spec.Image]
+		f.mu.Unlock()
+		if !found {
+			sum = theAgent
+		}
+		out = Output{Stdout: []byte(sum + "  " + strings.Join(c.spec.Cmd, " ") + "\n")}
+	case run != nil:
 		exit, out = run(ctx, c)
 	}
 	f.mu.Lock()
@@ -253,10 +284,87 @@ func (f *fakeRuntime) CopyFrom(_ context.Context, name, path string) (io.ReadClo
 }
 
 func (f *fakeRuntime) ImageInspect(_ context.Context, ref string) (ImageInfo, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if !f.images[ref] {
 		return ImageInfo{}, ErrNotFound
 	}
+	if info, found := f.infos[ref]; found {
+		return info, nil
+	}
 	return ImageInfo{ID: "sha256:image"}, nil
+}
+
+// addImage makes the runtime have an image under a name.
+func (f *fakeRuntime) addImage(ref string, info ImageInfo) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.images[ref] = true
+	f.infos[ref] = info
+}
+
+// ImageBuild is f.build, or by default a build that prints two steps and adds a layer to the base.
+func (f *fakeRuntime) ImageBuild(ctx context.Context, spec ImageBuildSpec, buildContext io.Reader, log io.Writer) error {
+	data, _ := io.ReadAll(buildContext)
+	f.mu.Lock()
+	f.builds++
+	f.buildSpecs = append(f.buildSpecs, spec)
+	f.buildContexts = append(f.buildContexts, data)
+	if f.buildActive++; f.buildActive > f.buildPeak {
+		f.buildPeak = f.buildActive
+	}
+	hook := f.build
+	f.mu.Unlock()
+	defer func() {
+		f.mu.Lock()
+		f.buildActive--
+		f.mu.Unlock()
+	}()
+	if hook != nil {
+		return hook(ctx, spec, data, log)
+	}
+	fmt.Fprintf(log, "STEP 1/2: FROM localhost/cbe/cpp20\nSTEP 2/2: RUN true\nSuccessfully tagged %s\n", spec.Tag)
+	f.addImage(spec.Tag, f.builtOn(baseImage(), spec))
+	return nil
+}
+
+// builtOn is the image a build makes on a base: one more layer, and the labels it was asked for.
+func (f *fakeRuntime) builtOn(base ImageInfo, spec ImageBuildSpec) ImageInfo {
+	built := base
+	built.ID = fmt.Sprintf("sha256:built%d", f.builds)
+	built.RepoDigests = nil
+	built.Layers = append(append([]string{}, base.Layers...), fmt.Sprintf("sha256:added%d", f.builds))
+	built.Labels = map[string]string{}
+	for k, v := range base.Labels {
+		built.Labels[k] = v
+	}
+	for k, v := range spec.Labels {
+		built.Labels[k] = v
+	}
+	return built
+}
+
+func (f *fakeRuntime) ImageTag(_ context.Context, ref, tag string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.note("tag " + ref + " " + tag)
+	if !f.images[ref] {
+		return ErrNotFound
+	}
+	f.images[tag], f.infos[tag] = true, f.infos[ref]
+	return nil
+}
+
+func (f *fakeRuntime) ImageRemove(_ context.Context, ref string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.note("rmi " + ref)
+	if !f.images[ref] {
+		return ErrNotFound
+	}
+	delete(f.images, ref)
+	delete(f.infos, ref)
+	return nil
 }
 
 // fakeQuota remembers the folders it was asked for.

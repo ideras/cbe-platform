@@ -30,6 +30,14 @@ type adminServer struct {
 	reply       func(w http.ResponseWriter, r *http.Request, body []byte) bool
 }
 
+// setReply sets the handler for the routes the fake does not know. The service is polling while a test sets it, so it is set, and read by the
+// handler, under the lock.
+func (a *adminServer) setReply(fn func(w http.ResponseWriter, r *http.Request, body []byte) bool) {
+	a.mu.Lock()
+	a.reply = fn
+	a.mu.Unlock()
+}
+
 func (a *adminServer) seen(method, path string) []recorded {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -63,7 +71,7 @@ func (a *adminServer) handler(w http.ResponseWriter, r *http.Request) {
 		a.mu.Unlock()
 	}
 	a.mu.Lock()
-	current, override := a.current, a.classRoster
+	current, override, hook := a.current, a.classRoster, a.reply
 	a.mu.Unlock()
 	switch {
 	case r.Method == "GET" && r.URL.Path == "/admin/exams":
@@ -89,7 +97,7 @@ func (a *adminServer) handler(w http.ResponseWriter, r *http.Request) {
 		rr.ExamID = r.URL.Query().Get("exam_id")
 		rr.Sessions[0].ExamID = rr.ExamID
 		reply(w, rr)
-	case a.reply != nil && a.reply(w, r, body):
+	case hook != nil && hook(w, r, body):
 	default:
 		http.NotFound(w, r)
 	}
@@ -223,7 +231,7 @@ func TestSelectedExamThatTheServerDoesNotStoreIsReported(t *testing.T) {
 
 func TestChosenExamIsCheckedByTheServerAndImportedExactlyOnce(t *testing.T) {
 	f := newPublishFixture(t, examID)
-	f.server.reply = func(w http.ResponseWriter, r *http.Request, body []byte) bool {
+	f.server.setReply(func(w http.ResponseWriter, r *http.Request, body []byte) bool {
 		switch {
 		case r.Method == "POST" && r.URL.Path == examRoute && r.URL.Query().Get("dry_run") == "true":
 			checkedExam(w)
@@ -234,7 +242,7 @@ func TestChosenExamIsCheckedByTheServerAndImportedExactlyOnce(t *testing.T) {
 			return false
 		}
 		return true
-	}
+	})
 	f.chosen = writeTemp(t, "midterm.md", append([]byte("\xef\xbb\xbf"), examDocument...))
 
 	preview, err := f.ChooseExam(classID)
@@ -294,10 +302,10 @@ func TestExamFileProblemsAreShownBeforeAnythingIsSent(t *testing.T) {
 		t.Fatal("an invalid file can be imported")
 	}
 
-	f.server.reply = func(w http.ResponseWriter, r *http.Request, body []byte) bool {
+	f.server.setReply(func(w http.ResponseWriter, r *http.Request, body []byte) bool {
 		problemsReply(w, 400, "invalid request", "duration_seconds plus grace_seconds is too large", "exercise 2 (2): id is already used by another exercise or item")
 		return true
-	}
+	})
 	f.chosen = writeTemp(t, "invalid.md", []byte(examDocument))
 	preview, err = f.ChooseExam(classID)
 	if err != nil || preview.Valid || len(preview.Problems) != 2 || !strings.Contains(preview.Problems[1], "already used") {
@@ -355,14 +363,14 @@ func TestFileDialogCancellationFailureAndConcurrency(t *testing.T) {
 
 func TestUnclearImportFailureTellsTheOperatorToLookBeforeRetrying(t *testing.T) {
 	f := newPublishFixture(t, examID)
-	f.server.reply = func(w http.ResponseWriter, r *http.Request, body []byte) bool {
+	f.server.setReply(func(w http.ResponseWriter, r *http.Request, body []byte) bool {
 		if r.URL.Query().Get("dry_run") == "true" {
 			checkedExam(w)
 		} else {
 			http.Error(w, "boom "+secret, 500)
 		}
 		return true
-	}
+	})
 	f.chosen = writeTemp(t, "midterm.md", []byte(examDocument))
 	if preview, err := f.ChooseExam(classID); err != nil || !preview.Valid {
 		t.Fatal(preview, err)
@@ -394,7 +402,7 @@ func classAnswer(w http.ResponseWriter, r *http.Request) bool {
 func TestClassRosterIsCheckedFirstAndStoredOnlyWhenTheClassIsCreated(t *testing.T) {
 	f := newPublishFixture(t, examID)
 	const document = "canvas_id,account_number,name,email,sis_user_id\n1,0001,Ada,a@x.invalid,S1\n2,0002,Bruno,b@x.invalid,S2\n"
-	f.server.reply = func(w http.ResponseWriter, r *http.Request, body []byte) bool { return classAnswer(w, r) }
+	f.server.setReply(func(w http.ResponseWriter, r *http.Request, body []byte) bool { return classAnswer(w, r) })
 	f.chosen = writeTemp(t, "CIQ42026-Students.csv", append([]byte("\xef\xbb\xbf"), document...))
 	preview, err := f.ChooseClassFile()
 	if err != nil || !preview.Valid || preview.File != "CIQ42026-Students.csv" || preview.SuggestedName != "CIQ42026-Students" || preview.Students != 2 || preview.WarningCount != 1 || preview.Warnings[0].Row != 3 {
@@ -430,7 +438,7 @@ func TestClassRosterIsCheckedFirstAndStoredOnlyWhenTheClassIsCreated(t *testing.
 
 func TestAClassNameTheServerRefusesKeepsTheFileForAnotherTry(t *testing.T) {
 	f := newPublishFixture(t, examID)
-	f.server.reply = func(w http.ResponseWriter, r *http.Request, body []byte) bool {
+	f.server.setReply(func(w http.ResponseWriter, r *http.Request, body []byte) bool {
 		if r.Method == "POST" && r.URL.Path == "/admin/classes" && r.URL.Query().Get("dry_run") != "true" && r.URL.Query().Get("name") == "Taken" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusConflict)
@@ -438,7 +446,7 @@ func TestAClassNameTheServerRefusesKeepsTheFileForAnotherTry(t *testing.T) {
 			return true
 		}
 		return classAnswer(w, r)
-	}
+	})
 	f.chosen = writeTemp(t, "class.csv", []byte("canvas_id,account_number,name,email,sis_user_id\n1,0001,Ada,a@x.invalid,S1\n"))
 	if preview, err := f.ChooseClassFile(); err != nil || !preview.Valid {
 		t.Fatal(preview, err)
@@ -455,13 +463,13 @@ func TestAClassNameTheServerRefusesKeepsTheFileForAnotherTry(t *testing.T) {
 
 func TestAnUnclearClassCreationDropsTheFileAndAsksTheOperatorToLook(t *testing.T) {
 	f := newPublishFixture(t, examID)
-	f.server.reply = func(w http.ResponseWriter, r *http.Request, body []byte) bool {
+	f.server.setReply(func(w http.ResponseWriter, r *http.Request, body []byte) bool {
 		if r.URL.Query().Get("dry_run") == "true" {
 			return classAnswer(w, r)
 		}
 		http.Error(w, "boom "+secret, 500)
 		return true
-	}
+	})
 	f.chosen = writeTemp(t, "class.csv", []byte("canvas_id,account_number,name,email,sis_user_id\n1,0001,Ada,a@x.invalid,S1\n"))
 	if _, err := f.ChooseClassFile(); err != nil {
 		t.Fatal(err)
@@ -477,10 +485,10 @@ func TestAnUnclearClassCreationDropsTheFileAndAsksTheOperatorToLook(t *testing.T
 
 func TestClassFileProblemsAreListedAndNothingIsStored(t *testing.T) {
 	f := newPublishFixture(t, examID)
-	f.server.reply = func(w http.ResponseWriter, r *http.Request, body []byte) bool {
+	f.server.setReply(func(w http.ResponseWriter, r *http.Request, body []byte) bool {
 		problemsReply(w, 400, "invalid request", "roster CSV missing required column \"email\"")
 		return true
-	}
+	})
 	f.chosen = writeTemp(t, "bad.csv", []byte("account_number\n1\n"))
 	preview, err := f.ChooseClassFile()
 	if err != nil || preview.Valid || len(preview.Problems) != 1 {
@@ -523,14 +531,14 @@ func TestClassRosterIsReadFromTheServerAndValidated(t *testing.T) {
 
 func TestPublishNeedsConfirmationSendsWhatTheOperatorSawAndMonitorsTheExam(t *testing.T) {
 	f := newPublishFixture(t, examID)
-	f.server.reply = func(w http.ResponseWriter, r *http.Request, body []byte) bool {
+	f.server.setReply(func(w http.ResponseWriter, r *http.Request, body []byte) bool {
 		if r.Method != "POST" || !strings.HasSuffix(r.URL.Path, "/publish") {
 			return false
 		}
 		f.server.setCurrent(unusedExam)
 		reply(w, map[string]any{"current_exam_id": unusedExam, "current_class_id": otherClass, "replaced_exam_id": examID, "replaced_class_id": classID, "active_sessions": 1})
 		return true
-	}
+	})
 	if _, err := f.Publish(unusedExam, examID, true, false); err == nil || len(f.server.seen("POST", "/admin/exam/")) != 0 {
 		t.Fatalf("unconfirmed publish sent: %v", err)
 	}
@@ -560,12 +568,12 @@ func TestPublishNeedsConfirmationSendsWhatTheOperatorSawAndMonitorsTheExam(t *te
 
 func TestPublishRefusalsExplainThemselvesAndChangeNothing(t *testing.T) {
 	f := newPublishFixture(t, examID)
-	f.server.reply = func(w http.ResponseWriter, r *http.Request, body []byte) bool {
+	f.server.setReply(func(w http.ResponseWriter, r *http.Request, body []byte) bool {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusConflict)
 		reply(w, map[string]any{"error": "students are still working in the current exam", "active_sessions": 3})
 		return true
-	}
+	})
 	_, err := f.Publish(otherExam, examID, false, true)
 	var reject *rejection
 	if !errors.As(err, &reject) || reject.Status != 409 || reject.Active != 3 || !strings.Contains(err.Error(), "still working") {
@@ -587,7 +595,7 @@ func TestPublishRefusalsExplainThemselvesAndChangeNothing(t *testing.T) {
 
 func TestUnpublishClosesAdmissionAndAnAnswerForTheWrongExamIsRejected(t *testing.T) {
 	f := newPublishFixture(t, examID)
-	f.server.reply = func(w http.ResponseWriter, r *http.Request, body []byte) bool {
+	f.server.setReply(func(w http.ResponseWriter, r *http.Request, body []byte) bool {
 		if r.URL.Path == "/admin/unpublish" {
 			f.server.setCurrent("")
 			reply(w, map[string]any{"current_exam_id": "", "current_class_id": "", "replaced_exam_id": examID, "replaced_class_id": classID, "active_sessions": 0})
@@ -598,7 +606,7 @@ func TestUnpublishClosesAdmissionAndAnAnswerForTheWrongExamIsRejected(t *testing
 			return true
 		}
 		return false
-	}
+	})
 	outcome, err := f.Unpublish(examID, false, true)
 	if err != nil || outcome.ExamID != "" || outcome.ClassID != "" || outcome.ReplacedExamID != examID || outcome.ReplacedClassID != classID {
 		t.Fatalf("outcome = %+v, %v", outcome, err)
@@ -615,7 +623,7 @@ func TestUnpublishClosesAdmissionAndAnAnswerForTheWrongExamIsRejected(t *testing
 
 func TestADeletedExamIsConfirmedListedAndReportedBackByTheServer(t *testing.T) {
 	f := newPublishFixture(t, examID)
-	f.server.reply = func(w http.ResponseWriter, r *http.Request, body []byte) bool {
+	f.server.setReply(func(w http.ResponseWriter, r *http.Request, body []byte) bool {
 		if r.Method != "DELETE" || !strings.HasPrefix(r.URL.Path, "/admin/exam/") {
 			return false
 		}
@@ -626,7 +634,7 @@ func TestADeletedExamIsConfirmedListedAndReportedBackByTheServer(t *testing.T) {
 		}
 		reply(w, map[string]any{"exam_id": id, "title": "Never given", "sessions": 0, "screenshots": 0, "files_pending": 0})
 		return true
-	}
+	})
 	if _, err := f.DeleteExam(unusedExam, 0, false); err == nil || len(f.server.seen("DELETE", "/admin/exam/")) != 0 {
 		t.Fatalf("unconfirmed deletion sent: %v", err)
 	}
@@ -675,13 +683,13 @@ func TestADeletedExamIsConfirmedListedAndReportedBackByTheServer(t *testing.T) {
 
 func TestDeletingTheMonitoredExamStopsMonitoringIt(t *testing.T) {
 	f := newPublishFixture(t, examID)
-	f.server.reply = func(w http.ResponseWriter, r *http.Request, body []byte) bool {
+	f.server.setReply(func(w http.ResponseWriter, r *http.Request, body []byte) bool {
 		if r.Method == "DELETE" {
 			reply(w, map[string]any{"exam_id": examID, "title": "Exam one", "sessions": 1, "screenshots": 0, "files_pending": 0})
 			return true
 		}
 		return false
-	}
+	})
 	wait(t, func() bool { return f.Snapshot().Loaded })
 	if _, err := f.DeleteExam(examID, 1, true); err != nil {
 		t.Fatal(err)
@@ -694,7 +702,7 @@ func TestDeletingTheMonitoredExamStopsMonitoringIt(t *testing.T) {
 func TestDeleteRefusalsAndUnclearOutcomesAreExplained(t *testing.T) {
 	f := newPublishFixture(t, examID)
 	status, words := http.StatusConflict, "the exam is published or students are still working in it, so it cannot be deleted"
-	f.server.reply = func(w http.ResponseWriter, r *http.Request, body []byte) bool {
+	f.server.setReply(func(w http.ResponseWriter, r *http.Request, body []byte) bool {
 		if r.Method != "DELETE" {
 			return false
 		}
@@ -702,7 +710,7 @@ func TestDeleteRefusalsAndUnclearOutcomesAreExplained(t *testing.T) {
 		w.WriteHeader(status)
 		reply(w, map[string]string{"error": words})
 		return true
-	}
+	})
 	_, err := f.DeleteExam(otherExam, 4, true)
 	if err == nil || !strings.Contains(err.Error(), "published or students are still working in it") || !strings.Contains(err.Error(), "Close admission") || strings.Contains(err.Error(), "own words") {
 		t.Fatalf("a refused exam = %v", err)
@@ -734,13 +742,13 @@ func TestADeletionAnswerThatDoesNotAddUpIsNotBelieved(t *testing.T) {
 		"more files than pictures":  {"exam_id": otherExam, "title": "x", "sessions": 4, "screenshots": 2, "files_pending": 3},
 		"a negative pending number": {"exam_id": otherExam, "title": "x", "sessions": 4, "screenshots": 2, "files_pending": -1},
 	} {
-		f.server.reply = func(w http.ResponseWriter, r *http.Request, body []byte) bool {
+		f.server.setReply(func(w http.ResponseWriter, r *http.Request, body []byte) bool {
 			if r.Method != "DELETE" {
 				return false
 			}
 			reply(w, answer)
 			return true
-		}
+		})
 		if _, err := f.DeleteExam(otherExam, 4, true); err == nil || !strings.Contains(err.Error(), "invalid") {
 			t.Errorf("%s: %v", name, err)
 		}
@@ -749,7 +757,7 @@ func TestADeletionAnswerThatDoesNotAddUpIsNotBelieved(t *testing.T) {
 
 func TestAnExamForAClassThatIsGoneSaysSo(t *testing.T) {
 	f := newPublishFixture(t, examID)
-	f.server.reply = func(w http.ResponseWriter, r *http.Request, body []byte) bool {
+	f.server.setReply(func(w http.ResponseWriter, r *http.Request, body []byte) bool {
 		switch {
 		case r.URL.Query().Get("dry_run") == "true":
 			checkedExam(w)
@@ -759,7 +767,7 @@ func TestAnExamForAClassThatIsGoneSaysSo(t *testing.T) {
 			return false
 		}
 		return true
-	}
+	})
 	f.chosen = writeTemp(t, "midterm.md", []byte(examDocument))
 	if preview, err := f.ChooseExam(classID); err != nil || !preview.Valid {
 		t.Fatal(preview, err)
@@ -814,14 +822,14 @@ func TestExamPINIsReadOnDemandFromTheServerAndAnInvalidAnswerIsRefused(t *testin
 	wait(t, func() bool { v := f.Snapshot(); return v.Loaded && !v.Stale })
 	var asked []string
 	var answer any
-	f.server.reply = func(w http.ResponseWriter, r *http.Request, body []byte) bool {
+	f.server.setReply(func(w http.ResponseWriter, r *http.Request, body []byte) bool {
 		if r.Method != "GET" || !strings.HasSuffix(r.URL.Path, "/pin") {
 			return false
 		}
 		asked = append(asked, r.URL.Path+" "+r.Header.Get("Authorization"))
 		reply(w, answer)
 		return true
-	}
+	})
 	if _, err := f.ExamPIN("nope"); err == nil || len(asked) != 0 {
 		t.Fatalf("a malformed exam ID was sent: %v %v", err, asked)
 	}

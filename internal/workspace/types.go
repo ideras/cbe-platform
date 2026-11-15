@@ -15,6 +15,12 @@ import (
 // ErrNotFound is returned for an exam or a session that is not a workspace one.
 var ErrNotFound = errors.New("workspace: not found")
 
+// ErrBuildBusy is returned when an exam's image is asked to be built and a build of it is already waiting or going.
+var ErrBuildBusy = errors.New("workspace: the exam's image is being built already")
+
+// ErrNoImage is returned when an exam is asked for an image it does not have: it has no image folder.
+var ErrNoImage = errors.New("workspace: the exam has no image folder")
+
 // ErrNotGraded is returned when a grading is asked to be confirmed and it is not done (it is waiting, running, or failed).
 var ErrNotGraded = errors.New("workspace: the grading is not done")
 
@@ -87,6 +93,7 @@ type Document struct {
 	Content          Content     `json:"content"`
 	StarterBundle    string      `json:"starter_bundle"`
 	GradingBundle    string      `json:"grading_bundle,omitempty"`
+	ImageBundle      string      `json:"image_bundle,omitempty"`
 }
 
 // ExamRecord is an imported workspace exam, as it is stored.
@@ -101,10 +108,12 @@ type ExamRecord struct {
 	OpensAt          *time.Time
 	ClosesAt         *time.Time
 	Tools            *calc.Tools
-	// Document is the compiled document without its PIN. StarterHash and GradingHash name the bundle files.
+	// Document is the compiled document without its PIN. StarterHash, GradingHash and ImageHash name the bundle files; the last two are empty
+	// when the exam has no grading folder or no image folder.
 	Document    Document
 	StarterHash string
 	GradingHash string
+	ImageHash   string
 	CreatedAt   time.Time
 }
 
@@ -261,6 +270,23 @@ type Repository interface {
 	// Roster lists the students of a workspace exam, the ones who have logged in.
 	Roster(ctx context.Context, examID string) ([]RosterRow, error)
 
+	// Image builds (Phase 7). CreateImageBuild queues a build of the exam's image bundle (ErrBuildBusy when one is queued or running for the
+	// exam). StartImageBuild marks it running; FinishImageBuild records how it ended (the record's state, failure, base, warnings and log).
+	// InterruptImageBuilds marks every build that is queued or running as failed (the server that was running it stopped). ImageBuild reads
+	// a build with its log; ImageBuilds lists an exam's builds, newest first, without their logs; LatestImageBuild reads the newest build
+	// of an exam's image bundle with the state ok (ErrNotFound when there is none).
+	CreateImageBuild(ctx context.Context, examID, bundleHash string, rebuild bool, now time.Time) (int64, error)
+	StartImageBuild(ctx context.Context, id int64, now time.Time) error
+	FinishImageBuild(ctx context.Context, record ImageBuildRecord) error
+	InterruptImageBuilds(ctx context.Context, now time.Time) (int, error)
+	ImageBuild(ctx context.Context, id int64) (ImageBuildRecord, error)
+	ImageBuilds(ctx context.Context, examID string, limit int) ([]ImageBuildRecord, error)
+	LatestImageBuild(ctx context.Context, examID, bundleHash string) (ImageBuildRecord, error)
+	// UpdateImageBuildLog writes the log of a build that is running, so far (nothing happens to a build that is not running).
+	UpdateImageBuildLog(ctx context.Context, id int64, log string) error
+	// ImageSummaries lists every workspace exam with its TODO count, its image bundle and its latest image build (without its log), for the exam list.
+	ImageSummaries(ctx context.Context) ([]ImageSummary, error)
+
 	// Gradings (Phase 6). CreateGrading queues a run of a submission. StartGrading marks it running. FinishGrading records how it ended
 	// (the record's state, failure, output, points and results). ConfirmGrading makes it the session's confirmed grade, and takes the
 	// confirmation from any other run of the session; UnconfirmGrading takes it back. InterruptGradings marks every run that is queued or
@@ -336,4 +362,56 @@ type GradeSummary struct {
 	Max       *float64
 	Confirmed bool
 	At        time.Time
+}
+
+// Image build states, and the codes of why a build failed (Phase 7): the runner's (containerfile, base, build, timeout, verify), and the
+// server's own (runner: it did not answer or refused; interrupted: the exam server stopped).
+const (
+	BuildQueued  = "queued"
+	BuildRunning = "running"
+	BuildOK      = "ok"
+	BuildFailed  = "failed"
+
+	BuildFailContainerfile = "containerfile"
+	BuildFailBase          = "base"
+	BuildFailBuild         = "build"
+	BuildFailTimeout       = "timeout"
+	BuildFailVerify        = "verify"
+	BuildFailRunner        = "runner"
+	BuildFailInterrupted   = "interrupted"
+)
+
+// ImageBuildRecord is a row of an exam's image builds. Hash, Tag-less: the runner names the image by its Hash (16 hexadecimal digits), which
+// is what container.create and grading.run are given.
+type ImageBuildRecord struct {
+	ID         int64
+	ExamID     string
+	BundleHash string
+	State      string
+	Rebuild    bool
+	Failure    string
+	Message    string
+	Cached     bool
+	Hash       string
+	ImageID    string
+	BaseName   string
+	BaseDigest string
+	Warnings   []string
+	// Log is what the build printed; it is only set when the record is read on its own.
+	Log        string
+	DurationMS int64
+	QueuedAt   time.Time
+	StartedAt  *time.Time
+	FinishedAt *time.Time
+}
+
+// ImageSummary is a workspace exam as the exam list sees it: how many TODO items it has, the image it starts from, its image bundle ("" when
+// it has none), its latest build (nil when none) and whether a good build of that bundle exists.
+type ImageSummary struct {
+	ExamID    string
+	Image     string
+	ImageHash string
+	Todos     int
+	Latest    *ImageBuildRecord
+	HasGood   bool
 }

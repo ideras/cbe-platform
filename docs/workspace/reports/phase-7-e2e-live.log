@@ -1,0 +1,26 @@
+the course image's digest: sha256:baac8cde6b9011521f80a878fc8fc475f9cf173da0ee274c2c0d316a9715cbb9
+=== RUN   TestRealServer
+=== RUN   TestRealServer/an_exam_whose_image_is_not_built_cannot_be_published
+=== RUN   TestRealServer/the_build,_its_log_and_the_base's_digest
+    image_e2e_test.go:135: built in 1.719s
+=== RUN   TestRealServer/published,_its_student_compiles_against_the_library,_with_no_network_and_the_contract_of_any_container
+=== RUN   TestRealServer/the_library_is_in_that_exam_only
+=== RUN   TestRealServer/a_FROM_that_is_not_the_exam's_course_image_fails_with_a_clear_message
+=== RUN   TestRealServer/a_Containerfile_that_changes_the_user,_the_entrypoint_or_the_agent_fails_verification
+=== RUN   TestRealServer/the_limits_of_a_build:_its_time,_its_memory,_and_one_at_a_time
+    image_e2e_test.go:346: the memory limit stopped the build: building at STEP "RUN sh -c 'x=$(head -c 600000000 /dev/zero | tr "\0" a); echo ${#x}'": while running runtime: exit status 137
+    image_e2e_test.go:369: two builds of five seconds each took 12.074s: one at a time
+=== RUN   TestRealServer/the_log_of_a_build_is_read_while_it_goes,_in_pieces,_with_its_progress
+    image_e2e_test.go:523: 26 looks in 12.595s: 8 with new text while building (the first at 504ms), 24 with progress; the build took 12373 ms
+--- PASS: TestRealServer (50.45s)
+    --- PASS: TestRealServer/an_exam_whose_image_is_not_built_cannot_be_published (0.00s)
+    --- PASS: TestRealServer/the_build,_its_log_and_the_base's_digest (5.08s)
+    --- PASS: TestRealServer/published,_its_student_compiles_against_the_library,_with_no_network_and_the_contract_of_any_container (2.33s)
+    --- PASS: TestRealServer/the_library_is_in_that_exam_only (0.35s)
+    --- PASS: TestRealServer/a_FROM_that_is_not_the_exam's_course_image_fails_with_a_clear_message (1.17s)
+    --- PASS: TestRealServer/a_Containerfile_that_changes_the_user,_the_entrypoint_or_the_agent_fails_verification (4.45s)
+    --- PASS: TestRealServer/the_limits_of_a_build:_its_time,_its_memory,_and_one_at_a_time (24.05s)
+    --- PASS: TestRealServer/the_log_of_a_build_is_read_while_it_goes,_in_pieces,_with_its_progress (12.64s)
+PASS
+== what the runs left (before they are cleaned up)
+nothing left behind (the images the run built are removed next)

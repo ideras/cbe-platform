@@ -25,7 +25,7 @@ proctor app ──"grade the class"──▶ exam server ──queue──▶ gr
 
 ## The grading container
 
-Made by the same function as a student's container (`hardened` in `internal/runner/policy.go`), so a grading run cannot be given what a student's cannot:
+Made from the exam's image (its own image when the package has `image/`, `images.md`: the hidden tests may need the library the exam added), by the same function as a student's container (`hardened` in `internal/runner/policy.go`), so a grading run cannot be given what a student's cannot:
 the student user (1000), **no network**, a read-only root file system, `/tmp` without exec, no capabilities, no new privileges, 256 processes, no swap, and
 the exam's own limits of memory and processor. What differs:
 

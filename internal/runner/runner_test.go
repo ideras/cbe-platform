@@ -602,14 +602,14 @@ func TestTheAPIRefusesWhatIsNotInAppendixE(t *testing.T) {
 	if len(r.rt.specs) != 0 || len(r.quota.folders) != 0 {
 		t.Fatalf("a refused request made a container: %d %v", len(r.rt.specs), r.quota.folders)
 	}
-	// Other operations and other paths do not exist. (grading.run is built, and an empty request is not what it takes; image.build is Phase 7.)
+	// Other operations and other paths do not exist. (grading.run and image.build are built, and an empty request is not what they take.)
 	for _, test := range []struct {
 		method, path string
 		want         int
 	}{
 		{"POST", "/v1/exec", 404}, {"POST", "/v1/containers/s1/exec", 404}, {"GET", "/v1/containers", 405}, {"DELETE", "/v1/containers/s1", 405},
 		{"GET", "/v1/containers/s1/logs", 404}, {"POST", "/v1/containers/s1/kill", 404}, {"GET", "/", 404}, {"GET", "/v1/volumes", 404},
-		{"GET", "/v1/containers/../../etc", 404}, {"POST", "/v1/grading", 400}, {"POST", "/v1/images/build", 501},
+		{"GET", "/v1/containers/../../etc", 404}, {"POST", "/v1/grading", 400}, {"POST", "/v1/images/build", 400},
 	} {
 		if status := raw(test.method, test.path, ""); status != test.want {
 			t.Errorf("%s %s = %d, want %d", test.method, test.path, status, test.want)

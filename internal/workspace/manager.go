@@ -31,6 +31,28 @@ type RunnerAPI interface {
 	ImageInspect(ctx context.Context, name string) (runner.ImageStatus, error)
 	// Grade is grading.run (Phase 6): a submission and the grading bundle, two tar archives, go to a fresh container.
 	Grade(ctx context.Context, req runner.GradeRequest, submission, bundle io.Reader) (runner.GradeResult, error)
+	// BuildImage is image.build (Phase 7): the exam's build context, a tar archive, is built on its course image. onLog is given what the build prints
+	// as it prints it.
+	BuildImage(ctx context.Context, req runner.BuildRequest, buildContext io.Reader, onLog func(text string)) (runner.BuildResult, error)
+}
+
+// ErrImageNotBuilt is returned when a container or a grading run is wanted for an exam whose image has not been built.
+var ErrImageNotBuilt = errors.New("workspace: the exam's image has not been built")
+
+// currentBuild is the build an exam's containers and grading runs are made from: the latest good build of its image bundle. It is "" for an
+// exam that has no image folder (it runs in the course image), and ErrImageNotBuilt for one that has one and was not built.
+func (m *Manager) currentBuild(ctx context.Context, exam ExamRecord) (string, error) {
+	if exam.ImageHash == "" {
+		return "", nil
+	}
+	record, err := m.opts.Repo.LatestImageBuild(ctx, exam.ExamID, exam.ImageHash)
+	if errors.Is(err, ErrNotFound) {
+		return "", ErrImageNotBuilt
+	}
+	if err != nil {
+		return "", err
+	}
+	return record.Hash, nil
 }
 
 var _ RunnerAPI = (*runner.Client)(nil)
@@ -208,7 +230,11 @@ func (m *Manager) provision(ctx context.Context, info SessionInfo) (SessionInfo,
 		return fail(err)
 	}
 	settings := exam.Document.Workspace
-	status, err := m.opts.Runner.Create(ctx, runner.CreateRequest{Session: info.SessionID, Exam: info.ExamID, Image: settings.Image,
+	build, err := m.currentBuild(ctx, exam)
+	if err != nil {
+		return fail(fmt.Errorf("the exam's own image has not been built: ask the proctor to build it (%w)", err))
+	}
+	status, err := m.opts.Runner.Create(ctx, runner.CreateRequest{Session: info.SessionID, Exam: info.ExamID, Image: settings.Image, Build: build,
 		Resources: runner.Resources{CPU: settings.Resources.CPU, MemoryMB: settings.Resources.MemoryMB, DiskMB: settings.Resources.DiskMB}})
 	if err != nil {
 		return fail(fmt.Errorf("creating the container: %w", err))

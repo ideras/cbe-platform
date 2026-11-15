@@ -40,6 +40,7 @@ type GradeRequest struct {
 	Grading        string    `json:"grading"`
 	Exam           string    `json:"exam"`
 	Image          string    `json:"image"`
+	Build          string    `json:"build,omitempty"`
 	TimeoutSeconds int       `json:"timeout_seconds"`
 	Resources      Resources `json:"resources"`
 }
@@ -71,7 +72,7 @@ func (c Config) CheckGrade(req GradeRequest) (Resources, string, time.Duration, 
 	if len(req.Grading) > maxGradingIDBytes {
 		return Resources{}, "", 0, badRequest("grading must be an ID of at most %d bytes", maxGradingIDBytes)
 	}
-	resources, reference, err := c.Check(CreateRequest{Session: req.Grading, Exam: req.Exam, Image: req.Image, Resources: req.Resources})
+	resources, reference, err := c.Check(CreateRequest{Session: req.Grading, Exam: req.Exam, Image: req.Image, Build: req.Build, Resources: req.Resources})
 	if err != nil {
 		return Resources{}, "", 0, err
 	}
@@ -160,10 +161,7 @@ func (s *Service) Grade(ctx context.Context, req GradeRequest, submission, bundl
 	if err := extractBundle(&grading, filepath.Join(dir, "grading")); err != nil {
 		return GradeResult{}, err
 	}
-	if _, err := s.rt.ImageInspect(ctx, reference); err != nil {
-		if errors.Is(err, ErrNotFound) {
-			return GradeResult{}, fmt.Errorf("%w: the runtime does not have image %s", ErrNotFound, reference)
-		}
+	if err := s.checkImage(ctx, req.Exam, req.Build, reference); err != nil {
 		return GradeResult{}, err
 	}
 	if _, err := s.quota.Create(gradeWorkID(req.Grading), resources.DiskMB, s.cfg.Inodes); err != nil {

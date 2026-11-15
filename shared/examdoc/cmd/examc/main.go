@@ -6,7 +6,7 @@
 //
 //	examc lab/                       check a workspace package: a folder that holds workspace.md (or the path of workspace.md)
 //	examc -json lab/                 print the compiled workspace document (it holds the hashes of the bundles, not the bundles)
-//	examc -bundles out/ lab/         also write the starter and grading bundles (starter.tar, grading.tar) to out/
+//	examc -bundles out/ lab/         also write the bundles (starter.tar, grading.tar, image.tar) to out/
 //
 // The pictures of an exam (![alt](figure.svg)) are read from the folder of the exam file, so examc finds them from any working
 // directory. -json prints them embedded in the exam's HTML, as the proctor application imports them.
@@ -34,7 +34,7 @@ import (
 func main() {
 	asJSON := flag.Bool("json", false, "print the compiled exam document instead of a summary")
 	fill := flag.String("fill", "", "print the exam with the answers of this JSON file (slot ID to answer) filled in")
-	bundles := flag.String("bundles", "", "for a workspace package: write its starter and grading bundles (tar files) to this folder")
+	bundles := flag.String("bundles", "", "for a workspace package: write its starter, grading and image bundles (tar files) to this folder")
 	flag.Usage = func() {
 		fmt.Fprintln(flag.CommandLine.Output(), "usage: examc [-json | -fill answers.json] exam.md")
 		fmt.Fprintln(flag.CommandLine.Output(), "       examc [-json] [-bundles folder] package-folder")
@@ -275,6 +275,12 @@ func runWorkspace(path, dir string, asJSON bool, bundlesPath string) int {
 	} else {
 		fmt.Println("  no grading folder")
 	}
+	if bundles.Image != nil {
+		fmt.Printf("  image bundle: %s (the exam's own image, built from %s before it is published)\n", describeBundle(*bundles.Image), workspace.Image)
+		for _, warning := range bundles.ImageWarnings {
+			fmt.Printf("  warning: %s\n", warning)
+		}
+	}
 	return 0
 }
 
@@ -298,7 +304,12 @@ func writeBundles(folder string, bundles examdoc.WorkspaceBundles) error {
 		return err
 	}
 	if bundles.Grading != nil {
-		return os.WriteFile(filepath.Join(folder, "grading.tar"), bundles.Grading.Data, 0o644)
+		if err := os.WriteFile(filepath.Join(folder, "grading.tar"), bundles.Grading.Data, 0o644); err != nil {
+			return err
+		}
+	}
+	if bundles.Image != nil {
+		return os.WriteFile(filepath.Join(folder, "image.tar"), bundles.Image.Data, 0o644)
 	}
 	return nil
 }
