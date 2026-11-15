@@ -155,3 +155,61 @@ func TestOptionsThatDoNotFitThePathAreRefused(t *testing.T) {
 		t.Errorf("question exam: %d, %q", code, output)
 	}
 }
+
+// A package with an image folder says so in its summary, writes the build context with -bundles, and says the Containerfile's warnings; one
+// without an image folder says nothing of it.
+func TestRunSummarizesAndWritesTheImageBundleOfAPackage(t *testing.T) {
+	imageExample := "../../../../testdata/workspace/lab-image"
+	out := t.TempDir()
+	var code int
+	summary := captureStdout(t, func() { code = runWith(imageExample, false, "", out) })
+	if code != 0 || !strings.Contains(summary, "image bundle: 3 files") || !strings.Contains(summary, "the exam's own image, built from cbe/cpp20 before it is published") {
+		t.Fatalf("%d:\n%s", code, summary)
+	}
+	if strings.Contains(summary, "warning:") {
+		t.Errorf("the example has no warnings:\n%s", summary)
+	}
+	data, err := os.ReadFile(filepath.Join(out, "image.tar"))
+	if err != nil || len(data) == 0 {
+		t.Fatalf("image.tar: %d bytes, %v", len(data), err)
+	}
+	for _, name := range []string{"starter.tar", "grading.tar"} {
+		if _, err := os.Stat(filepath.Join(out, name)); err != nil {
+			t.Errorf("%s was not written: %v", name, err)
+		}
+	}
+	// The same package with a Containerfile that installs without a version has the warning in the summary.
+	dir := t.TempDir()
+	for _, name := range []string{"workspace.md", "project/Makefile", "project/src/main.cpp", "image/lib/greet.cpp", "image/lib/greet.hpp"} {
+		content, err := os.ReadFile(filepath.Join(imageExample, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, name)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), content, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "image", "Containerfile"), []byte("FROM cbe/cpp20\nUSER root\nRUN apt-get install -y libfoo-dev\nUSER 1000:1000\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	summary = captureStdout(t, func() { code = runWith(dir, false, "", "") })
+	if code != 0 || !strings.Contains(summary, "warning: image/Containerfile line 3: apt-get installs libfoo-dev without a version") {
+		t.Errorf("%d:\n%s", code, summary)
+	}
+	// A package whose Containerfile breaks a rule cannot be imported, and the problem names the line.
+	if err := os.WriteFile(filepath.Join(dir, "image", "Containerfile"), []byte("FROM ubuntu:24.04\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	problems := captureStderr(t, func() { code = runWith(dir, false, "", "") })
+	if code == 0 || !strings.Contains(problems, "image/Containerfile line 1: FROM ubuntu:24.04: the only image") {
+		t.Errorf("%d:\n%s", code, problems)
+	}
+	// A package with no image folder says nothing of one.
+	plain := captureStdout(t, func() { code = runWith(example, false, "", "") })
+	if code != 0 || strings.Contains(plain, "image bundle") {
+		t.Errorf("%d:\n%s", code, plain)
+	}
+}

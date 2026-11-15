@@ -17,5 +17,7 @@
   "grade_root": "/data/cbe-platform/grading",
   "grade_parallel": 2,
   "grade_max_seconds": 1800,
-  "grade_output_bytes": 262144
+  "grade_output_bytes": 262144,
+  "build_max_seconds": 900,
+  "build_memory_mb": 2048
 }

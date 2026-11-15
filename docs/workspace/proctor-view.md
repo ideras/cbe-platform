@@ -3,6 +3,21 @@
 Phase 5. The proctor application reads a workspace exam through the admin token, the same way it reads a question exam. Nothing here lets the proctor
 change a student's files; it is all reading, and two downloads.
 
+## Importing a workspace exam, and its image (Phase 7)
+
+The exam list of a class has **Import workspace exam…** beside **Import exam…**. It asks for the package's `workspace.md`, compiles the folder that holds it (with the same compiler as
+`build/examc`) and shows what it made of it, storing nothing: the title, the time, the **TODO items** (said to be self-reported), the project's starter files, the hidden tests (kept on the
+server, never sent to students), the container's limits, and whether the exam has **its own image**, with the Containerfile checker's warnings. A package with problems shows them all and
+cannot be imported. The PIN is chosen here, as for a question exam. The server checks everything again; what it refuses is shown in its words, and the package is used up whatever it says, so an unclear
+failure never imports an exam twice. An exam is imported, never published.
+
+In the exam list a workspace exam has a **Workspace** tag, the number of **TODO items** where a question exam has exercises, and, when its package has `image/`, a chip for its image:
+*Image not built*, *Build waiting*, *Building the image…*, *Image ready*, *Build failed*, *Last build failed* (an earlier build of the same files is still the exam's image) or *Image missing* (the runner lost
+it). **Preview** is off for a workspace exam (it has no question fields), and **Publish** is off, with the reason, until the image is ready. The **Image** button opens the dialog of
+[images.md](images.md): the state, **Build the image** (or **Build again**, **Build again from scratch**), the course image and its digest the build was made on, the image's name, how long it took, the
+Containerfile's warnings, and the log of the latest build or of any earlier one (a list of the exam's builds). While a build goes the dialog reads it every two seconds; the log appears when
+the build ends.
+
 ## The monitoring table
 
 On a workspace exam the table has one more column, **Workspace**, headed "TODO is self-reported". Per student:
@@ -62,6 +77,12 @@ All need the admin token. `{id}` is a session, snapshot, submission or terminal 
 | Route | Answers |
 |-------|---------|
 | `GET /admin/workspace/exam/{exam}/roster` | the table's column; 404 for a question exam |
+| `POST /admin/class/{class}/workspace-exam` (multipart: `document`, `starter`, and `grading`, `image` when the package has them) | import a package (the proctor application sends it); 400 lists every problem, and the PIN is in the document |
+| `GET /admin/exams` | the exam list; a workspace exam carries `kind: "workspace"`, `todos` and `image` (its state, from the database alone: it does not ask the runner), and a question exam none of the three |
+| `POST /admin/workspace/exam/{exam}/image/build` (`{"rebuild": true}` optional) | queue a build of the exam's own image: `202` with the image's state; 409 when the exam has no image folder or one is already being built |
+| `GET /admin/workspace/exam/{exam}/image[?log=1]` | the state of the image (`none`, `not_built`, `queued`, `building`, `ready`, `failed`, `missing`), whether the exam can be published as far as its image goes (`ready`), whether the runner has it (`present`), the latest build (with its log when asked) and the exam's builds without their logs |
+| `GET /admin/workspace/exam/{exam}/image/build/{build}` | one build with its log |
+| `POST /admin/exam/{exam}/publish` | **409** when the exam's image is not ready, with the reason in the answer (Phase 7) |
 | `GET /admin/workspace/session/{session}` | the review panel's summary: state, restarts, `done`, `snapshots`, `submissions`, `terminals` |
 | `GET /admin/workspace/snapshot/{id}/tree`, `.../file?path=` | the files of a snapshot |
 | `GET /admin/workspace/submission/{id}/tree`, `.../file?path=`, `.../zip` | the files of a submission, and its zip (regular files only) |

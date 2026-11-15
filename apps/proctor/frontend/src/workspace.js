@@ -171,3 +171,58 @@ export function gradingSummary(students) {
   }
   return out;
 }
+
+// An exam's own image (docs/workspace/images.md): what the exam list and the image dialog say of it. The names are the server's states.
+const imageStates = {
+  not_built: { text: 'Image not built', tone: 'warn', title: 'This exam has its own image. Build it before you publish the exam.' },
+  queued: { text: 'Build waiting', tone: 'active', title: 'The build of this exam’s image is waiting for its turn.' },
+  building: { text: 'Building the image…', tone: 'active', title: 'The image is being built.' },
+  ready: { text: 'Image ready', tone: 'ok', title: 'The exam’s own image is built and verified.' },
+  failed: { text: 'Build failed', tone: 'lock', title: 'The last build of this exam’s image failed.' },
+  missing: { text: 'Image missing', tone: 'lock', title: 'The runner does not have this exam’s image any more. Build it again.' },
+};
+
+/** What to say of an exam's own image in the exam list; null for an exam that has none (a question exam, or a package with no image folder). */
+export function imageChip(image) {
+  if (!image || image.state === 'none') return null;
+  const chip = imageStates[image.state] ?? { text: image.state, tone: 'neutral', title: '' };
+  // A failed build does not take away an image that was built before it.
+  if (image.state === 'failed' && image.ready) return { ...chip, text: 'Last build failed', tone: 'warn', title: 'The last build failed, but an earlier build of the same files is still the exam’s image.' };
+  return chip;
+}
+
+/** Why an exam cannot be published as far as its image goes ("" when it can). The server checks again when asked to publish. */
+export function publishBlock(entry) {
+  const image = entry?.image;
+  if (!image || image.state === 'none' || entry.kind !== 'workspace') return '';
+  if (image.state === 'queued' || image.state === 'building') return 'The exam’s image is being built: wait for the build to end before publishing.';
+  if (!image.ready) return image.state === 'failed' ? 'The last build of the exam’s image failed: fix the Containerfile and build it again before publishing.' : 'Build the exam’s image before publishing.';
+  return '';
+}
+
+/** "sha256:baac8cde6b90…" for a digest that is too long to read. */
+export function shortDigest(digest) {
+  if (!digest) return '';
+  const [kind, rest] = digest.includes(':') ? digest.split(':', 2) : ['', digest];
+  return `${kind ? kind + ':' : ''}${rest.slice(0, 12)}${rest.length > 12 ? '…' : ''}`;
+}
+
+const buildFailures = {
+  containerfile: 'The Containerfile is not accepted', base: 'The course image on this server is not the one the file names', build: 'A step of the build failed',
+  timeout: 'The build took too long', verify: 'The image does not keep the course image’s contract', runner: 'The runner could not build it', interrupted: 'The server stopped during the build',
+};
+export const buildFailureLabel = code => buildFailures[code] ?? 'The build failed';
+
+/** "1:05" or "12 s": how long a build has been going or took. */
+export function buildTime(ms) {
+  const seconds = Math.max(0, Math.round(ms / 1000));
+  if (seconds === 0 && ms > 0) return '< 1 s';
+  return seconds < 60 ? `${seconds} s` : `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+}
+
+/** What one build in the list says, in a few words. */
+export function buildLine(build) {
+  if (!build) return '';
+  const states = { queued: 'waiting', running: 'building…', ok: build.cached ? 'ready (already built)' : 'ready', failed: 'failed' };
+  return `#${build.build_id} · ${states[build.state] ?? build.state}${build.rebuild ? ' · from scratch' : ''}`;
+}

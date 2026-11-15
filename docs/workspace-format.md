@@ -50,10 +50,10 @@ lab-listas/
   workspace.md          settings, instructions, TODO list (required)
   project/              starter files copied to /work (required, may be empty)
   grading/              hidden tests (optional; kept on the server, never sent to students)
-  image/Containerfile   per-exam image customization (not supported yet)
+  image/                the build context of the exam's own image: a Containerfile and the files it copies (optional)
 ```
 
-- `image/` is reserved for a later release. A package that has it is refused, so nobody expects it to take effect.
+- `image/` is the exam's **own image**, built from the course image before the exam is published: for a library, a tool or a file the course image does not have. It must hold a file called `Containerfile` (not `Dockerfile`), and may hold anything the Containerfile copies. The rules, the build and the checks are in [images.md](workspace/images.md); in short, every `FROM` names the exam's `image:` or an earlier stage, a build that does not keep the course image's user, entrypoint and agent fails, and the exam cannot be published until its image is built.
 - A folder or file that is not in the list is refused too, so a mistyped `grader/` cannot silently lose the hidden tests. The exceptions are names that start with a dot (`.git`, `.DS_Store`), `Thumbs.db`, `desktop.ini`, and the pictures the instructions use.
 - `workspace.md`, `project/` and `grading/` must be real files and folders, not links.
 
@@ -197,6 +197,10 @@ The bytes themselves travel next to the document when an exam is imported. `exam
 | `the exam has no TODO items` | List the tasks as `[ ] text` lines. |
 | `TODO id "t2" is already used` | An item named `t2` by hand collides with the default ID of the second item; rename it. |
 | `image must be the name of a course image` | Write `cbe/cpp20`, with no tag, no digest and no uppercase letters. |
+| `image/Containerfile: missing` | The folder `image/` needs a file called `Containerfile` (not `Dockerfile`). |
+| `image/Containerfile line N: FROM x: the only image a workspace exam's Containerfile may start from…` | Write `FROM cbe/cpp20` (the exam's `image:`), or `FROM` an earlier stage of the file. |
+| `image/Containerfile line N: RUN --network=host is not allowed` | Leave the build's network as it is: a `RUN` already has the network of the build. `VOLUME` and `ONBUILD` are not allowed either. |
+| `image/ca.crt: this name is the host's certificate bundle` | Rename your file: the build lends the server's certificates as `ca.crt`. |
 | `project/x: the symbolic link points to … outside the folder` | Replace the link with a copy of the file, or point it inside `project/`. |
 | `project/ holds more than 20 MiB of files` | Remove build output and downloads from `project/`. |
 | `grading/grade: is not executable` | Begin the script with `#!/bin/sh` (or another interpreter), or set its executable bit. |
@@ -209,7 +213,8 @@ The bytes themselves travel next to the document when an exam is imported. `exam
 - [ ] `title`, `duration` and `image` are set, and the image is one the server has.
 - [ ] Every TODO item has an ID the grading script uses, and its points add up.
 - [ ] `project/` holds what every student should start with and nothing else: no solution, no build output.
-- [ ] `grading/grade` runs on the course image and prints the JSON above.
+- [ ] `grading/grade` runs on the course image (or on the exam's own image) and prints the JSON above.
+- [ ] If the package has `image/`: `build/examc lab/` says its warnings (a package installed without a version), and the image has been built before publishing.
 - [ ] No PIN, solution or rubric in `workspace.md`.
 
 ## Complete example
@@ -231,11 +236,14 @@ Laboratorio 2 – Listas enlazadas
 
 and `build/examc -json testdata/workspace/lab-listas` prints [`lab-listas.json`](../testdata/workspace/lab-listas.json).
 
+[`testdata/workspace/lab-image/`](../testdata/workspace/lab-image) is a second example, with an `image/` folder: a library (`libgreet`) built from source in one stage of its `Containerfile` and installed in the other, both from the course image, so its build needs no network. `build/examc testdata/workspace/lab-image` ends with a line for the bundle (`image bundle: 3 files, … (the exam's own image, built from cbe/cpp20 before it is published)`) and prints the warnings of the Containerfile, if it has any.
+
 ## How the package is used
 
-1. **Compile.** `examc` (and, in a later release, **Import exam…** in the proctor application) reads the package folder and produces the document and the two bundles. The document has `"kind": "workspace"`; the document of a question exam has no `kind` and is read as `"question"`, so existing exams are unchanged.
+1. **Compile.** `examc`, and **Import workspace exam…** in the proctor application, read the package folder and produce the document and the bundles (starter, grading and, when the package has `image/`, the image's build context). The document has `"kind": "workspace"`; the document of a question exam has no `kind` and is read as `"question"`, so existing exams are unchanged.
 2. **Import.** The server stores the document and the bundles. The grading bundle is never sent to a student's application, and the compiled document holds only its hash.
-3. **First login.** The student's container is created from the course image, with the limits of `resources`, and the starter bundle is copied into `/work`.
+2b. **Build the image** (only when the package has `image/`). The proctor builds the exam's own image from the exam's Image button; it is built once, with network, checked, and kept. The exam cannot be published until it is built.
+3. **First login.** The student's container is created from the course image (or from the exam's own image, when it has one), with the limits of `resources`, and the starter bundle is copied into `/work`.
 4. **During the exam.** The student edits files and runs commands in the container; the server snapshots `/work` at the interval of `snapshot` and on Submit.
 5. **Grading.** The proctor asks for one student or the class to be graded. For each, `grading/grade` runs in a fresh container, offline, against the student's latest submission, with at most a few runs at once (`-workspace-grade-parallel` on the server, `grade_parallel` on the runner); the result of each TODO and the logs are read in the proctor's review window, and a grade counts once the proctor confirms it. Students can be graded again.
 
