@@ -13,5 +13,9 @@
   "pids": 256,
   "inodes": 20000,
   "tmp_mb": 64,
-  "stop_seconds": 5
+  "stop_seconds": 5,
+  "grade_root": "/data/cbe-platform/grading",
+  "grade_parallel": 2,
+  "grade_max_seconds": 1800,
+  "grade_output_bytes": 262144
 }

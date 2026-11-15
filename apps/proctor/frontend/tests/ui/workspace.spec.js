@@ -114,7 +114,7 @@ test('the review window shows a student\'s workspace: its state, what they ticke
 test('a workspace exam\'s review is in tabs, the history first, and the tabs go by keyboard', async ({ page }) => {
   await review(page);
   const tabs = page.getByRole('tablist', { name: 'Parts of the session review' });
-  await expect(tabs.getByRole('tab')).toHaveText([/History/, /Files/, /Terminals\s*3/]);
+  await expect(tabs.getByRole('tab')).toHaveText([/History/, /Files/, /Terminals\s*3/, /Grading\s*0/]);
   await expect(tab(page, 'History')).toHaveAttribute('aria-selected', 'true');
   // Only the chosen tab's part is shown: the history's table, not the files or the terminals.
   await expect(page.getByRole('table').first()).toBeVisible();
@@ -127,8 +127,12 @@ test('a workspace exam\'s review is in tabs, the history first, and the tabs go 
   await expect(page.getByRole('tree', { name: /Files of the student's workspace/ })).toBeVisible();
   await expect(page.getByRole('table')).toHaveCount(0);
   await page.keyboard.press('End');
+  await expect(tab(page, 'Grading')).toBeFocused();
+  await expect(page.getByText('This student has not been graded.')).toBeVisible();
+  await page.keyboard.press('ArrowLeft');
   await expect(tab(page, 'Terminals')).toBeFocused();
   await expect(page.getByRole('grid', { name: /Transcripts/ })).toBeVisible();
+  await page.keyboard.press('ArrowRight');
   await page.keyboard.press('ArrowRight');
   await expect(tab(page, 'History')).toBeFocused();
   // Only the chosen tab is in the tab order.
@@ -383,6 +387,173 @@ test('the Terminals tab and the replay\'s controls have their icons, and Close r
   await expect(close).toHaveAttribute('title', 'Close replay');
   const box = await close.boundingBox();
   expect(Math.round(box.width)).toBe(Math.round(box.height));
+});
+
+// ---- Grading (Phase 6) ----
+const todos = [{ id: 't1', text: 'Implement `push_front`', points: 10 }, { id: 't2', text: 'Implement `insert_sorted`', points: 15 }, { id: 't3', text: 'Add `tests/mine.cpp`', points: 15 }];
+const run = (id, extra = {}) => ({ id, submission: 8, state: 'done', failure: '', failure_text: '', queued_at: '2035-01-01T22:21:00Z', started_at: '2035-01-01T22:21:01Z', finished_at: '2035-01-01T22:21:03Z', duration_ms: 1900, points: 16, max_points: 40,
+  confirmed: false, skipped: [], stdout: '{"t1": {"passed": true}}', stderr: 'ok: push_front 1 2 3 -> 3 2 1\n', stdout_truncated: false, stderr_truncated: false,
+  results: [{ todo_id: 't1', known: true, passed: true, points: 10, log: '4/4 tests passed' }, { todo_id: 't2', known: true, passed: false, points: 6, log: '2/5 tests passed\nFAILED: insert_sorted 5 1 3' }, { todo_id: 'zz', known: false, passed: true, points: 99, log: 'a key nobody asked for' }], ...extra });
+function gradedData(runs) {
+  const withGradings = data();
+  withGradings.gradings = { todos, runs };
+  return withGradings;
+}
+const gradingTab = page => tab(page, 'Grading');
+
+test('the roster says each student\'s grade in words: waiting, being graded, advisory, confirmed, failed', async ({ page }) => {
+  await page.setViewportSize({ width: 1500, height: 700 });
+  const students2 = [row(0, 'Ada Lovelace', '001234'), row(1, 'Alan Turing', '002468'), row(2, 'Grace Hopper', '003579'), row(3, 'Joan Clarke', '004680'), row(4, 'Linus T', '005791'), row(5, 'No One', '006802')];
+  await page.goto('/#/monitoring');
+  await page.getByRole('table', { name: /All sessions/ }).waitFor();
+  const rosterOf = grades => ({ students: grades.map((grade, i) => ({ ...workspaceStudent(i), account_number: students2[i].account_number, submissions: i === 5 ? 0 : 1, grade })) });
+  await page.evaluate(({ sessions, roster, observed }) => { window.ProctorHarness.workspace(roster); window.ProctorHarness.monitoringRoster(sessions, [], observed); },
+    { sessions: students2, roster: rosterOf([{ grading: 1, state: 'done', points: 28, max_points: 40, confirmed: false, at: observed }, { grading: 2, state: 'done', points: 40, max_points: 40, confirmed: true, at: observed },
+      { grading: 3, state: 'queued', at: observed }, { grading: 4, state: 'running', at: observed }, { grading: 5, state: 'failed', failure: 'timeout', at: observed }, null]), observed });
+  await expect(line(page, 'Ada Lovelace')).toContainText('Grade: 28 of 40 points (advisory until you confirm it)');
+  await expect(line(page, 'Alan Turing')).toContainText('Grade: 40 of 40 points (confirmed)');
+  await expect(line(page, 'Grace Hopper')).toContainText('Grade: Waiting to be graded');
+  await expect(line(page, 'Joan Clarke')).toContainText('Grade: Being graded…');
+  await expect(line(page, 'Linus T')).toContainText('Grading failed: it did not end in time');
+  await expect(line(page, 'No One')).not.toContainText('Grade:');
+  // The line above the table counts them, and says what a grade is.
+  const summary = page.getByRole('group', { name: 'Grading' });
+  await expect(summary).toContainText('2 graded (1 confirmed)');
+  await expect(summary).toContainText('2 waiting or being graded');
+  await expect(summary).toContainText('1 failed');
+  await expect(summary).toContainText('A grade is advisory until you confirm it.');
+});
+
+test('the class is graded from the roster after the proctor is told what will happen, and what was left out is said', async ({ page }) => {
+  await page.setViewportSize({ width: 1500, height: 800 });
+  await monitor(page, { students: [workspaceStudent(0, { submissions: 2 }), workspaceStudent(1, { submissions: 0 })] });
+  const button = page.getByRole('button', { name: 'Grade submissions…' });
+  await expect(button).toBeEnabled();
+  await page.evaluate(() => window.ProctorHarness.gradeExamResult({ queued: [11], skipped: [{ session_id: '00000002-0000-4000-8000-000000000000', account_number: '002468', reason: 'has not submitted anything' }] }));
+  await button.click();
+  const dialog = page.getByRole('dialog', { name: 'Grade the class' });
+  await expect(dialog).toContainText('1 submission will be graded');
+  await expect(dialog).toContainText('no network');
+  await expect(dialog).toContainText('advisory until you confirm it');
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  expect(await page.evaluate(() => window.ProctorHarness.calls.workspace?.filter(call => call.call === 'GradeExam').length ?? 0)).toBe(0);
+  await button.click();
+  await page.getByRole('dialog', { name: 'Grade the class' }).getByRole('button', { name: 'Grade 1 submission' }).click();
+  await expect(page.getByRole('status').filter({ hasText: '1 submission is queued for grading; 1 student was left out (has not submitted anything)' })).toBeVisible();
+  expect(await page.evaluate(() => window.ProctorHarness.calls.workspace.filter(call => call.call === 'GradeExam'))).toEqual([{ call: 'GradeExam', sessionIds: [] }]);
+  // A refusal of the server is shown in the dialog, in the server's words.
+  await page.evaluate(() => window.ProctorHarness.gradeFails('The server refused the change: this exam has no grading folder, so there is nothing to grade it with.'));
+  await button.click();
+  await page.getByRole('dialog', { name: 'Grade the class' }).getByRole('button', { name: 'Grade 1 submission' }).click();
+  await expect(page.getByRole('alert').filter({ hasText: 'no grading folder' })).toBeVisible();
+});
+
+test('nobody to grade, no button to press; a question exam has no grading at all', async ({ page }) => {
+  await page.setViewportSize({ width: 1500, height: 800 });
+  await monitor(page, { students: [workspaceStudent(0, { submissions: 0 }), workspaceStudent(1, { submissions: 1, grade: { grading: 1, state: 'running', at: observed } })] });
+  await expect(page.getByRole('button', { name: 'Grade submissions…' })).toBeDisabled();
+  await page.evaluate(() => window.ProctorHarness.workspaceRoster(null));
+  await expect(page.getByRole('group', { name: 'Grading' })).toHaveCount(0, { timeout: 8000 });
+  await expect(page.getByRole('button', { name: 'Grade submissions…' })).toHaveCount(0);
+});
+
+test('the review window has a Grading tab: the runs, the results of each TODO with their logs, and the grade that stands', async ({ page }) => {
+  await review(page, gradedData([run(3, { state: 'running', points: null, max_points: null, results: [], stdout: '', stderr: '', finished_at: null, duration_ms: 0 }), run(2, { confirmed: true }), run(1, { points: 40, results: [] })]));
+  await expect(gradingTab(page)).toContainText('3');
+  // The summary names the grade that stands: the confirmed run's, not the latest.
+  await expect(page.getByRole('region', { name: 'Session review' })).toContainText('Grade16 of 40 points (confirmed)');
+  await openTab(page, 'Grading');
+  const grid = page.getByRole('grid', { name: /Gradings of the student's submissions/ });
+  await expect(grid.locator('tbody tr')).toHaveCount(3);
+  await expect(grid.locator('tbody tr').nth(0)).toContainText('Being graded');
+  await expect(grid.locator('tbody tr').nth(1)).toContainText('Confirmed');
+  // The latest run is open to begin with; the proctor chooses another by clicking it.
+  await expect(page.getByRole('region', { name: 'Results of run 3' })).toContainText('Running now');
+  await grid.getByRole('row', { name: /^#2/ }).click();
+  const results = page.getByRole('region', { name: 'Results of run 2' });
+  await expect(results).toBeVisible();
+  await expect(results).toContainText('16 of 40 points');
+  await expect(results).toContainText('confirmed');
+  const table = results.getByRole('table', { name: 'Results of each TODO' });
+  await expect(table.getByRole('row', { name: /^t1/ })).toContainText('Passed');
+  await expect(table.getByRole('row', { name: /^t1/ })).toContainText('Implement `push_front`');
+  await expect(table.getByRole('row', { name: /^t1/ })).toContainText('10 of 10');
+  await expect(table.getByRole('row', { name: /^t1/ })).toContainText('4/4 tests passed');
+  await expect(table.getByRole('row', { name: /^t2/ })).toContainText('Not passed');
+  await expect(table.getByRole('row', { name: /^t2/ })).toContainText('6 of 15');
+  await expect(table.getByRole('row', { name: /^t2/ })).toContainText('FAILED: insert_sorted 5 1 3');
+  await expect(table.getByRole('row', { name: /^t3/ })).toContainText('The grade program said nothing of it');
+  await expect(table.getByRole('row', { name: /^zz/ })).toContainText('is not a TODO of this exam; it is not counted');
+  // What the run printed is there, as text.
+  await results.getByText('What the run printed').click();
+  await expect(results.getByLabel('Standard error of the run')).toContainText('ok: push_front 1 2 3 -> 3 2 1');
+  expect(await results.locator('script, img, b').count()).toBe(0);
+});
+
+test('a grade is confirmed and the confirmation taken back, and the proctor is told the server\'s refusals', async ({ page }) => {
+  await review(page, gradedData([run(2), run(1, { points: 40 })]));
+  await openTab(page, 'Grading');
+  const results = page.getByRole('region', { name: 'Results of run 2' });
+  await expect(results).toContainText('advisory until you confirm it');
+  await results.getByRole('button', { name: 'Confirm this grade' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'This grade is confirmed.' })).toBeVisible();
+  await expect(page.getByRole('grid', { name: /Gradings/ }).getByRole('row', { name: /^#2/ })).toContainText('Confirmed');
+  await expect(page.getByRole('region', { name: 'Session review' })).toContainText('(confirmed)');
+  // Confirming the other run takes the confirmation from this one.
+  await page.getByRole('grid', { name: /Gradings/ }).getByRole('row', { name: /^#1/ }).click();
+  await page.getByRole('region', { name: 'Results of run 1' }).getByRole('button', { name: 'Confirm this grade' }).click();
+  await expect(page.getByRole('grid', { name: /Gradings/ }).getByRole('row', { name: /^#2/ })).not.toContainText('Confirmed');
+  await page.getByRole('region', { name: 'Results of run 1' }).getByRole('button', { name: 'Take the confirmation back' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'advisory again' })).toBeVisible();
+  expect(await page.evaluate(() => window.ProctorHarness.calls.workspace.filter(call => call.call === 'ConfirmGrading'))).toEqual([
+    { call: 'ConfirmGrading', id: 2, confirm: true }, { call: 'ConfirmGrading', id: 1, confirm: true }, { call: 'ConfirmGrading', id: 1, confirm: false }]);
+  await page.evaluate(() => window.ProctorHarness.gradeFails('The server refused the change: only a run that is done can be confirmed.'));
+  await page.getByRole('region', { name: 'Results of run 1' }).getByRole('button', { name: 'Confirm this grade' }).click();
+  await expect(page.getByRole('alert').filter({ hasText: 'only a run that is done can be confirmed' })).toBeVisible();
+});
+
+test('a student is graded from the review window, the new run waits, and its end shows without a click', async ({ page }) => {
+  await review(page, gradedData([run(1)]));
+  await openTab(page, 'Grading');
+  const start = page.getByRole('button', { name: 'Grade this student' });
+  await expect(page.getByLabel('Submission to grade')).toContainText('The latest');
+  await start.click();
+  await expect(page.getByRole('status').filter({ hasText: 'The run is queued' })).toBeVisible();
+  const grid = page.getByRole('grid', { name: /Gradings/ });
+  await expect(grid.locator('tbody tr')).toHaveCount(2, { timeout: 8000 });
+  await expect(grid.locator('tbody tr').nth(0)).toContainText('Waiting to be graded');
+  expect(await page.evaluate(() => window.ProctorHarness.calls.workspace.filter(call => call.call === 'GradeStudent'))).toEqual([{ call: 'GradeStudent', sessionId: SESSION, submissionId: 0 }]);
+  // A run that is going cannot be started again; when it ends, the window shows the result by itself.
+  await expect(start).toBeDisabled();
+  await page.evaluate(() => window.ProctorHarness.gradingRun(2, { state: 'done', points: 25, max_points: 40, finished_at: '2035-01-01T22:26:00Z', results: [{ todo_id: 't1', known: true, passed: true, points: 10, log: 'all good' }] }));
+  await expect(grid.locator('tbody tr').nth(0)).toContainText('25 of 40 points', { timeout: 8000 });
+  await expect(start).toBeEnabled();
+  await expect(page.getByRole('region', { name: 'Results of run 2' })).toContainText('all good');
+  // A refusal comes back in the server's words.
+  await page.evaluate(() => window.ProctorHarness.gradeFails('The server refused the change: this student is already waiting to be graded or being graded.'));
+  await start.click();
+  await expect(page.getByRole('alert').filter({ hasText: 'already waiting to be graded' })).toBeVisible();
+});
+
+test('a run that failed says why, and shows what the grade program printed', async ({ page }) => {
+  await review(page, gradedData([run(1, { state: 'failed', failure: 'malformed', failure_text: 'what grade printed is not one JSON object: invalid character \'m\'', points: null, max_points: null, results: [],
+    stdout: 'make: entering directory /work\n{"t1": {"passed": true}}', stderr: 'warning: something\n', confirmed: false })]));
+  await openTab(page, 'Grading');
+  const results = page.getByRole('region', { name: 'Results of run 1' });
+  await expect(results.getByRole('alert')).toContainText('Grading failed: its output was not what a grade program must print');
+  await expect(results.getByRole('alert')).toContainText('not one JSON object');
+  await expect(results.getByRole('button', { name: /Confirm this grade/ })).toHaveCount(0);
+  await results.getByText('What the run printed').click();
+  await expect(results.getByLabel('Standard output of the run')).toContainText('make: entering directory /work');
+  // The summary of the session says it too, and a student who was never graded says so.
+  await expect(page.getByRole('region', { name: 'Session review' })).toContainText('Grading failed: its output was not what a grade program must print');
+});
+
+test('a student who was never graded says so, and the grid goes by keyboard', async ({ page }) => {
+  await review(page, gradedData([]));
+  await openTab(page, 'Grading');
+  await expect(page.getByText('This student has not been graded.')).toBeVisible();
+  await expect(page.locator('dl.summary')).not.toContainText('Grade');
 });
 
 const event = (id, type, detail) => ({ id: `event:${id}`, kind: 'event', occurred_at: '2035-01-01T00:05:00Z', event: { event_log_id: id, event_type: type, detail, screenshots: [] } });

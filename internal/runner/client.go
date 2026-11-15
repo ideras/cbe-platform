@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net"
 	"net/http"
 	"net/url"
@@ -100,6 +101,47 @@ func (c *Client) json(ctx context.Context, method, path string, in any, out any)
 // Ping checks that the runner answers and that the secret is right.
 func (c *Client) Ping(ctx context.Context) error {
 	return c.json(ctx, http.MethodGet, "/v1/ping", nil, nil)
+}
+
+// Grade is grading.run: the submission and the exam's grading bundle (two tar archives) go to a fresh container, and what the run printed and
+// how it ended come back. It returns when the run is over, which can be minutes; ctx is its only timeout.
+func (c *Client) Grade(ctx context.Context, req GradeRequest, submission, bundle io.Reader) (GradeResult, error) {
+	pipeReader, pipeWriter := io.Pipe()
+	defer pipeReader.Close()
+	form := multipart.NewWriter(pipeWriter)
+	go func() {
+		err := func() error {
+			part, err := form.CreateFormField("request")
+			if err != nil {
+				return err
+			}
+			if err := json.NewEncoder(part).Encode(req); err != nil {
+				return err
+			}
+			for _, item := range []struct {
+				name   string
+				source io.Reader
+			}{{"submission", submission}, {"grading", bundle}} {
+				part, err := form.CreateFormFile(item.name, item.name+".tar")
+				if err != nil {
+					return err
+				}
+				if _, err := io.Copy(part, item.source); err != nil {
+					return err
+				}
+			}
+			return form.Close()
+		}()
+		_ = pipeWriter.CloseWithError(err)
+	}()
+	var result GradeResult
+	response, err := c.request(ctx, http.MethodPost, "/v1/grading", pipeReader, form.FormDataContentType())
+	if err != nil {
+		return result, err
+	}
+	defer response.Body.Close()
+	err = json.NewDecoder(io.LimitReader(response.Body, 4<<20)).Decode(&result)
+	return result, err
 }
 
 // Create is container.create.

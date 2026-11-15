@@ -1,6 +1,62 @@
 #!/bin/sh
-# Hidden tests. Prints one JSON object: the key is a TODO id, the value says whether it passed.
-# The cases live in grading/tests/hidden_cases.txt (HIDDEN-CASES-MARKER-4f1c9a: this line must never reach a student).
-cd "$(dirname "$0")" || exit 1
-printf '{"t1": {"passed": true, "points": 10, "log": "4/4 tests passed"},\n'
-printf ' "t2": {"passed": false, "points": 6, "log": "3/5 tests passed"}}\n'
+# Hidden tests of lab-listas. It builds the student's list.cpp with a hidden driver and prints one JSON object on standard output (the
+# plan's 5.3: the key is a TODO id). Standard output is for that alone; everything else goes to standard error, where the proctor can read it.
+# The cases live in tests/hidden_cases.txt (HIDDEN-CASES-MARKER-4f1c9a: nothing of this folder may reach a student).
+here=$(cd "$(dirname "$0")" && pwd)
+work=${WORK:-/work}
+tmp=$(mktemp -d "$work/.grade.XXXXXX") || exit 1
+trap 'rm -rf "$tmp"' EXIT
+cxx="g++ -std=c++20 -O0 -I$work/include"
+
+# points PASSED TOTAL WORTH: the share of what the TODO is worth, to two decimals.
+points() { awk -v p="$1" -v t="$2" -v w="$3" 'BEGIN { if (t == 0) printf "0"; else printf "%.2f", w * p / t }'; }
+# cases OPERATION: how many hidden cases there are for it.
+cases() { grep -c "^$1 " "$here/tests/hidden_cases.txt"; }
+
+built=no
+if $cxx -o "$tmp/driver" "$here/tests/driver.cpp" "$work/src/list.cpp" 2>"$tmp/build.log"; then
+  built=yes
+else
+  echo "src/list.cpp does not compile with the hidden driver:" >&2
+  cat "$tmp/build.log" >&2
+fi
+
+# score OPERATION: "passed total" for the hidden cases of one operation; a program that crashes or does not end scores none.
+score() {
+  total=$(cases "$1")
+  passed=0
+  if [ "$built" = yes ]; then
+    got=$(timeout 10 "$tmp/driver" "$1" "$here/tests/hidden_cases.txt" 2>&1 >"$tmp/out" || true)
+    [ -n "$got" ] && echo "$got" >&2
+    passed=$(awk 'NR == 1 { print $1 }' "$tmp/out" 2>/dev/null)
+    [ -n "$passed" ] || { passed=0; echo "$1: the program crashed or did not end" >&2; }
+  fi
+  echo "$passed $total"
+}
+
+set -- $(score push_front); p1=$1; n1=$2
+set -- $(score insert_sorted); p2=$1; n2=$2
+log1="$p1/$n1 tests passed"; log2="$p2/$n2 tests passed"
+[ "$built" = yes ] || { log1="src/list.cpp does not compile"; log2="src/list.cpp does not compile"; }
+ok1=false; [ "$n1" -gt 0 ] && [ "$p1" -eq "$n1" ] && ok1=true
+ok2=false; [ "$n2" -gt 0 ] && [ "$p2" -eq "$n2" ] && ok2=true
+
+# t3: tests/mine.cpp is there, has at least three cases of the student's own, compiles with their list and passes.
+ok3=false; log3="tests/mine.cpp is not there"
+if [ -f "$work/tests/mine.cpp" ]; then
+  calls=$(grep -c -E 'push_front\(|insert_sorted\(' "$work/tests/mine.cpp")
+  if [ "$calls" -lt 3 ]; then
+    log3="tests/mine.cpp has $calls cases; at least 3 are needed"
+  elif ! $cxx -o "$tmp/mine" "$work/tests/mine.cpp" "$work/src/list.cpp" 2>>"$tmp/build.log"; then
+    log3="tests/mine.cpp does not compile"
+  elif ! timeout 10 "$tmp/mine" >&2; then
+    log3="tests/mine.cpp has $calls cases and one of them fails"
+  else
+    ok3=true; log3="tests/mine.cpp has $calls cases and passes"
+  fi
+fi
+pt3=0; [ "$ok3" = true ] && pt3=15
+
+printf '{"t1": {"passed": %s, "points": %s, "log": "%s"},\n' "$ok1" "$(points "$p1" "$n1" 10)" "$log1"
+printf ' "t2": {"passed": %s, "points": %s, "log": "%s"},\n' "$ok2" "$(points "$p2" "$n2" 15)" "$log2"
+printf ' "t3": {"passed": %s, "points": %s, "log": "%s"}}\n' "$ok3" "$pt3" "$log3"

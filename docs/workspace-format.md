@@ -94,6 +94,7 @@ One `key: value` per line. A value may be in quotes. A line that starts with `#`
 | `submit` | no | What is submitted: one glob, or a bracketed list. Default: everything in `/work` except what `ignore` names. |
 | `ignore` | no | What is left out of a submission. Default: `[build/**, **/*.o, **/*.out, **/__pycache__/**, .cache/**]`. `ignore: []` ignores nothing. |
 | `resources` | no | `cpu=1, memory=1g, disk=100m`: the same `setting=value` syntax as `calculator`. Each setting is optional. Defaults: 1 core, 1 GiB, 100 MiB. See [Limits](#limits). |
+| `grade_timeout` | no | How long a grading run of this exam may take, from `10s` to `30m` (for example `grade_timeout: 10m`). Default: the server's setting, 5 minutes. A run that takes longer is stopped and fails. |
 | `snapshot` | no | How often the server snapshots a student's files while they change, from `10s` to `10m`. Default: the server's setting (60 seconds). Submitting, losing the container's agent and the deadline always take a snapshot. |
 | `navigation` | **not allowed** | A workspace exam is one page. |
 | `pin`, `focus_threshold` | **not allowed** | As in a question exam: the proctor enters the PIN when importing, and the focus threshold is a setting of the proctor application. |
@@ -149,7 +150,14 @@ What a folder may hold: folders, regular files and **symbolic links that stay in
  "t2": {"passed": false, "points": 6,  "log": "3/5 tests passed"}}
 ```
 
-The keys are TODO IDs; a key that is not an ID is reported, not dropped. `grade` counts as **executable** when it starts with `#!` or is an ELF program, or when its executable bit is set on the computer that compiles the package. The first rule means a package written on a computer without executable bits still works.
+The keys are TODO IDs; a key that is not an ID is reported, not dropped. The contract, which the grader holds every run to (it fails the run with the reason, and shows what `grade` printed, when one is broken):
+
+- **Standard output is the JSON alone.** One object, nothing before it and nothing after it: the output of `make` or a compiler goes to **standard error**, where the proctor can read it next to the result.
+- Each value has `"passed"` (`true` or `false`, required), `"points"` (a number, zero or more) and `"log"` (text, kept up to 8 KiB). A `points` that is left out is what the TODO is worth when it passed, and nothing when it did not; points over what the TODO is worth are capped, and the log says so. Partial credit is a `points` between the two.
+- **`grade` ends with exit code 0** once it has printed its JSON. Any other exit, a crash, running out of memory, or not ending within `grade_timeout` fails the run. (A student's code that crashes is not that: `grade` should run it, see it crash, and say so in the result.)
+- It runs as the student user, in a fresh container with **no network**, the same limits as the student's own, `/work` holding the submission (the files the exam submits, as the student left them), your `grading/` folder **read-only at `/grading`**, and `HOME=/work`. `/tmp` is small and cannot run programs; build into `/work`. Whatever it does to `/work` is thrown away with the container.
+- A TODO the output does not mention has no result; a key that is not a TODO is shown and not counted. The total is the sum of the points of the TODOs graded; a grade is **advisory** until the proctor confirms it.
+- The student's code runs in the same container as `grade`, so it can read `/grading`. Grading is a way to measure, not a lock: the same rule as for a student's own test run. `grade` counts as **executable** when it starts with `#!` or is an ELF program, or when its executable bit is set on the computer that compiles the package. The first rule means a package written on a computer without executable bits still works.
 
 ### Bundles
 
@@ -218,7 +226,7 @@ Laboratorio 2 – Listas enlazadas
   t3   Add tests/mine.cpp with at least three cases of your own [15 pts]
   total: 40 points
   starter bundle: 5 files, 2110 bytes, sha256:a8f8de68…
-  grading bundle: 2 files, 492 bytes, sha256:2d95f25b…
+  grading bundle: 3 files, 5129 bytes, sha256:37c718d1…
 ```
 
 and `build/examc -json testdata/workspace/lab-listas` prints [`lab-listas.json`](../testdata/workspace/lab-listas.json).
@@ -229,7 +237,7 @@ and `build/examc -json testdata/workspace/lab-listas` prints [`lab-listas.json`]
 2. **Import.** The server stores the document and the bundles. The grading bundle is never sent to a student's application, and the compiled document holds only its hash.
 3. **First login.** The student's container is created from the course image, with the limits of `resources`, and the starter bundle is copied into `/work`.
 4. **During the exam.** The student edits files and runs commands in the container; the server snapshots `/work` at the interval of `snapshot` and on Submit.
-5. **Grading.** `grading/grade` runs in a fresh container, offline, against the submitted snapshot.
+5. **Grading.** The proctor asks for one student or the class to be graded. For each, `grading/grade` runs in a fresh container, offline, against the student's latest submission, with at most a few runs at once (`-workspace-grade-parallel` on the server, `grade_parallel` on the runner); the result of each TODO and the logs are read in the proctor's review window, and a grade counts once the proctor confirms it. Students can be graded again.
 
 Steps 2 to 5 are built in later phases of the workspace plan; this document defines the package they all start from.
 

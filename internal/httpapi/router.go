@@ -53,6 +53,12 @@ func New(clock clock.Clock, sessions SessionAPI, logger *slog.Logger, options ..
 		admin.Handle("GET /admin/workspace/submission/{id}/zip", workspaceZipHandler(cfg.Workspace, logger))
 		admin.Handle("GET /admin/workspace/session/{id}/report", workspaceReportHandler(cfg.Workspace, logger))
 		admin.Handle("GET /admin/workspace/terminal/{id}/cast", workspaceCastHandler(cfg.Workspace, logger))
+		admin.Handle("POST /admin/workspace/exam/{id}/grade", workspaceGradeExamHandler(cfg.Workspace, logger))
+		admin.Handle("POST /admin/workspace/session/{id}/grade", workspaceGradeSessionHandler(cfg.Workspace, logger))
+		admin.Handle("GET /admin/workspace/session/{id}/gradings", workspaceGradingsHandler(cfg.Workspace, logger))
+		admin.Handle("GET /admin/workspace/grading/{id}", workspaceGradingHandler(cfg.Workspace, logger))
+		admin.Handle("POST /admin/workspace/grading/{id}/confirm", workspaceConfirmHandler(cfg.Workspace, logger, false))
+		admin.Handle("POST /admin/workspace/grading/{id}/unconfirm", workspaceConfirmHandler(cfg.Workspace, logger, true))
 	}
 	if cfg.Screenshots != nil {
 		mux.Handle("POST /screenshot", StudentAuth(sessions, logger, screenshotUploadHandler(cfg.Screenshots, logger)))

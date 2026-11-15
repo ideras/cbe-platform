@@ -33,6 +33,9 @@ const (
 	// MinSnapshotSeconds and MaxSnapshotSeconds bound the snapshot key (decision P0-19). The server may narrow them.
 	MinSnapshotSeconds = 10
 	MaxSnapshotSeconds = 600
+	// MinGradeTimeoutSeconds and MaxGradeTimeoutSeconds bound the grade_timeout key (decision P6-3); the runner has a maximum of its own.
+	MinGradeTimeoutSeconds = 10
+	MaxGradeTimeoutSeconds = 1800
 )
 
 // defaultIgnore is what a workspace exam leaves out of a submission when its front matter has no ignore key.
@@ -78,6 +81,8 @@ type WorkspaceSettings struct {
 	Resources Resources `json:"resources"`
 	// SnapshotSeconds is how often the server snapshots the workspace while files change; nil means the server's default (D8).
 	SnapshotSeconds *int64 `json:"snapshot_seconds,omitempty"`
+	// GradeTimeoutSeconds is how long a grading run of this exam may take; nil means the server's default, 5 minutes.
+	GradeTimeoutSeconds *int64 `json:"grade_timeout_seconds,omitempty"`
 }
 
 // Resources are the limits of the student's container.

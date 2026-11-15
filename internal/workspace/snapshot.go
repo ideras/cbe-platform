@@ -246,9 +246,14 @@ func (s *Snapshots) WriteTar(ctx context.Context, id int64, w io.Writer) error {
 	if err != nil {
 		return err
 	}
+	return s.writeManifestTar(w, manifest, record.TakenAt, fmt.Sprintf("snapshot %d", id))
+}
+
+// writeManifestTar writes the entries of a manifest, a snapshot's or a submission's, as a tar archive.
+func (s *Snapshots) writeManifestTar(w io.Writer, manifest Manifest, at time.Time, what string) error {
 	out := tar.NewWriter(w)
 	for _, e := range manifest.Entries {
-		header := &tar.Header{Name: e.Path, Mode: e.Mode, ModTime: record.TakenAt.Truncate(time.Second), Format: tar.FormatPAX}
+		header := &tar.Header{Name: e.Path, Mode: e.Mode, ModTime: at.Truncate(time.Second), Format: tar.FormatPAX}
 		switch e.Type {
 		case "dir":
 			header.Typeflag, header.Name = tar.TypeDir, e.Path+"/"
@@ -263,7 +268,7 @@ func (s *Snapshots) WriteTar(ctx context.Context, id int64, w io.Writer) error {
 		if e.Type == "file" {
 			f, err := s.blobs.Open(e.Hash)
 			if err != nil {
-				return fmt.Errorf("snapshot %d: %s: %w", id, e.Path, err)
+				return fmt.Errorf("%s: %s: %w", what, e.Path, err)
 			}
 			_, err = io.Copy(out, f)
 			f.Close()

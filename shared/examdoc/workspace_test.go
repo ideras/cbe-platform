@@ -197,6 +197,7 @@ submit: src/**
 ignore: []
 resources: cpu=0.5, memory=512m, disk=1g
 snapshot: 30s
+grade_timeout: 10m
 calculator: mode=[scientific], angle=rad
 points: 5
 `
@@ -205,7 +206,7 @@ points: 5
 	if *exam.GraceSeconds != 45 || *exam.MinVolumePercent != 0 || exam.OpensAt.Hour() != 8 || !exam.ClosesAt.After(*exam.OpensAt) ||
 		workspace.Terminal || workspace.Run != "make run" || workspace.Check != "make check" || len(workspace.Submit) != 1 || workspace.Submit[0] != "src/**" ||
 		workspace.Ignore == nil || len(workspace.Ignore) != 0 || workspace.Resources != (Resources{CPU: 0.5, MemoryMB: 512, DiskMB: 1024}) ||
-		*workspace.SnapshotSeconds != 30 || exam.Tools == nil || !exam.Tools.On() {
+		*workspace.SnapshotSeconds != 30 || *workspace.GradeTimeoutSeconds != 600 || exam.Tools == nil || !exam.Tools.On() {
 		t.Fatalf("exam = %+v", exam)
 	}
 	// An empty ignore list is written as [], never as null.
@@ -310,6 +311,9 @@ func TestWorkspaceProblemsNameTheirLines(t *testing.T) {
 		"snapshot":             {pkg(extra("snapshot: often\n"), "[ ] a\n"), "line 5: snapshot must be a length of time from 10s to 10m"},
 		"snapshot low":         {pkg(extra("snapshot: 5s\n"), "[ ] a\n"), "line 5: snapshot must be a length of time from 10s to 10m"},
 		"snapshot high":        {pkg(extra("snapshot: 11m\n"), "[ ] a\n"), "line 5: snapshot must be a length of time from 10s to 10m"},
+		"grade_timeout":        {pkg(extra("grade_timeout: long\n"), "[ ] a\n"), "line 5: grade_timeout must be a length of time from 10s to 30m"},
+		"grade_timeout low":    {pkg(extra("grade_timeout: 5s\n"), "[ ] a\n"), "line 5: grade_timeout must be a length of time from 10s to 30m"},
+		"grade_timeout high":   {pkg(extra("grade_timeout: 31m\n"), "[ ] a\n"), "line 5: grade_timeout must be a length of time from 10s to 30m"},
 
 		// 5.1 body rules: the question-exam rules, plus what a workspace exam may not hold
 		"no todos":        {pkg(okFront, "Only instructions.\n"), fmt.Sprintf("line %d: the exam has no TODO items", body)},

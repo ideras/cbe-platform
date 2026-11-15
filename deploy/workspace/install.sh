@@ -29,6 +29,8 @@ echo "== folders"
 install -d -o "$RUNNER" -g "$GROUP" -m 2710 "$BASE/ipc"
 # run: the agents' socket folders (one per session, open to the student) live under a folder only the runner can enter.
 install -d -o "$RUNNER" -g "$RUNNER" -m 0700 "$BASE/run" "$BASE/runner"
+# grading: a grading run's copy of the exam's hidden bundle, for as long as the run lasts (Phase 6); only the runner can enter it.
+install -d -o "$RUNNER" -g "$RUNNER" -m 0700 "$BASE/grading"
 # server: the exam server's own data, in its own account.
 install -d -o "$SERVER" -g "$SERVER" -m 0700 "$BASE/server"
 

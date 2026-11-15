@@ -10,6 +10,7 @@
 //	CBE_E2E_RUNTIME_SOCKET    the runtime's socket, which this account must not be able to reach
 //	CBE_E2E_STUDENT_TEST      for phase D: the student application's client tests, compiled (go test -c ./apps/student/internal/client)
 //	CBE_E2E_PACKAGE           a folder with what examc made of the example package: document.json, starter.tar, grading.tar
+//	CBE_E2E_PHASE=E           grading (Phase 6; grading_e2e_test.go), against a private runner: deploy/workspace/test-grading.sh
 package e2e
 
 import (
@@ -379,6 +380,8 @@ func TestRealServer(t *testing.T) {
 		phaseC(t, r)
 	case "D":
 		phaseD(t, r)
+	case "E":
+		phaseGrading(t, r)
 	case "M":
 		phaseManual(t, r)
 	case "cleanup":
@@ -390,7 +393,7 @@ func TestRealServer(t *testing.T) {
 			}
 		}
 	default:
-		t.Fatalf("CBE_E2E_PHASE must be A, B, C, D, M or cleanup, not %q", phase)
+		t.Fatalf("CBE_E2E_PHASE must be A, B, C, D, E, M or cleanup, not %q", phase)
 	}
 }
 

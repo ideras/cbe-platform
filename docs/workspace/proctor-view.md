@@ -16,14 +16,19 @@ On a workspace exam the table has one more column, **Workspace**, headed "TODO i
 | TODO | "2 of 3 done (self-reported)" | the ticks the student made; **nothing checks them** |
 | submissions | "2 submissions · last 4:20 PM · final made" | `workspace_submissions` |
 | restarts | "Workspace restarted 2 times" | how often the agent's container restarted |
+| Grade | "Grade: 28 of 40 points (advisory until you confirm it)", "(confirmed)", "Waiting to be graded", "Being graded…", "Grading failed: it did not end in time"; nothing before any grading | the confirmed run of the student, or else the latest (`workspace_gradings`, Phase 6) |
 
 A student who has no workspace yet reads "No workspace yet". On an exam that is not a workspace exam the column is not there: the application asks
 `GET /admin/workspace/exam/{id}/roster`, the server answers 404 for a question exam, and the application remembers that and does not ask again.
 
+Above the table, a **Grading** line counts the class ("2 graded (1 confirmed) · 1 waiting or being graded · 1 failed · 3 submitted, not graded") and has
+**Grade submissions…**: it asks first (how many submissions will be graded, that students already being graded or with nothing submitted are left out, that
+grades are advisory), then queues one run for each, and says how many were queued and who was left out. The button is not there for a question exam.
+
 ## The review window
 
-Each student's review window (Review) is the session's summary and, for a workspace's session, **three tabs** (P5-15): **History**, **Files** and
-**Terminals** (with the number of terminals). A session that is not a workspace's has no tabs, only the history. The tabs go by arrow keys, Home and End;
+Each student's review window (Review) is the session's summary and, for a workspace's session, **four tabs** (P5-15, P6-9): **History**, **Files**,
+**Terminals** (with the number of terminals) and **Grading** (with the number of runs). A session that is not a workspace's has no tabs, only the history. The tabs go by arrow keys, Home and End;
 every tab stays in the page, so a file that was chosen or a replay that was started is still there when its tab is chosen again.
 
 - **The summary** (above the tabs) adds to the session's own rows the container's state and restarts, the ticks (as the student's word), and the
@@ -34,6 +39,13 @@ every tab stays in the page, so a file that was chosen or a replay that was star
 - **Files:** a source selector (the newest snapshot first, then each submission), a tree, and a read-only viewer. A snapshot is everything in the workspace,
   build products too; a submission is only what the exam submits (`submit` and `ignore`). Files are shown as text with line numbers; a binary file or one over
   1 MiB is described and not shown (it is in the zip). Links are shown as links and not followed.
+- **Grading** (Phase 6, `grading.md`): *Grade this student* (the latest submission, or the one picked), and the student's runs as a grid, newest first (run,
+  when it was asked, which submission, its result, whether it is confirmed). The latest run is open to begin with; choosing another row opens it under the grid:
+  for each TODO of the exam, *Passed* or *Not passed*, the points of what it is worth, and the log of the grade program; a key of the output that is not a TODO
+  is shown and said not to count; a TODO the output does not mention says so. *What the run printed* has standard output and standard error as text. A failed run
+  says why and shows the same. **Confirm this grade** makes the run the student's grade (and takes the confirmation from another run of theirs); **Take the
+  confirmation back** makes it advisory again. A run that is going shows its end without a click. The summary above the tabs has a *Grade* row: the confirmed run's
+  grade, or the latest's.
 - **Terminals:** a grid with a row for each terminal the student had (what it was, when it started, how it ended, how much it printed). **Choosing a row**
   (click, or Enter or Space; the arrow keys, Home and End move between rows) shows its replay under the grid and scrolls the window to it, so that it is
   never out of sight; *Close replay* clears the choice. The replay is the terminal as it printed, with the pauses shortened to 2 seconds; it can be paused,
@@ -55,6 +67,11 @@ All need the admin token. `{id}` is a session, snapshot, submission or terminal 
 | `GET /admin/workspace/submission/{id}/tree`, `.../file?path=`, `.../zip` | the files of a submission, and its zip (regular files only) |
 | `GET /admin/workspace/session/{session}/report` | the Markdown report of the latest submission |
 | `GET /admin/workspace/terminal/{id}/cast` | the asciinema v2 transcript |
+| `POST /admin/workspace/exam/{exam}/grade` `{"sessions": [...]}` | queue the latest submission of the exam's students, or of those named (none named is all): `202 {queued: [run…], skipped: [{session_id, account_number, reason}]}`; 409 when the exam has no grading folder |
+| `POST /admin/workspace/session/{session}/grade` `{"submission": id}` | queue one student's latest submission (or the one named): `202 {grading: run}`; 409 with nothing submitted, or a run already waiting or going |
+| `GET /admin/workspace/session/{session}/gradings` | the student's runs, newest first, with their results (not what they printed), and the exam's TODOs |
+| `GET /admin/workspace/grading/{id}` | one run with what it printed |
+| `POST /admin/workspace/grading/{id}/confirm`, `.../unconfirm` | confirm a finished run as the student's grade, or take it back; 409 for a run that is not done |
 
 ## What is shown and what is only text
 

@@ -24,6 +24,13 @@ import (
 	"exam-platform/internal/runner"
 )
 
+// GradeCall is one grading run as the fake was asked for it: the request, the files of the submission and the files of the bundle.
+type GradeCall struct {
+	Request runner.GradeRequest
+	Files   map[string]string
+	Bundle  map[string]string
+}
+
 // Runner is the fake. Its methods are those of workspace.RunnerAPI.
 type Runner struct {
 	dir string
@@ -40,6 +47,13 @@ type Runner struct {
 	SilentAgents map[string]bool
 	// FailArchive makes Archive fail.
 	FailArchive error
+	// GradeHook, when set, decides what a grading run returns; it is given the request and the files of the submission and of the bundle.
+	// Without it a run ends with exit code 0 and "{}" on standard output.
+	GradeHook func(ctx context.Context, call GradeCall) (runner.GradeResult, error)
+	// Gradings lists the runs that were asked of it, and GradePeak is the most that were going at once.
+	Gradings  []GradeCall
+	GradePeak int
+	gradeNow  int
 	// Now is the clock the agents' heartbeats are stamped with; tests that move the exam server's clock move it too.
 	Now func() time.Time
 }
@@ -430,4 +444,58 @@ func (r *Runner) ConnectAgent(ctx context.Context, id string) (net.Conn, error) 
 
 func (r *Runner) ImageInspect(_ context.Context, name string) (runner.ImageStatus, error) {
 	return runner.ImageStatus{Name: name, Approved: r.Images[name], Present: r.Images[name], ID: "sha256:fake"}, nil
+}
+
+// readFiles reads a tar archive into name -> content.
+func readFiles(r io.Reader) (map[string]string, error) {
+	out := map[string]string{}
+	reader := tar.NewReader(r)
+	for {
+		header, err := reader.Next()
+		if errors.Is(err, io.EOF) {
+			return out, nil
+		}
+		if err != nil {
+			return out, err
+		}
+		if header.Typeflag == tar.TypeReg {
+			data, err := io.ReadAll(reader)
+			if err != nil {
+				return out, err
+			}
+			out[header.Name] = string(data)
+		}
+	}
+}
+
+// Grade is grading.run: it reads the two archives it is given (so that whoever writes them to a pipe is let go), notes the call, and returns
+// what GradeHook says.
+func (r *Runner) Grade(ctx context.Context, req runner.GradeRequest, submission, bundle io.Reader) (runner.GradeResult, error) {
+	files, err := readFiles(submission)
+	if err != nil {
+		return runner.GradeResult{}, fmt.Errorf("%w: the submission is not a tar archive: %v", runner.ErrBadRequest, err)
+	}
+	bundled, err := readFiles(bundle)
+	if err != nil {
+		return runner.GradeResult{}, fmt.Errorf("%w: the bundle is not a tar archive: %v", runner.ErrBadRequest, err)
+	}
+	call := GradeCall{Request: req, Files: files, Bundle: bundled}
+	r.mu.Lock()
+	r.Gradings = append(r.Gradings, call)
+	hook := r.GradeHook
+	if r.gradeNow++; r.gradeNow > r.GradePeak {
+		r.GradePeak = r.gradeNow
+	}
+	r.mu.Unlock()
+	defer func() {
+		r.mu.Lock()
+		r.gradeNow--
+		r.mu.Unlock()
+	}()
+	if hook != nil {
+		result, err := hook(ctx, call)
+		result.Grading = req.Grading
+		return result, err
+	}
+	return runner.GradeResult{Grading: req.Grading, Stdout: "{}"}, nil
 }

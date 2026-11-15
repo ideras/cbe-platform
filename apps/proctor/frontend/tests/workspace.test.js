@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { workspaceBadge, activityText, todoText, useText, kindLabel, endText, sizeText, treeRows, parseCast, playbackPlan, numberedLines, plainText } from '../src/workspace.js';
+import { workspaceBadge, activityText, todoText, useText, kindLabel, endText, sizeText, treeRows, parseCast, playbackPlan, numberedLines, plainText, gradeLine, gradingSummary, pointsText, failureLabel, gradeNote } from '../src/workspace.js';
 
 test('the roster says what the container is doing in words', () => {
   assert.deepEqual(workspaceBadge({ state: 'ready' }), { text: 'Running', tone: 'active' });
@@ -86,4 +86,33 @@ test('a transcript as plain text has no control sequences in it', () => {
   const events = [{ at: 0, text: '\x1b[1;32mstudent@workspace\x1b[0m:\x1b[34m/work\x1b[0m$ ls\r\n' }, { at: 1, text: '\x1b]0;title\x07Makefile  src\r\n\x1b[?2004h' }, { at: 2, text: 'caf\u00e9 \u4e16\u754c\r\n' }];
   assert.equal(plainText(events), 'student@workspace:/work$ ls\nMakefile  src\ncaf\u00e9 \u4e16\u754c\n');
   assert.equal(plainText([]), '');
+});
+
+test('points are told as a share of what the TODOs are worth, when they are worth something', () => {
+  assert.equal(pointsText(16, 40), '16 of 40 points');
+  assert.equal(pointsText(6.5, 15), '6.5 of 15 points');
+  assert.equal(pointsText(3.3333, null), '3.33 points');
+  assert.equal(pointsText(null, 40), 'no points');
+  assert.equal(pointsText(0, 40), '0 of 40 points');
+});
+
+test('a grade says in words where it stands, and is advisory until it is confirmed', () => {
+  assert.equal(gradeLine(null), null);
+  assert.deepEqual(gradeLine({ state: 'queued' }), { text: 'Waiting to be graded', note: '', tone: 'neutral' });
+  assert.deepEqual(gradeLine({ state: 'running' }), { text: 'Being graded…', note: '', tone: 'active' });
+  assert.deepEqual(gradeLine({ state: 'done', points: 16, max_points: 40, confirmed: false }), { text: '16 of 40 points', note: gradeNote, tone: 'neutral' });
+  assert.deepEqual(gradeLine({ state: 'done', points: 16, max_points: 40, confirmed: true }), { text: '16 of 40 points', note: 'confirmed', tone: 'ok' });
+  assert.equal(gradeLine({ state: 'failed', failure: 'timeout' }).text, 'Grading failed: it did not end in time');
+  assert.equal(gradeLine({ state: 'failed', failure: 'timeout' }).tone, 'lock');
+  assert.equal(failureLabel('something new'), 'it failed');
+  assert.match(gradeNote, /advisory/);
+});
+
+test('the class\'s grading is counted, and who a request to grade it would queue is said', () => {
+  const students = [
+    { submissions: 1, grade: { state: 'done', confirmed: true } }, { submissions: 2, grade: { state: 'done', confirmed: false } }, { submissions: 1, grade: { state: 'failed' } },
+    { submissions: 1, grade: { state: 'running' } }, { submissions: 1, grade: { state: 'queued' } }, { submissions: 3, grade: null }, { submissions: 0, grade: null },
+  ];
+  assert.deepEqual(gradingSummary(students), { waiting: 1, running: 1, done: 2, confirmed: 1, failed: 1, ungraded: 1, submitters: 6, gradable: 4 });
+  assert.deepEqual(gradingSummary(undefined), { waiting: 0, running: 0, done: 0, confirmed: 0, failed: 0, ungraded: 0, submitters: 0, gradable: 0 });
 });

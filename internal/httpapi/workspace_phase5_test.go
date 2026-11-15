@@ -48,7 +48,7 @@ func (f *workspaceFixture) history(t *testing.T, session string) []event {
 				continue
 			}
 			kind := item.Event.Type
-			if strings.HasPrefix(kind, "workspace.") || strings.HasPrefix(kind, "file.") || strings.HasPrefix(kind, "pty.") || strings.HasPrefix(kind, "run.") || kind == "todo.set" || kind == "paste.blocked" {
+			if strings.HasPrefix(kind, "workspace.") || strings.HasPrefix(kind, "file.") || strings.HasPrefix(kind, "pty.") || strings.HasPrefix(kind, "run.") || strings.HasPrefix(kind, "grading.") || kind == "todo.set" || kind == "paste.blocked" {
 				e := event{Type: kind, Detail: map[string]any{}}
 				_ = json.Unmarshal(item.Event.Detail, &e.Detail)
 				out = append(out, e)

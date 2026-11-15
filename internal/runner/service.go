@@ -48,6 +48,8 @@ type Service struct {
 	mu    sync.Mutex
 	locks map[string]*sync.Mutex
 	links map[string]*agentLink
+	// gradeSlots holds a token for every grading run going: at most GradeParallel at once (Phase 6).
+	gradeSlots chan struct{}
 }
 
 // NewService makes the runner's service. It makes the run and state folders, and adopts the containers that are already there
@@ -56,12 +58,12 @@ func NewService(cfg Config, rt Runtime, q Quota, logger *slog.Logger) (*Service,
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
-	for _, dir := range []string{cfg.RunRoot, cfg.StateRoot} {
+	for _, dir := range []string{cfg.RunRoot, cfg.StateRoot, cfg.GradeRoot} {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return nil, err
 		}
 	}
-	s := &Service{cfg: cfg, rt: rt, quota: q, logger: logger, locks: map[string]*sync.Mutex{}, links: map[string]*agentLink{}}
+	s := &Service{cfg: cfg, rt: rt, quota: q, logger: logger, locks: map[string]*sync.Mutex{}, links: map[string]*agentLink{}, gradeSlots: make(chan struct{}, cfg.GradeParallel)}
 	return s, nil
 }
 
@@ -108,6 +110,10 @@ func (s *Service) Reconcile(ctx context.Context) (int, error) {
 	list, err := s.rt.List(ctx, LabelManaged, "1")
 	if err != nil {
 		return 0, err
+	}
+	// A grading run that was going when the runner stopped is over, and what it made is removed.
+	if swept := s.sweepGradings(ctx); swept > 0 {
+		s.logger.Info("grading containers left by a stopped runner were removed", "count", swept)
 	}
 	for _, c := range list {
 		session := c.Labels[LabelSession]

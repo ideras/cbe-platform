@@ -122,6 +122,7 @@ type workspaceFixture struct {
 	*apiFixture
 	runner  *workspacetest.Runner
 	manager *workspace.Manager
+	grader  *workspace.Grader
 	service *workspace.Service
 	blobs   workspace.Blobs
 	repo    workspace.Repository
@@ -150,7 +151,12 @@ func newWorkspaceFixture(t *testing.T, change func(*workspace.Document)) *worksp
 	f.manager = workspace.NewManager(workspace.Options{Repo: f.repo, Runner: f.runner, Blobs: f.blobs, Logger: f.logger, Now: f.clock.Now, SnapshotEvery: 60 * time.Second,
 		HeartbeatTimeout: 5 * time.Second, ReadyTimeout: 10 * time.Second, Retention: time.Hour, TranscriptDir: f.dir + "/transcripts"})
 	t.Cleanup(f.manager.Close)
-	f.service = &workspace.Service{Manager: f.manager, Repo: f.repo, Importer: &workspace.Importer{Repo: f.repo, Runner: f.runner, Blobs: f.blobs, Now: f.clock.Now,
+	f.grader = workspace.NewGrader(f.manager, workspace.GraderOptions{Parallel: 2, DefaultTimeout: 5 * time.Minute})
+	graderCtx, stopGrader := context.WithCancel(context.Background())
+	graderDone := make(chan struct{})
+	go func() { f.grader.Run(graderCtx); close(graderDone) }()
+	t.Cleanup(func() { stopGrader(); <-graderDone })
+	f.service = &workspace.Service{Manager: f.manager, Repo: f.repo, Grader: f.grader, Importer: &workspace.Importer{Repo: f.repo, Runner: f.runner, Blobs: f.blobs, Now: f.clock.Now,
 		Max: workspace.Resources{CPU: 2, MemoryMB: 2048, DiskMB: 500}, DefaultGrace: f.sessions.DefaultGraceSeconds}}
 	f.options = Options{AdminToken: testAdminToken, Workspace: f.service, Proctor: f.sessions, Rules: f.sessions}
 	f.router = New(f.clock, f.sessions, f.logger, f.options)
@@ -161,7 +167,12 @@ func newWorkspaceFixture(t *testing.T, change func(*workspace.Document)) *worksp
 	if change != nil {
 		change(&doc)
 	}
-	body, contentType := importBody(t, doc, f.starter, f.grading, nil)
+	grading := f.grading
+	if doc.GradingBundle == "" {
+		// An exam whose document names no grading bundle is imported without one.
+		grading, f.grading = nil, nil
+	}
+	body, contentType := importBody(t, doc, f.starter, grading, nil)
 	w := requestWithType(f.router, "POST", "/admin/class/"+apiClassID+"/workspace-exam", body, contentType, "Bearer "+testAdminToken)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("import = %d %s", w.Code, w.Body.String())

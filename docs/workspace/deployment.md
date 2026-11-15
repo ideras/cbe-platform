@@ -67,6 +67,8 @@ The unit runs the server with `NoNewPrivileges`, a read-only system, only its ow
 | `-workspace-retention` | 48h | How long a frozen workspace's container is kept after its exam; its snapshots stay. |
 | `-workspace-snapshot-every` | 60s | The periodic snapshot interval for exams that set none (10s at least). |
 | `-workspace-max-cpu`, `-workspace-max-memory-mb`, `-workspace-max-disk-mb` | 2, 2048, 500 | The most an exam may ask for each student. The runner has its own maximums too. |
+| `-workspace-grade-parallel` | 2 | How many grading runs the server has going at once (1 to 32). The runner bounds them again (`grade_parallel`); the lower rules. |
+| `-workspace-grade-timeout` | 5m | How long a grading run may take for an exam that sets no `grade_timeout` (10s to 30m). |
 
 ## The runner's settings (`/etc/cbe-platform/runner.json`)
 
@@ -78,6 +80,10 @@ The unit runs the server with `NoNewPrivileges`, a read-only system, only its ow
 | `images` | `{"cbe/cpp20": "localhost/cbe/cpp20:latest"}` | **The approved images**: the name an exam uses, and the runtime's reference. An exam that names any other image is refused at import and again at `container.create`. |
 | `max`, `default` | cpu 2, memory 2048, disk 500; 1, 1024, 100 | The largest limits an exam may ask for, and what it gets for a limit it leaves out. |
 | `pids`, `inodes`, `tmp_mb`, `stop_seconds` | 256, 20000, 64, 5 | Fixed for every container. |
+| `grade_root` | `/data/cbe-platform/grading` | Where a grading run's copy of the hidden bundle is for as long as the run lasts. Private to the runner (`install.sh` makes it, mode 0700). |
+| `grade_parallel`, `grade_max_seconds`, `grade_output_bytes` | 2, 1800, 262144 | How many gradings run at once (1 to 32), the longest a run may be asked to last, and the most of each of a run's two output streams that is kept. |
+
+**Upgrading a host that has Phases 3 to 5:** re-run `install.sh` (it makes the grading folder and leaves the existing `runner.json` alone: the new keys have these defaults) with the new `cbe-runner` binary, and restart the runner's unit (`systemctl --user restart cbe-runner` as `cbe-runner`): its containers keep running. Then give the exam server the new binary.
 
 ## The runner's API
 
@@ -94,7 +100,8 @@ Each request carries `Authorization: Bearer <secret>`. Bodies are strict JSON; a
 | `GET /v1/containers/{session}/archive?path=/work/.` | `container.archive` (a tar stream; only paths under `/work`) | 200; 400; 404 |
 | `GET /v1/containers/{session}/agent` with `Upgrade: cbe-agent/1` | `agent.connect` (the connection becomes the agent's socket) | 101; 423 when the container is paused; 409 when it is not running |
 | `GET /v1/images?name=` | `image.inspect` | 200 `{approved, present}` |
-| `POST /v1/grading`, `POST /v1/images/build` | Phases 6 and 7 | 501 |
+| `POST /v1/grading` (`multipart/form-data`: `request`, `submission`, `grading`) | `grading.run` (Phase 6, `grading.md`) | 200 the run's result, whatever way it ended; 400 a request or archive that is not what it takes, or a bundle with no runnable `grade`; 403 image not approved |
+| `POST /v1/images/build` | Phase 7 | 501 |
 
 Everything else is 404 or 405. A 401 means the secret was wrong.
 
@@ -124,4 +131,6 @@ A session's workspace as the proctor would see it: `GET /admin/workspace/session
 | `deploy/workspace/test-server.sh` | The server's binary as `cbe-server` against all of it: login, files, terminals, Run and Check, abuse, an agent that ends, a restarted server and a restarted runner, the deadline. About four minutes; removes everything it made. |
 | `deploy/workspace/test-server.sh --manual [address]` | Not a test: a throwaway exam server for a person to try the applications against (the focus-loss script). It listens on `127.0.0.1:8090` unless given an address (`0.0.0.0:8090`, or the host's address on a virtual machine's network), has its own database, a class of three students (accounts `0001` to `0003`) and the example package published (PIN and admin token are printed), and runs until Ctrl+C, when it removes what the students made. It never touches the server on `:8080`. |
 
-All three use `sudo` without a password.
+| `deploy/workspace/test-grading.sh` | Phase 6 (`grading.md`): grading with nothing replaced. It starts a **private** runner (its own socket, secret and folders; the same runtime and quota helper), so the installed runner and anyone's containers are not touched and no service is restarted. Grades the example package's three students in real containers, holds misbehaving grade programs (no network, a read-only `/grading` and root, a run that does not end, runs out of memory or floods) and runs forty at once, two at a time. About two minutes; reports whatever it finds left (nothing, so far). |
+
+All of them use `sudo` without a password.

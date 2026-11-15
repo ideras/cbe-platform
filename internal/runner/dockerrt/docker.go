@@ -8,10 +8,12 @@ import (
 	"errors"
 	"io"
 	"strings"
+	"sync"
 	"time"
 
 	"exam-platform/internal/runner"
 	cerrdefs "github.com/containerd/errdefs"
+	"github.com/moby/moby/api/pkg/stdcopy"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/client"
 )
@@ -50,10 +52,14 @@ func (d *Docker) Ping(ctx context.Context) error {
 func hostConfig(spec runner.ContainerSpec) (*container.Config, *container.HostConfig) {
 	binds := make([]string, 0, len(spec.Binds))
 	for _, bind := range spec.Binds {
-		binds = append(binds, bind.Source+":"+bind.Target)
+		entry := bind.Source + ":" + bind.Target
+		if bind.ReadOnly {
+			entry += ":ro"
+		}
+		binds = append(binds, entry)
 	}
 	pids := spec.PidsLimit
-	config := &container.Config{Image: spec.Image, User: spec.User, WorkingDir: spec.WorkDir, Labels: spec.Labels}
+	config := &container.Config{Image: spec.Image, User: spec.User, WorkingDir: spec.WorkDir, Labels: spec.Labels, Entrypoint: spec.Entrypoint, Cmd: spec.Cmd, Env: spec.Env}
 	timeout := int(spec.StopTimeout / time.Second)
 	config.StopTimeout = &timeout
 	host := &container.HostConfig{
@@ -112,6 +118,7 @@ func inspected(response container.InspectResponse) runner.Inspected {
 	}
 	if state := response.State; state != nil {
 		out.ExitCode = state.ExitCode
+		out.OOMKilled = state.OOMKilled
 		switch {
 		case state.Paused:
 			out.State = runner.StatePaused
@@ -193,6 +200,93 @@ func (d *Docker) CopyFrom(ctx context.Context, name, path string) (io.ReadCloser
 		return nil, notFound(err)
 	}
 	return copied.Content, nil
+}
+
+// Wait blocks until the container is not running (it may already not be) and returns its exit code.
+func (d *Docker) Wait(ctx context.Context, name string) (int, error) {
+	waited := d.cli.ContainerWait(ctx, name, client.ContainerWaitOptions{Condition: container.WaitConditionNotRunning})
+	select {
+	case result := <-waited.Result:
+		if result.Error != nil {
+			return 0, errors.New(result.Error.Message)
+		}
+		return int(result.StatusCode), nil
+	case err := <-waited.Error:
+		return 0, notFound(err)
+	case <-ctx.Done():
+		return 0, ctx.Err()
+	}
+}
+
+// capped keeps the first limit bytes written to it and counts the rest as cut: it still takes everything, so the stream is read to its end.
+type capped struct {
+	mu        sync.Mutex
+	limit     int64
+	data      []byte
+	truncated bool
+}
+
+func (c *capped) Write(p []byte) (int, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	room := c.limit - int64(len(c.data))
+	switch {
+	case room >= int64(len(p)):
+		c.data = append(c.data, p...)
+	case room > 0:
+		c.data = append(c.data, p[:room]...)
+		c.truncated = true
+	default:
+		c.truncated = true
+	}
+	return len(p), nil
+}
+
+func (c *capped) read() ([]byte, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]byte(nil), c.data...), c.truncated
+}
+
+// attached is a connection to a container's output; the runtime sends the two streams in one, tagged, and stdcopy tells them apart.
+type attached struct {
+	response    client.HijackedResponse
+	out, errors *capped
+	done        chan error
+}
+
+// Attach connects to the container's output before it is started. What it prints is read as it prints it, to the end of the stream.
+func (d *Docker) Attach(ctx context.Context, name string, limit int64) (runner.Collector, error) {
+	result, err := d.cli.ContainerAttach(ctx, name, client.ContainerAttachOptions{Stream: true, Stdout: true, Stderr: true})
+	if err != nil {
+		return nil, notFound(err)
+	}
+	a := &attached{response: result.HijackedResponse, out: &capped{limit: limit}, errors: &capped{limit: limit}, done: make(chan error, 1)}
+	go func() {
+		_, err := stdcopy.StdCopy(a.out, a.errors, a.response.Reader)
+		if errors.Is(err, io.EOF) {
+			err = nil
+		}
+		a.done <- err
+	}()
+	return a, nil
+}
+
+func (a *attached) Collect(ctx context.Context) (runner.Output, error) {
+	var err error
+	select {
+	case err = <-a.done:
+	case <-ctx.Done():
+		err = ctx.Err()
+	}
+	stdout, stdoutCut := a.out.read()
+	stderr, stderrCut := a.errors.read()
+	return runner.Output{Stdout: stdout, Stderr: stderr, StdoutTruncated: stdoutCut, StderrTruncated: stderrCut}, err
+}
+
+func (a *attached) Close() error {
+	a.response.Close()
+	return nil
 }
 
 func (d *Docker) ImageInspect(ctx context.Context, ref string) (runner.ImageInfo, error) {

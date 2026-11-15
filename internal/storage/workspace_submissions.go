@@ -150,6 +150,11 @@ func (s Workspaces) Terminals(ctx context.Context, sessionID string) ([]workspac
 }
 
 func (s Workspaces) Roster(ctx context.Context, examID string) ([]workspace.RosterRow, error) {
+	// The grades are read first and apart: the database has one connection, so a query cannot be made while another one's rows are open.
+	grades, err := s.gradesOf(ctx, examID)
+	if err != nil {
+		return nil, err
+	}
 	rows, err := s.db.QueryContext(ctx, `SELECT s.session_id, s.account_number, w.state, w.agent_restarts, w.last_snapshot_at, w.todo_json,
 			(SELECT count(*) FROM workspace_submissions u WHERE u.session_id = s.session_id),
 			(SELECT submitted_at FROM workspace_submissions u WHERE u.session_id = s.session_id ORDER BY submission_id DESC LIMIT 1),
@@ -178,6 +183,7 @@ func (s Workspaces) Roster(ctx context.Context, examID string) ([]workspace.Rost
 			return nil, err
 		}
 		row.Final = kind == workspace.SubmissionFinal
+		row.Grade = grades[row.SessionID]
 		row.Todo = map[string]bool{}
 		_ = json.Unmarshal([]byte(todo), &row.Todo)
 		out = append(out, row)

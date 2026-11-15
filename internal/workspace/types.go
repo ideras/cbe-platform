@@ -15,6 +15,9 @@ import (
 // ErrNotFound is returned for an exam or a session that is not a workspace one.
 var ErrNotFound = errors.New("workspace: not found")
 
+// ErrNotGraded is returned when a grading is asked to be confirmed and it is not done (it is waiting, running, or failed).
+var ErrNotGraded = errors.New("workspace: the grading is not done")
+
 // Session states, in the order of a session's life.
 const (
 	StateNew          = "new"
@@ -52,6 +55,8 @@ type Settings struct {
 	Ignore          []string  `json:"ignore"`
 	Resources       Resources `json:"resources"`
 	SnapshotSeconds *int64    `json:"snapshot_seconds,omitempty"`
+	// GradeTimeoutSeconds is how long a grading run of the exam may take; nil is the server's default (5 minutes).
+	GradeTimeoutSeconds *int64 `json:"grade_timeout_seconds,omitempty"`
 }
 
 // Todo is one item of the TODO list.
@@ -214,6 +219,8 @@ type RosterRow struct {
 	Final          bool
 	// LastEvent is when the latest workspace event of the session was recorded.
 	LastEvent *time.Time
+	// Grade is the student's grade as it stands: the confirmed grading, or the latest; nil before any grading.
+	Grade *GradeSummary
 }
 
 // Repository is what the exam server's database does for workspace exams; internal/storage implements it.
@@ -253,4 +260,80 @@ type Repository interface {
 	Terminals(ctx context.Context, sessionID string) ([]TerminalRecord, error)
 	// Roster lists the students of a workspace exam, the ones who have logged in.
 	Roster(ctx context.Context, examID string) ([]RosterRow, error)
+
+	// Gradings (Phase 6). CreateGrading queues a run of a submission. StartGrading marks it running. FinishGrading records how it ended
+	// (the record's state, failure, output, points and results). ConfirmGrading makes it the session's confirmed grade, and takes the
+	// confirmation from any other run of the session; UnconfirmGrading takes it back. InterruptGradings marks every run that is queued or
+	// running as failed (the server that was running it stopped) and says how many there were.
+	CreateGrading(ctx context.Context, session string, submission int64, now time.Time) (int64, error)
+	StartGrading(ctx context.Context, id int64, now time.Time) error
+	FinishGrading(ctx context.Context, record GradingRecord) error
+	ConfirmGrading(ctx context.Context, id int64, now time.Time) error
+	UnconfirmGrading(ctx context.Context, id int64) error
+	InterruptGradings(ctx context.Context, now time.Time) (int, error)
+	// Grading reads a run with its results and what it printed; Gradings lists a session's runs, newest first, with their results and
+	// without what they printed.
+	Grading(ctx context.Context, id int64) (GradingRecord, error)
+	Gradings(ctx context.Context, session string) ([]GradingRecord, error)
+}
+
+// Grading states and the codes of why a grading failed (Phase 6).
+const (
+	GradingQueued  = "queued"
+	GradingRunning = "running"
+	GradingDone    = "done"
+	GradingFailed  = "failed"
+
+	FailMalformed   = "malformed"
+	FailTimeout     = "timeout"
+	FailCrash       = "crash"
+	FailOOM         = "oom"
+	FailRunner      = "runner"
+	FailInterrupted = "interrupted"
+)
+
+// GradingResult is what a done run said of one TODO. Known is false for a key of the output that is not a TODO of the exam.
+type GradingResult struct {
+	TodoID string
+	Known  bool
+	Passed bool
+	Points float64
+	Log    string
+}
+
+// GradingRecord is a row of the grading list. Points and Max are set when the run is done: the points of the TODOs it graded, and the
+// points the TODOs are worth together (nil when they have none). Results are only set when the record is read with them.
+type GradingRecord struct {
+	ID              int64
+	SessionID       string
+	SubmissionID    int64
+	State           string
+	Failure         string
+	FailureText     string
+	QueuedAt        time.Time
+	StartedAt       *time.Time
+	FinishedAt      *time.Time
+	ExitCode        *int
+	TimedOut        bool
+	DurationMS      int64
+	Stdout          string
+	Stderr          string
+	StdoutTruncated bool
+	StderrTruncated bool
+	Skipped         []string
+	Points          *float64
+	Max             *float64
+	ConfirmedAt     *time.Time
+	Results         []GradingResult
+}
+
+// GradeSummary is what the roster says of a student's grade: the confirmed grading if there is one, else the latest.
+type GradeSummary struct {
+	GradingID int64
+	State     string
+	Failure   string
+	Points    *float64
+	Max       *float64
+	Confirmed bool
+	At        time.Time
 }

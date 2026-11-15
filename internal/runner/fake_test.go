@@ -27,6 +27,10 @@ type fakeRuntime struct {
 	specs      []ContainerSpec
 	calls      []string
 	failCreate error
+	// run is what a grading container does between its start and its end; the default exits 0 with nothing printed. active counts the
+	// grading containers that have started and not ended, and peak the most there were at once.
+	run          func(ctx context.Context, c *fakeContainer) (exit int, out Output)
+	active, peak int
 }
 
 type fakeContainer struct {
@@ -34,6 +38,9 @@ type fakeContainer struct {
 	state  string
 	copied []byte
 	files  map[string]string // what CopyTo extracted: path -> content
+	exit   int
+	oom    bool
+	out    Output
 }
 
 func newFakeRuntime() *fakeRuntime {
@@ -83,7 +90,78 @@ func (f *fakeRuntime) transition(name, call, from, to string) error {
 }
 
 func (f *fakeRuntime) Start(_ context.Context, name string) error {
-	return f.transition(name, "start", "", StateRunning)
+	if err := f.transition(name, "start", "", StateRunning); err != nil {
+		return err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if c := f.containers[name]; c != nil && c.spec.Labels[LabelRole] == RoleGrading {
+		if f.active++; f.active > f.peak {
+			f.peak = f.active
+		}
+	}
+	return nil
+}
+
+// Wait runs the grading container's program (f.run) and ends the container; a container that is not a grading one ends at once.
+func (f *fakeRuntime) Wait(ctx context.Context, name string) (int, error) {
+	f.mu.Lock()
+	c, err := f.get(name)
+	run := f.run
+	f.mu.Unlock()
+	if err != nil {
+		return 0, err
+	}
+	exit, out := 0, Output{}
+	if run != nil {
+		exit, out = run(ctx, c)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	c.exit, c.out, c.state = exit, out, StateExited
+	if c.spec.Labels[LabelRole] == RoleGrading {
+		f.active--
+	}
+	return exit, nil
+}
+
+// fakeCollector hands back what the container printed, cut at the limit, once the container has ended.
+type fakeCollector struct {
+	f     *fakeRuntime
+	name  string
+	limit int64
+}
+
+func (c *fakeCollector) Collect(context.Context) (Output, error) {
+	c.f.mu.Lock()
+	defer c.f.mu.Unlock()
+	c.f.note("collect " + c.name)
+	container, err := c.f.get(c.name)
+	if err != nil {
+		return Output{}, err
+	}
+	out := container.out
+	if int64(len(out.Stdout)) > c.limit {
+		out.Stdout, out.StdoutTruncated = out.Stdout[:c.limit], true
+	}
+	if int64(len(out.Stderr)) > c.limit {
+		out.Stderr, out.StderrTruncated = out.Stderr[:c.limit], true
+	}
+	return out, nil
+}
+func (c *fakeCollector) Close() error { return nil }
+
+func (f *fakeRuntime) Attach(_ context.Context, name string, limit int64) (Collector, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.note("attach " + name)
+	if _, err := f.get(name); err != nil {
+		return nil, err
+	}
+	return &fakeCollector{f: f, name: name, limit: limit}, nil
 }
 func (f *fakeRuntime) Pause(_ context.Context, name string) error {
 	return f.transition(name, "pause", StateRunning, StatePaused)
@@ -92,6 +170,12 @@ func (f *fakeRuntime) Unpause(_ context.Context, name string) error {
 	return f.transition(name, "unpause", StatePaused, StateRunning)
 }
 func (f *fakeRuntime) Stop(_ context.Context, name string, _ time.Duration) error {
+	f.mu.Lock()
+	if c := f.containers[name]; c != nil && c.spec.Labels[LabelRole] == RoleGrading && c.state == StateRunning {
+		f.active--
+		c.exit = 137
+	}
+	f.mu.Unlock()
 	return f.transition(name, "stop", "", StateExited)
 }
 func (f *fakeRuntime) Remove(_ context.Context, name string) error {
@@ -112,7 +196,7 @@ func (f *fakeRuntime) Inspect(_ context.Context, name string) (Inspected, error)
 	if err != nil {
 		return Inspected{}, err
 	}
-	return Inspected{ID: "id-" + name, Name: name, Labels: c.spec.Labels, State: c.state}, nil
+	return Inspected{ID: "id-" + name, Name: name, Labels: c.spec.Labels, State: c.state, ExitCode: c.exit, OOMKilled: c.oom}, nil
 }
 
 func (f *fakeRuntime) List(_ context.Context, key, value string) ([]Inspected, error) {
@@ -218,7 +302,7 @@ func newRig(t *testing.T) *rig {
 	}
 	t.Cleanup(func() { os.RemoveAll(base) })
 	cfg := DefaultConfig()
-	cfg.WorkRoot, cfg.RunRoot, cfg.StateRoot = filepath.Join(base, "work"), filepath.Join(base, "run"), filepath.Join(base, "state")
+	cfg.WorkRoot, cfg.RunRoot, cfg.StateRoot, cfg.GradeRoot = filepath.Join(base, "work"), filepath.Join(base, "run"), filepath.Join(base, "state"), filepath.Join(base, "grade")
 	rt, q := newFakeRuntime(), &fakeQuota{}
 	svc, err := NewService(cfg, rt, q, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {

@@ -120,3 +120,54 @@ export function plainText(events) {
   // eslint-disable-next-line no-control-regex
   return events.map(event => event.text).join('').replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '').replace(/\x1b\[[0-9;?<=>]*[ -/]*[@-~]/g, '').replace(/\x1b[()][0-9A-Za-z]/g, '').replace(/\r\n/g, '\n');
 }
+
+// ---- Grading (Phase 6) ----------------------------------------------------------------------------------------------------------
+// A grade is the result of the exam's hidden tests run on a submission. It is advisory until the proctor confirms it, and the windows
+// say so wherever a grade shows. What a grade program printed is untrusted text, shown as text.
+
+export const gradeNote = 'advisory until you confirm it';
+
+const failureWords = {
+  malformed: 'its output was not what a grade program must print',
+  timeout: 'it did not end in time',
+  crash: 'it crashed, or ended with an error',
+  oom: 'it ran out of memory',
+  runner: 'the runner could not run it',
+  interrupted: 'the server stopped before it ended',
+};
+export const failureLabel = code => failureWords[code] ?? 'it failed';
+
+/** "16 of 40 points", "16 points" when the TODOs have no points. */
+export function pointsText(points, max) {
+  const shown = value => (Math.round(value * 100) / 100).toString();
+  if (points == null) return 'no points';
+  return max == null ? `${shown(points)} points` : `${shown(points)} of ${shown(max)} points`;
+}
+
+/** What a grade (the roster's, or a run's) says in words: { text, note, tone }. */
+export function gradeLine(grade) {
+  if (!grade) return null;
+  switch (grade.state) {
+    case 'queued': return { text: 'Waiting to be graded', note: '', tone: 'neutral' };
+    case 'running': return { text: 'Being graded…', note: '', tone: 'active' };
+    case 'failed': return { text: `Grading failed: ${failureLabel(grade.failure)}`, note: '', tone: 'lock' };
+    default: return { text: pointsText(grade.points, grade.max_points), note: grade.confirmed ? 'confirmed' : gradeNote, tone: grade.confirmed ? 'ok' : 'neutral' };
+  }
+}
+
+/** What the roster knows of the class's grading, for the line above the table and for what the "Grade" button will do. */
+export function gradingSummary(students) {
+  const out = { waiting: 0, running: 0, done: 0, confirmed: 0, failed: 0, ungraded: 0, submitters: 0, gradable: 0 };
+  for (const student of students ?? []) {
+    const grade = student.grade;
+    if (student.submissions > 0) out.submitters += 1;
+    if (!grade) { if (student.submissions > 0) out.ungraded += 1; }
+    else if (grade.state === 'queued') out.waiting += 1;
+    else if (grade.state === 'running') out.running += 1;
+    else if (grade.state === 'failed') out.failed += 1;
+    else { out.done += 1; if (grade.confirmed) out.confirmed += 1; }
+    // The students a request to grade the class would queue: those who submitted and are not being graded.
+    if (student.submissions > 0 && !(grade && (grade.state === 'queued' || grade.state === 'running'))) out.gradable += 1;
+  }
+  return out;
+}

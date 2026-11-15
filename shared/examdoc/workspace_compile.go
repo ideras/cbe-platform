@@ -301,6 +301,13 @@ func parseWorkspaceFrontMatter(lines []string, report func(int, string, ...any))
 				return
 			}
 			workspace.SnapshotSeconds = &seconds
+		case "grade_timeout":
+			seconds, ok := wholeSeconds(value)
+			if !ok || seconds < MinGradeTimeoutSeconds || seconds > MaxGradeTimeoutSeconds {
+				report(line, "grade_timeout must be a length of time from %ds to %dm, such as grade_timeout: 10m", MinGradeTimeoutSeconds, MaxGradeTimeoutSeconds/60)
+				return
+			}
+			workspace.GradeTimeoutSeconds = &seconds
 		case "navigation":
 			report(line, "navigation is not allowed in a workspace exam: it is one page")
 		default:

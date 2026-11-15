@@ -21,6 +21,10 @@ const (
 	EventPasteBlocked   = "paste.blocked"
 	EventSubmitted      = "workspace.submitted"
 	EventAgentRestarted = "workspace.agent_restarted"
+	// The events of grading (Phase 6): a run that ended (done or failed), and a proctor's confirmation of a grade or its withdrawal.
+	EventGradingFinished    = "grading.finished"
+	EventGradingConfirmed   = "grading.confirmed"
+	EventGradingUnconfirmed = "grading.unconfirmed"
 )
 
 // event records one in a session's history. A history that cannot be written to is logged and goes on: nothing a student does waits

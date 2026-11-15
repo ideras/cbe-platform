@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -32,6 +33,13 @@ type WorkspaceAPI interface {
 	SubmissionZip(ctx context.Context, id int64, w io.Writer) error
 	Report(ctx context.Context, session string) (string, error)
 	OpenCast(ctx context.Context, id int64) (*os.File, workspace.TerminalRecord, error)
+	// Grading (Phase 6): a proctor starts gradings, reads their results and confirms a grade.
+	GradeExam(ctx context.Context, examID string, sessions []string) (workspace.Started, error)
+	GradeSession(ctx context.Context, session string, submission int64) (int64, error)
+	Gradings(ctx context.Context, session string) (workspace.AdminGradings, error)
+	Grading(ctx context.Context, id int64) (workspace.AdminGrading, error)
+	ConfirmGrading(ctx context.Context, id int64) error
+	UnconfirmGrading(ctx context.Context, id int64) error
 }
 
 // maxImportBytes is the most a package import may be: the document and the two bundles.
@@ -44,6 +52,14 @@ func workspaceError(w http.ResponseWriter, logger *slog.Logger, operation string
 		writeJSON(w, http.StatusBadRequest, problemResponse{Error: "invalid workspace exam", Problems: invalid.Problems})
 	case errors.Is(err, workspace.ErrNotFound), errors.Is(err, domain.ErrNotFound):
 		writeError(w, http.StatusNotFound, "not found")
+	case errors.Is(err, workspace.ErrNoGrading):
+		writeError(w, http.StatusConflict, "this exam has no grading folder, so there is nothing to grade it with")
+	case errors.Is(err, workspace.ErrNoSubmission):
+		writeError(w, http.StatusConflict, "this student has not submitted anything")
+	case errors.Is(err, workspace.ErrBusy):
+		writeError(w, http.StatusConflict, "this student is already waiting to be graded or being graded")
+	case errors.Is(err, workspace.ErrNotGraded):
+		writeError(w, http.StatusConflict, "only a run that is done can be confirmed")
 	case errors.Is(err, workspace.ErrOver):
 		writeError(w, http.StatusGone, "the exam is over")
 	case errors.Is(err, workspace.ErrLocked):
@@ -289,5 +305,105 @@ func workspaceCastHandler(api WorkspaceAPI, logger *slog.Logger) http.HandlerFun
 		w.Header().Set("Content-Type", "application/x-asciicast")
 		w.Header().Set("Cache-Control", "no-store")
 		_, _ = io.Copy(w, file)
+	}
+}
+
+// gradeBody is what the two grading requests may carry: for the exam, the students to grade (none means all of them); for a student, the
+// submission (none means the latest).
+type gradeBody struct {
+	Sessions   []string `json:"sessions"`
+	Submission int64    `json:"submission"`
+}
+
+func readGradeBody(w http.ResponseWriter, r *http.Request) (gradeBody, bool) {
+	var body gradeBody
+	if r.ContentLength == 0 {
+		return body, true
+	}
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256<<10))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+		writeError(w, http.StatusBadRequest, "the body is JSON with sessions or submission")
+		return body, false
+	}
+	return body, true
+}
+
+// workspaceGradeExamHandler queues the latest submission of the exam's students, or of the students named.
+func workspaceGradeExamHandler(api WorkspaceAPI, logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		body, ok := readGradeBody(w, r)
+		if !ok {
+			return
+		}
+		started, err := api.GradeExam(r.Context(), r.PathValue("id"), body.Sessions)
+		if err != nil {
+			workspaceError(w, logger, "grade exam", err)
+			return
+		}
+		writeJSON(w, http.StatusAccepted, started)
+	}
+}
+
+// workspaceGradeSessionHandler queues one student's submission, the one named or the latest.
+func workspaceGradeSessionHandler(api WorkspaceAPI, logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		body, ok := readGradeBody(w, r)
+		if !ok {
+			return
+		}
+		id, err := api.GradeSession(r.Context(), r.PathValue("id"), body.Submission)
+		if err != nil {
+			workspaceError(w, logger, "grade session", err)
+			return
+		}
+		writeJSON(w, http.StatusAccepted, map[string]int64{"grading": id})
+	}
+}
+
+func workspaceGradingsHandler(api WorkspaceAPI, logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		view, err := api.Gradings(r.Context(), r.PathValue("id"))
+		if err != nil {
+			workspaceError(w, logger, "gradings", err)
+			return
+		}
+		writeJSON(w, http.StatusOK, view)
+	}
+}
+
+func workspaceGradingHandler(api WorkspaceAPI, logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, ok := idOf(w, r, "grading")
+		if !ok {
+			return
+		}
+		view, err := api.Grading(r.Context(), id)
+		if err != nil {
+			workspaceError(w, logger, "grading", err)
+			return
+		}
+		writeJSON(w, http.StatusOK, view)
+	}
+}
+
+// workspaceConfirmHandler confirms a finished grading as the student's grade, or (undo) takes the confirmation back.
+func workspaceConfirmHandler(api WorkspaceAPI, logger *slog.Logger, undo bool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, ok := idOf(w, r, "grading")
+		if !ok {
+			return
+		}
+		var err error
+		if undo {
+			err = api.UnconfirmGrading(r.Context(), id)
+		} else {
+			err = api.ConfirmGrading(r.Context(), id)
+		}
+		if err != nil {
+			workspaceError(w, logger, "confirm grading", err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]bool{"confirmed": !undo})
 	}
 }

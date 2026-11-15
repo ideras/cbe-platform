@@ -6,10 +6,11 @@ import (
 	"time"
 )
 
-// Bind mounts a host folder into the container.
+// Bind mounts a host folder into the container; ReadOnly makes the mount read-only (the grading bundle is).
 type Bind struct {
-	Source string
-	Target string
+	Source   string
+	Target   string
+	ReadOnly bool
 }
 
 // ContainerSpec is everything the runtime is told about a container. It is built in one place (BuildSpec), from a validated request
@@ -22,6 +23,11 @@ type ContainerSpec struct {
 	WorkDir string
 	Labels  map[string]string
 	Binds   []Bind
+	// Entrypoint, Cmd and Env are set only for a grading container, which runs /grading/grade instead of the image's agent; a student's
+	// container keeps the image's own entrypoint.
+	Entrypoint []string
+	Cmd        []string
+	Env        []string
 	// Tmpfs maps a path to its mount options.
 	Tmpfs          map[string]string
 	NetworkMode    string
@@ -44,6 +50,28 @@ type Inspected struct {
 	State     string
 	ExitCode  int
 	StartedAt time.Time
+	// OOMKilled says the runtime killed the container for using more memory than its limit.
+	OOMKilled bool
+}
+
+// Collector reads what a container prints. It is made before the container is started, so that none of the output is missed: a
+// container's logs are written a moment after it ends, and a read of them right then can find them incomplete, whereas the stream
+// of an attachment ends exactly when the container's output does.
+type Collector interface {
+	// Collect waits until the container's output has ended (the container ended and everything it printed was read), or ctx ends, and
+	// returns what it printed, each stream cut at the limit the collector was made with. On ctx ending it returns what was read, and the
+	// error.
+	Collect(ctx context.Context) (Output, error)
+	// Close lets go of the connection.
+	Close() error
+}
+
+// Output is what a container printed, each stream cut at the limit the caller gave.
+type Output struct {
+	Stdout          []byte
+	Stderr          []byte
+	StdoutTruncated bool
+	StderrTruncated bool
 }
 
 // RawStats is one sample of a container's use.
@@ -78,6 +106,11 @@ type Runtime interface {
 	// CopyTo extracts a tar archive into a folder of the container; CopyFrom reads a path of the container as a tar archive.
 	CopyTo(ctx context.Context, name, folder string, archive io.Reader) error
 	CopyFrom(ctx context.Context, name, path string) (io.ReadCloser, error)
+	// Wait blocks until the container is not running and returns its exit code; it ends with ctx.
+	Wait(ctx context.Context, name string) (exitCode int, err error)
+	// Attach connects to what a created container will print, at most limit bytes of each stream kept (the rest is read and dropped, so a
+	// program that prints a great deal is not held up). It is called before Start.
+	Attach(ctx context.Context, name string, limit int64) (Collector, error)
 	// ImageInspect returns ErrNotFound when the runtime does not have the image.
 	ImageInspect(ctx context.Context, ref string) (ImageInfo, error)
 }
