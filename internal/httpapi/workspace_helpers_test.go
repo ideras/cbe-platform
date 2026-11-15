@@ -148,6 +148,8 @@ type fixtureOptions struct {
 	noImport bool
 	// controlRate raises the relay's limit on control messages (a fuzz target tests the decoder, not the limit).
 	controlRate float64
+	// starter replaces the example project of starterFiles.
+	starter map[string]string
 }
 
 // newWorkspaceFixture has a class, a published workspace exam made by importing a package through the admin route, and a server on a
@@ -197,7 +199,11 @@ func newWorkspaceFixtureWith(t testing.TB, change func(*workspace.Document), opt
 	f.router = New(f.clock, f.sessions, f.logger, f.options)
 	f.server = httptest.NewServer(f.router)
 	t.Cleanup(f.server.Close)
-	f.starter, f.grading = tarOf(t, starterFiles), tarOf(t, gradingFiles)
+	project := starterFiles
+	if opts.starter != nil {
+		project = opts.starter
+	}
+	f.starter, f.grading = tarOf(t, project), tarOf(t, gradingFiles)
 	doc := document(f.starter, f.grading)
 	if change != nil {
 		change(&doc)
