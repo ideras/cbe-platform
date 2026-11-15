@@ -712,3 +712,62 @@ func TestTheAPIEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// Phase 8: forty containers may each use their whole limit at once, so what their limits add up to is kept under a budget of the host's memory.
+func TestTheRunnerKeepsTheMemoryOfItsContainersUnderTheHostsBudget(t *testing.T) {
+	r := newRig(t)
+	r.svc.budgetMB = 1300 // the rig's requests are 512 MiB each: two fit, a third does not
+	ctx := context.Background()
+	for _, session := range []string{"s1", "s2"} {
+		if _, err := r.svc.Create(ctx, r.request(session)); err != nil {
+			t.Fatalf("%s: %v", session, err)
+		}
+	}
+	_, err := r.svc.Create(ctx, r.request("s3"))
+	if !errors.Is(err, ErrCapacity) || !strings.Contains(err.Error(), "1300") {
+		t.Fatalf("a third container over the budget: %v", err)
+	}
+	if len(r.rt.specs) != 2 || len(r.quota.folders) != 2 {
+		t.Errorf("a refused container left something behind: %d containers, %d folders", len(r.rt.specs), len(r.quota.folders))
+	}
+	// Asking again for a container that is there is not a new one; a smaller one fits; the API says 503 and the client says ErrCapacity.
+	if _, err := r.svc.Create(ctx, r.request("s1")); err != nil {
+		t.Errorf("asking again for a container that exists: %v", err)
+	}
+	small := r.request("s4")
+	small.Resources.MemoryMB = 256
+	if _, err := r.svc.Create(ctx, small); err != nil {
+		t.Errorf("a small container that fits: %v", err)
+	}
+	client := r.api(t)
+	if _, err := client.Create(ctx, r.request("s5")); !errors.Is(err, ErrCapacity) {
+		t.Errorf("through the API: %v", err)
+	}
+	var api *APIError
+	if _, err := client.Create(ctx, r.request("s5")); !errors.As(err, &api) || api.Status != http.StatusServiceUnavailable {
+		t.Errorf("the status of a refusal for room: %v", err)
+	}
+	// A container that is gone gives its memory back.
+	if err := r.svc.Remove(ctx, "s2"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.svc.Create(ctx, r.request("s5")); err != nil {
+		t.Errorf("after one was removed: %v", err)
+	}
+}
+
+func TestTheHostBudgetDefaultsToMostOfTheMachinesMemory(t *testing.T) {
+	r := newRig(t)
+	if total := machineMemoryMB(); total > 0 && r.svc.MemoryBudgetMB() != total*7/10 {
+		t.Errorf("budget = %d MiB of a machine of %d MiB", r.svc.MemoryBudgetMB(), total)
+	}
+	cfg := DefaultConfig()
+	cfg.HostMemoryMB = 100 // under the most one container may have: no container of the maximum could ever be made
+	if cfg.Validate() == nil {
+		t.Error("a budget under the most one container may have was accepted")
+	}
+	cfg.HostMemoryMB = -1
+	if cfg.Validate() == nil {
+		t.Error("a negative budget was accepted")
+	}
+}

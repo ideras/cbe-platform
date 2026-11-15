@@ -67,6 +67,8 @@ func Handler(svc *Service, secret string, logger *slog.Logger) http.Handler {
 			status = http.StatusConflict
 		case errors.Is(err, ErrFrozen):
 			status = http.StatusLocked
+		case errors.Is(err, ErrCapacity):
+			status = http.StatusServiceUnavailable
 		}
 		message := err.Error()
 		if status == http.StatusInternalServerError {

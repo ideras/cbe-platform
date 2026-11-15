@@ -43,6 +43,8 @@ func (e *APIError) Is(target error) bool {
 		return e.Status == http.StatusForbidden
 	case ErrFrozen:
 		return e.Status == http.StatusLocked
+	case ErrCapacity:
+		return e.Status == http.StatusServiceUnavailable
 	}
 	return false
 }
