@@ -2,7 +2,7 @@
 
 **Date:** 2026-11-14. **Branch:** `feat/workspace-phase-6-grading-runner` (from `feat/workspace-phase-5-submission-logging`, which is pushed). **Plan:** `.agents/WORKSPACE-PLAN.md` v1.1.
 **Status:** built and tested; **all four acceptance items are met** (below), in real containers as well as with fakes. Decisions `P6-1` to `P6-13` are **confirmed by the owner (2026-11-14)**.
-**The branch is not pushed.** How it works: `docs/workspace/grading.md`.
+**The branch is pushed** (2026-11-14, with the owner's permission). How it works: `docs/workspace/grading.md`.
 
 ## What changed
 
@@ -61,7 +61,8 @@
 
 ## Not run, and what is unverified
 
-- **The installed runner and the exam server on `:8080` were not changed.** Your manual test server was running with its students' containers, and the other real tests restart the runtime's user manager, which would have taken them down. So the real test ran against a **private** runner built from this code (P6-12). To put grading on this host: re-run `deploy/workspace/install.sh` with the new `cbe-runner`, restart its unit (its containers keep running), and give the server the new binary (`docs/workspace/deployment.md`, "Upgrading"). The old runner answers `POST /v1/grading` with 501.
+- **The installed runner was upgraded after the owner's go (2026-11-14, 18:02)**, and the work above had not touched it. Only `cbe-runner` changed in this phase (the quota helper, the agent and the unit file did not), so only it was replaced: the old binary is kept as `/usr/local/bin/cbe-runner.phase5` (to roll back, copy it over `cbe-runner` and restart the unit), `/data/cbe-platform/grading` was made (0700, `cbe-runner`), the runner's unit was restarted, and `/etc/cbe-platform/runner.json` was left as it was (the new keys' defaults are the values in the table above). `install.sh` was **not** run as a whole, because it also restarts the root quota helper, which had no reason to restart; its one new line (the folder) was done by hand. **After the restart:** the runner was active and found its containers (the two paused ones were untouched), and a throwaway client run as `cbe-server` graded the example's three students through the installed runner's socket: **40, 16 and 0** of 40, a second each, with nothing left in the grading folder, no grading container and no `/work` folder afterwards. The exam server on `:8080` is yours to rebuild (`make`, as always); it needs the new binary only to *ask* for grading, and a server without it simply has no Grade buttons working.
+  - The owner's manual test rig (`e2e.test` and its portal server on `:8090`) was **still running** when the runner was restarted, although the owner had said they stopped it; the restart does not stop containers, and the rig's connections to its agents were meant to come back by themselves (not checked: nobody was connected).
 - **The proctor application was not launched for real** (it would connect to your live server): the page is tested against a fake of its calls, the Go calls against a fake server, and its dashboard package is vetted for Windows and macOS (`GOOS`), not run there.
 - **A grade program that reads `/grading` from the student's own code** is possible (P6-13), by design of the plan.
 - **A real class** (more than the forty simulated one-second runs, with compiles in each) and **a long session** are Phase 8's load test. The example's runs take about a second each; a course whose tests compile a large project will take longer, and the timeout and the parallelism are the settings for that.
@@ -73,4 +74,4 @@ On this machine: nothing from the runs (checked by the script). The private runn
 
 ## Closed (2026-11-14)
 
-The owner confirmed P6-1 to P6-13 as proposed, asked for the installed runner to be upgraded, the branch pushed and Phase 7 to start. The upgrade is in `docs/workspace/reports/phase-7.md`'s opening (it was done at the start of that turn).
+The owner confirmed P6-1 to P6-13 as proposed, asked for the installed runner to be upgraded (done, above), the branch pushed (done) and Phase 7 to start.
