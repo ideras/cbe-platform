@@ -335,8 +335,10 @@ func (s *Service) BuildImage(ctx context.Context, req BuildRequest, buildContext
 	switch {
 	case err == nil:
 	case ctx.Err() != nil:
+		s.removeWorkingContainers(reference, check.Stages)
 		return BuildResult{}, ctx.Err()
 	case errors.Is(err, context.DeadlineExceeded):
+		s.removeWorkingContainers(reference, check.Stages)
 		return finish(FailTimeout, fmt.Sprintf("the build did not end in %d seconds and was stopped", seconds))
 	case errors.Is(err, ErrBuildFailed):
 		return finish(FailBuild, strings.TrimSpace(strings.TrimPrefix(err.Error(), ErrBuildFailed.Error()+": ")))
@@ -510,6 +512,39 @@ func repack(archive []byte, pinned string) (io.Reader, error) {
 		return nil, err
 	}
 	return &out, nil
+}
+
+// workingContainerNames are the names the builder gives the working containers of a build on an image: the image's last name, "-working-container",
+// and for the second stage on, "-1", "-2"... The builder removes them itself when a build ends, however it ends, except when the build is
+// cancelled in the middle of a step (this runtime, Podman 4.9, leaves the stopped container of the step it cancelled).
+func workingContainerNames(reference string, stages int) []string {
+	base := repository(reference)
+	if slash := strings.LastIndex(base, "/"); slash >= 0 {
+		base = base[slash+1:]
+	}
+	names := []string{base + "-working-container"}
+	for i := 1; i < stages; i++ {
+		names = append(names, fmt.Sprintf("%s-working-container-%d", base, i))
+	}
+	return names
+}
+
+// removeWorkingContainers removes what a cancelled build left. The runtime does not list these containers (they are the builder's, not a
+// student's), but removing one by its name works; one that is not there is not an error. The runner builds one image at a time, so what is
+// there is what this build left. It returns how many were removed.
+func (s *Service) removeWorkingContainers(reference string, stages int) int {
+	bg, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	removed := 0
+	for _, name := range workingContainerNames(reference, max(stages, 1)+1) {
+		if err := s.rt.Remove(bg, name); err == nil {
+			removed++
+		}
+	}
+	if removed > 0 {
+		s.logger.Info("working containers left by a cancelled build were removed", "image", reference, "count", removed)
+	}
+	return removed
 }
 
 // sweepVerifiers removes the checking containers a runner that stopped left.

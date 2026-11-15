@@ -121,6 +121,10 @@ func (s *Service) Reconcile(ctx context.Context) (int, error) {
 	if swept := s.sweepVerifiers(ctx); swept > 0 {
 		s.logger.Info("checking containers left by a stopped runner were removed", "count", swept)
 	}
+	// A build that was going when the runner stopped was cancelled with it, and left its working containers.
+	for _, reference := range s.cfg.Images {
+		s.removeWorkingContainers(reference, 8)
+	}
 	for _, c := range list {
 		session := c.Labels[LabelSession]
 		if !ValidID(session) {

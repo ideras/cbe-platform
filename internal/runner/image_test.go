@@ -661,3 +661,84 @@ func TestTheLogBufferKeepsTheHeadAndTheRingInOrder(t *testing.T) {
 		t.Errorf("bad UTF-8: %q", text)
 	}
 }
+
+// A build that is cancelled in the middle of a step leaves the builder's working container, which the runtime does not list and can only
+// remove by its name; the runner removes it. A build that ends any other way leaves nothing, so nothing is removed (a name that is not a
+// student's, or another exam's, is never guessed at).
+func TestACancelledBuildHasItsWorkingContainersRemoved(t *testing.T) {
+	removed := func(r *rig) []string {
+		var out []string
+		for _, call := range r.rt.calls {
+			if strings.HasPrefix(call, "remove ") && strings.Contains(call, "-working-container") {
+				out = append(out, strings.TrimPrefix(call, "remove "))
+			}
+		}
+		return out
+	}
+	buildSecond = time.Millisecond
+	t.Cleanup(func() { buildSecond = time.Second })
+
+	// A build that does not end in time: the first stage's container and the next one's are tried, and the stage after is not.
+	r := newRig(t)
+	r.rt.build = func(ctx context.Context, _ ImageBuildSpec, _ []byte, _ io.Writer) error {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	req := r.buildRequest()
+	req.TimeoutSeconds = 10
+	result, err := r.svc.BuildImage(context.Background(), req, bytes.NewReader(archive(t, map[string]string{"Containerfile": "FROM cbe/cpp20 AS a\nRUN true\nFROM cbe/cpp20\nRUN true\n"})))
+	if err != nil || result.Failure != FailTimeout {
+		t.Fatalf("%+v %v", result, err)
+	}
+	if got := removed(r); strings.Join(got, ",") != "cpp20-working-container,cpp20-working-container-1,cpp20-working-container-2" {
+		t.Errorf("after a build that timed out: %v", got)
+	}
+
+	// A request that is cancelled.
+	r = newRig(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	r.rt.build = func(ctx context.Context, _ ImageBuildSpec, _ []byte, _ io.Writer) error {
+		cancel()
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	if _, err := r.svc.BuildImage(ctx, r.buildRequest(), bytes.NewReader(archive(t, map[string]string{"Containerfile": plainContainerfile}))); !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
+	}
+	if got := removed(r); len(got) == 0 || got[0] != "cpp20-working-container" {
+		t.Errorf("after a cancelled request: %v", got)
+	}
+
+	// A build that fails, or succeeds, or is refused, removes nothing.
+	for name, hook := range map[string]func(context.Context, ImageBuildSpec, []byte, io.Writer) error{
+		"a step that fails": func(context.Context, ImageBuildSpec, []byte, io.Writer) error {
+			return fmt.Errorf("%w: exit status 3", ErrBuildFailed)
+		},
+		"a good build": nil,
+	} {
+		r = newRig(t)
+		r.rt.build = hook
+		if _, err := r.build(t, plainContainerfile, nil); err != nil {
+			t.Fatal(err)
+		}
+		if got := removed(r); len(got) != 0 {
+			t.Errorf("%s: %v", name, got)
+		}
+	}
+	r = newRig(t)
+	if result, _ := r.build(t, "FROM ubuntu\n", nil); result.Failure != FailContainerfile || len(removed(r)) != 0 {
+		t.Errorf("a Containerfile that is refused: %+v %v", result, removed(r))
+	}
+
+	// A runner that starts finds what a runner that was stopped in the middle of a build left, and removes it.
+	r = newRig(t)
+	if _, err := r.rt.Create(context.Background(), ContainerSpec{Name: "cpp20-working-container-1", Labels: map[string]string{}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.svc.Reconcile(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.rt.Inspect(context.Background(), "cpp20-working-container-1"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("the working container of a build that was stopped is still there: %v", err)
+	}
+}
