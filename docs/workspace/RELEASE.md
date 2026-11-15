@@ -31,10 +31,12 @@ and sets the limits of the containers' control group (`limits.sh`). It is the ma
 
 ## Before the first real exam
 
-- [ ] **The limits of the containers' control group are the production ones** (`sudo deploy/workspace/limits.sh`; it replaces the spike's backstop of 400% CPU, 16 GiB and 6,000 tasks). The load test of this phase was run **under the backstop**.
-- [ ] `host_memory_mb` in `/etc/cbe-platform/runner.json` is what the machine can give the students (the default is 70% of its memory; 40 students at 1 GiB need 40 GiB).
-- [ ] The **load test with the router in the middle** ([load-test.md](load-test.md)): the 300 ms target is for the Wi-Fi the class will use, and the "pull the network for 30 seconds" check.
-- [ ] The **Windows smoke test** on a clean machine ([windows-smoke-test.md](windows-smoke-test.md)).
+- [x] **The limits of the containers' control group are the production ones** (`deploy/workspace/limits.sh`; applied on this host on 2026-11-15 with the owner's go: it replaced the spike's backstop of 400% CPU, 16 GiB and 6,000 tasks, which is kept as `/etc/cbe-platform/spike-backstop.conf.removed`). The load test was run under the backstop and again under these limits (`reports/phase-8-load*`).
+- [x] The installed runner is the Phase 8 build (2026-11-15; the Phase 7 one is `/usr/local/bin/cbe-runner.phase7`).
+- [ ] `host_memory_mb` in `/etc/cbe-platform/runner.json` is what the machine can give the students (the default is 70% of its memory: 44,838 MiB here; 40 students at 1 GiB need 40 GiB).
+- [ ] The **load test with the router in the middle** ([load-test.md](load-test.md)): the 300 ms target is for the Wi-Fi the class will use, and the "pull the network for 30 seconds" check (the latter passed on the Windows VM).
+- [x] The **Windows smoke test** on a clean machine ([windows-smoke-test.md](windows-smoke-test.md)): run by the owner on 2026-11-15, every step passed.
+- [x] The teacher guide was read by the owner (2026-11-15); what it lacked, a download of the grades and a switch for the image warnings, was added.
 - [ ] The teacher's own `grade` run on a solution and on a bad submission, in a test class ([TEACHER-GUIDE.md](TEACHER-GUIDE.md)).
 - [ ] The exam server runs as `cbe-server` under its unit (`deploy/workspace/cbe-server.service`), not as a person.
 - [ ] The student's notice (`docs/tools/STUDENT-NOTICE.md`) is the owner's own.

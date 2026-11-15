@@ -159,7 +159,7 @@ func (s Workspaces) Roster(ctx context.Context, examID string) ([]workspace.Rost
 			(SELECT count(*) FROM workspace_submissions u WHERE u.session_id = s.session_id),
 			(SELECT submitted_at FROM workspace_submissions u WHERE u.session_id = s.session_id ORDER BY submission_id DESC LIMIT 1),
 			COALESCE((SELECT kind FROM workspace_submissions u WHERE u.session_id = s.session_id ORDER BY submission_id DESC LIMIT 1), ''),
-			(SELECT max(e.occurred_at) FROM event_log e WHERE e.session_id = s.session_id AND (e.event_type GLOB 'workspace.*' OR e.event_type GLOB 'file.*' OR e.event_type GLOB 'pty.*' OR e.event_type GLOB 'run.*' OR e.event_type = 'todo.set' OR e.event_type = 'paste.blocked'))
+			(SELECT occurred_at FROM event_log WHERE id = `+newestEventID("s.session_id", workspace.ActivityEvents)+`)
 		FROM sessions s JOIN workspace_sessions w ON w.session_id = s.session_id WHERE s.exam_id = ? ORDER BY s.account_number`, examID)
 	if err != nil {
 		return nil, err

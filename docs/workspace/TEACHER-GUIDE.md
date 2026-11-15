@@ -110,7 +110,9 @@ The person who runs the server builds and approves course images; an exam names 
 - **The network is off for students and graders always**, whatever the image was built with. A student cannot install anything during the exam;
   if they might need a library, put it in the image.
 - Pin versions in an image you write (`apt-get install name=version`, `pip install name==version`): the build warns about a package with no version, because a
-  rebuild next year would not be the same image.
+  rebuild next year would not be the same image. **The warnings are on by default.** An exam that does not want them (it installs from a source it trusts, or it is a
+  quick lab) says `image_warnings: off` in the front matter of `workspace.md`: `build/examc`, the import preview and the build log then do not mention them. A Containerfile that
+  breaks a rule is still refused; only the warnings go.
 
 ## The day before
 
@@ -158,8 +160,24 @@ In the proctor application, open the class and use **Import workspace exam…**:
    - **Terminals**: each terminal they had, and its **replay** as it printed, with the pauses shortened, pausable and seekable.
    - **Grading**: their runs, each TODO as *Passed* / *Not passed* with points and your `log`, and what `grade` printed.
 3. **Confirm the grade.** A grade is **advisory** until you press **Confirm this grade** on a run; it is then the student's grade, and it takes the confirmation from any other run of theirs. Take it back with **Take the confirmation back**. A TODO tick is never part of the grade.
-4. **Download** from the review window: the submitted files as a zip, and a Markdown report of the submission.
-5. The students' containers are removed after the exam's retention time (48 hours by default); their snapshots and submissions are kept with the exam.
+4. **Download the grades** as a spreadsheet file: in the monitoring window, **Download grades…** beside *Grade submissions…* (or the download button of the exam in the
+   exam list). You choose where to save it. It is a CSV (open it with Excel, LibreOffice or Google Sheets, as UTF-8) with **a line for every student of the class**, also one who never logged in:
+
+   | Column | What it has |
+   |---|---|
+   | `account_number`, `name`, `email` | the student |
+   | `status` | `confirmed`, `advisory`, `not graded`, `no submission`, `not logged in`, `waiting to be graded`, `being graded`, or `grading failed: <why>` |
+   | `points` | **the confirmed grade**, and nothing else |
+   | `advisory_points` | the points of the latest run of a student whose grade you have **not** confirmed |
+   | `max_points` | what the TODO items are worth together |
+   | one column for each TODO, such as `t1 (10)` | the points that TODO got in the same run as `points` or `advisory_points` |
+   | `todos_ticked_by_student` | how many TODO items the student says they did (nothing checks it) |
+   | `submitted`, `final_submission`, `last_submission_at`, `graded_at` | when they pressed Save and when their grade was made (UTC) |
+
+   The two columns of points exist so that a grade you have not confirmed cannot reach the gradebook by mistake; take `points` for the final grades. Excel drops the leading zeros of an
+   account number such as `001234` unless the column is imported as text.
+5. **Download a student's work** from their review window: the submitted files as a zip, and a Markdown report of the submission.
+6. The students' containers are removed after the exam's retention time (48 hours by default); their snapshots and submissions are kept with the exam.
 
 ## What the platform does not do
 

@@ -4,6 +4,8 @@ Phase 8, task 6: "Windows build and smoke test on a clean machine". The student 
 new code in it (a WebSocket from the Go client, xterm.js and CodeMirror in the WebView2 page, Ctrl keys), so it is tried on a Windows machine that has
 nothing of the project on it: no Go, no Node, no repository.
 
+**Run on 2026-11-15 by the owner, on their Windows VM: every step passed.** (The rest of this page is what was run.)
+
 **Who runs it:** the owner, on the Windows VM (the same one that ran the focus-loss script), because the machine and the router are theirs. **How long:** about 25 minutes.
 What was already checked without a Windows machine is at the end.
 

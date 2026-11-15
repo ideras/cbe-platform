@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 	"time"
 
 	"exam-platform/internal/domain"
@@ -21,13 +22,34 @@ func (t *sessionTransaction) RecordEvent(ctx context.Context, event domain.Event
 	return result.LastInsertId()
 }
 
+// focusEventTypes are the events that say whether the student's window has the focus, and since when the application has been in contact.
+var focusEventTypes = []string{"focus_lost", "focus_regained", "app_started", "app_closed", "network_connected", "network_gap", "network_reconnected", "connection_changed"}
+
+// newestEventID is SQL for the id of the newest event of a session among some types: a seek of the index event_log_session_type_id for each type, so
+// that its cost does not depend on how many events the session has, nor on how many the table has. The obvious query (event_type IN (...) ORDER BY id
+// DESC LIMIT 1) is planned as a walk back through the session's events until one matches, which for a workspace exam (thousands of file events and
+// none of these) is all of them, every second, for every session (found by the Phase 8 load test: 40% of the exam server's processor time by the
+// end of half an hour, and growing). sessionExpr is a placeholder or a column; the types are the code's own constants, never a user's text.
+func newestEventID(sessionExpr string, types []string) string {
+	var query strings.Builder
+	query.WriteString("(SELECT max(id) FROM (")
+	for i, kind := range types {
+		if i > 0 {
+			query.WriteString(" UNION ALL ")
+		}
+		query.WriteString("SELECT max(id) AS id FROM event_log WHERE session_id = " + sessionExpr + " AND event_type = '" + strings.ReplaceAll(kind, "'", "") + "'")
+	}
+	query.WriteString("))")
+	return query.String()
+}
+
+var latestFocusSQL = `SELECT id, session_id, event_type, occurred_at, detail FROM event_log WHERE id = ` + newestEventID("?1", focusEventTypes)
+
 func (t *sessionTransaction) LatestFocusEvent(ctx context.Context, sessionID string) (domain.Event, error) {
 	var event domain.Event
 	var occurred string
 	var detail sql.NullString
-	err := t.tx.QueryRowContext(ctx, `SELECT id, session_id, event_type, occurred_at, detail FROM event_log
-		WHERE session_id = ? AND event_type IN ('focus_lost', 'focus_regained', 'app_started', 'app_closed', 'network_connected', 'network_gap', 'network_reconnected', 'connection_changed')
-		ORDER BY id DESC LIMIT 1`, sessionID).Scan(&event.ID, &event.SessionID, &event.Type, &occurred, &detail)
+	err := t.tx.QueryRowContext(ctx, latestFocusSQL, sessionID).Scan(&event.ID, &event.SessionID, &event.Type, &occurred, &detail)
 	if errors.Is(err, sql.ErrNoRows) {
 		return event, domain.ErrNotFound
 	}

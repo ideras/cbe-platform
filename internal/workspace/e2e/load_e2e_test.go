@@ -5,6 +5,8 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -80,9 +82,29 @@ func phaseLoad(t *testing.T, r *rig) {
 			}
 			return map[string]float64{"containers": float64(len(stats)), "containers_cpu_percent_sum": cpu, "containers_memory_mb_sum": memory, "containers_pids_sum": float64(pids)}
 		}}
+	// With CBE_LOAD_PROFILE the server (built with -tags pprof, listening on CBE_PPROF) is asked for 30 seconds of its CPU early in the run and again late
+	// in it, to find where a server whose load does not change spends more time as the run goes on.
+	if os.Getenv("CBE_LOAD_PROFILE") != "" {
+		for name, at := range map[string]time.Duration{"early": 2 * time.Minute, "late": duration - 2*time.Minute} {
+			name, at := name, at
+			go func() {
+				time.Sleep(at + 30*time.Second) // the steady state starts about when the logins are done
+				resp, err := (&http.Client{Timeout: 2 * time.Minute}).Get("http://" + os.Getenv("CBE_PPROF") + "/debug/pprof/profile?seconds=30")
+				if err != nil {
+					t.Logf("the %s profile: %v", name, err)
+					return
+				}
+				defer resp.Body.Close()
+				data, _ := io.ReadAll(resp.Body)
+				_ = os.WriteFile(filepath.Join(dir, "profile-"+name+".pb.gz"), data, 0o644)
+			}()
+		}
+	}
 	var started time.Time
 	result, err := loadtest.Run(context.Background(), loadtest.Config{Server: r.base, PIN: pin, Accounts: accounts, Duration: duration, Ramp: 30 * time.Second,
 		Storms: []time.Duration{duration / 3, duration * 2 / 3}, Sample: host.Sample,
+		// The proctor's application is open on the exam, as it is in a class: its two reads, as often as it makes them.
+		Poll: []loadtest.Poll{{Name: "sessions", Path: "/admin/sessions?exam_id=" + examID, Token: adminTokn, Every: 3 * time.Second}, {Name: "workspace roster", Path: "/admin/workspace/exam/" + examID + "/roster", Token: adminTokn, Every: 3 * time.Second}},
 		Logf: func(format string, args ...any) {
 			if started.IsZero() {
 				started = time.Now()

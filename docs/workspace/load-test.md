@@ -57,14 +57,30 @@ one for the test).
 ## Running it with the router in the middle (the owner)
 
 The plan's 300 ms target is for the lab network, which for this deployment is **the owner's own Wi-Fi router** (decision P0-25). The loopback run measures what the server, the
-runner and the agent take; the router adds its round trip to every request and every echo. To measure it:
+runner and the agent take; the router adds its round trip to every request and every echo. The simulated students must **come from another device on the Wi-Fi**: a client that
+connects to this machine's own address never leaves it, whatever the address is.
 
-1. Put the exam server on the machine the students' network reaches, as in class, with the runner and the image.
-2. On **another device on the Wi-Fi** (a laptop; a phone cannot run it), run `cbe-loadtest` as above against the server's address on the router. The 40 simulated students share the laptop's one
-   Wi-Fi link, which is harsher than 40 devices each with their own radio time but kinder than a crowded channel; if you have the devices, run the real client on a few of them
-   at the same time and read their autosave time in the **Last activity** column.
-3. Read `summary.json`: *autosave* p95 and p99, *terminal echo*, and the number of *connection lost and made again* events. The plan's other network test, **pulling the network for 30 seconds
-   loses no edits**, is done by hand: work in the IDE on a laptop, turn the Wi-Fi off for 30 seconds, turn it on; the *Reconnecting…* banner goes, and the text typed meanwhile is saved.
+1. **On the machine of the exam server** (connected to the router, by cable or by Wi-Fi), start a throwaway server on all its addresses, with the installed runner:
+
+   ```bash
+   deploy/workspace/test-server.sh --manual 0.0.0.0:8090
+   ```
+
+   It prints the admin token (a line `echo '…' > ~/manual-admin-token`) and runs until Ctrl+C; it has its own database. Find the machine's address on the router (`ip -4 addr`), say `192.168.1.10`.
+2. **On another device on the Wi-Fi** (a laptop; the Windows VM is not it unless it is bridged to the Wi-Fi), with the files `cbe-loadtest` (or `cbe-loadtest.exe`) and the folder `lab-carga/` from `build/phase8/`,
+   and the token saved in a file `token`:
+
+   ```bash
+   ./cbe-loadtest -server http://192.168.1.10:8090 -admin-token-file token -package lab-carga -students 40 -duration 30m -out results
+   ```
+
+   It makes the class of `LT001` to `LT040` and the exam, published, and runs the class. It exits with status 3 if the 95th percentile of an autosave is over 300 ms. The 40 simulated students share
+   the laptop's one Wi-Fi link, which is harsher than 40 devices each with their own radio time and kinder than a crowded channel; if you have the devices, also run the real student application on a few
+   of them meanwhile and look at their **Last activity** in the monitoring window.
+3. **Read `results/summary.json` and `results/machine.csv`:** *autosave* p95 and p99, *terminal echo*, and the *connection lost and made again* events. Ctrl+C the server on the machine of the exam server: it
+   removes everything the students made.
+4. The plan's other network test, **pulling the network for 30 seconds loses no edits**, is done by hand with the real application: work in the IDE on a laptop, turn the Wi-Fi off for 30 seconds,
+   turn it on; the *Reconnecting…* banner goes, and the text typed meanwhile is saved. (It passed on the Windows VM on 2026-11-15, step 9 of `windows-smoke-test.md`, with the VM's adapter.)
 
 ## Reading the results
 

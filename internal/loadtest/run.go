@@ -28,6 +28,9 @@ type Config struct {
 	// Heartbeat is how often the application tells the server it is there.
 	ThinkMin, ThinkMax, SaveGap, Heartbeat time.Duration
 	Seed                                   int64
+	// Poll are what the proctor's application reads over and over while the class works (the roster and the sessions): each is asked for every
+	// Every with the admin token, and its time is a measurement of its own ("proctor: " and the name).
+	Poll []Poll
 	// Sample, when set, is called every SampleEvery for what the machine is doing (the host's numbers); the values go to the time series.
 	Sample      func() map[string]float64
 	SampleEvery time.Duration
@@ -249,6 +252,9 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 	rec.Reset()
 	steady := time.Now()
 	close(start)
+	for _, poll := range cfg.Poll {
+		go poller(stop, rec, cfg.HTTP, cfg.Server, poll)
+	}
 	timers := []*time.Timer{}
 	for i, at := range cfg.Storms {
 		i := i
@@ -318,6 +324,47 @@ func (r *Result) WriteSeries(w *csv.Writer) error {
 	}
 	w.Flush()
 	return w.Error()
+}
+
+// Poll is something the proctor's application asks the server for every few seconds.
+type Poll struct {
+	Name  string
+	Path  string
+	Token string
+	Every time.Duration
+}
+
+// poller asks for a page until ctx ends, and records how long each answer took.
+func poller(ctx context.Context, rec *Recorder, client *http.Client, server string, poll Poll) {
+	ticker := time.NewTicker(poll.Every)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+		begin := time.Now()
+		req, err := http.NewRequestWithContext(ctx, "GET", server+poll.Path, nil)
+		if err != nil {
+			return
+		}
+		req.Header.Set("Authorization", "Bearer "+poll.Token)
+		response, err := client.Do(req)
+		problem := ""
+		if err != nil {
+			problem = failure(err)
+		} else {
+			_, _ = io.Copy(io.Discard, response.Body)
+			response.Body.Close()
+			if response.StatusCode != http.StatusOK {
+				problem = fmt.Sprintf("status %d", response.StatusCode)
+			}
+		}
+		if ctx.Err() == nil {
+			rec.Add("proctor: "+poll.Name, time.Since(begin), problem)
+		}
+	}
 }
 
 // Column is what the machine's readings of one thing came to during the steady state.

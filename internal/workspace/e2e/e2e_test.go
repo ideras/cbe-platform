@@ -136,6 +136,9 @@ func (r *rig) start() {
 	r.cmd = exec.Command(r.bin, "-bind", addr, "-database", filepath.Join(r.dir, "exams.db"), "-screenshots", filepath.Join(r.dir, "shots"),
 		"-admin-token-file", filepath.Join(r.dir, "admin-token"), "-runner-socket", env(r.t, "CBE_RUNNER_SOCKET"), "-runner-secret-file", env(r.t, "CBE_RUNNER_SECRET_FILE"),
 		"-workspace-dir", filepath.Join(r.dir, "workspace"), "-workspace-snapshot-every", cmp.Or(os.Getenv("CBE_E2E_SNAPSHOT_EVERY"), "10s"), "-worker-interval", "500ms")
+	if profile := os.Getenv("CBE_PPROF"); profile != "" {
+		r.cmd.Env = append(os.Environ(), "CBE_PPROF="+profile)
+	}
 	r.cmd.Stdout, r.cmd.Stderr = logFile, logFile
 	if r.bind != "" {
 		// The manual phase is stopped with Ctrl+C, which reaches the whole foreground group: the server must outlive it, to be asked for
