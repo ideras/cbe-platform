@@ -60,10 +60,11 @@ type WorkspaceExam struct {
 	Tools     *calc.Tools       `json:"tools,omitempty"`
 	Workspace WorkspaceSettings `json:"workspace"`
 	Content   WorkspaceContent  `json:"content"`
-	// StarterBundle and GradingBundle are the content hashes ("sha256:" and 64 hexadecimal digits) of the two bundles. The
-	// grading bundle is left out when the package has no grading folder.
+	// StarterBundle, GradingBundle and ImageBundle are the content hashes ("sha256:" and 64 hexadecimal digits) of the bundles. The
+	// grading bundle is left out when the package has no grading folder, and the image bundle when it has no image folder.
 	StarterBundle string `json:"starter_bundle"`
 	GradingBundle string `json:"grading_bundle,omitempty"`
+	ImageBundle   string `json:"image_bundle,omitempty"`
 }
 
 // WorkspaceSettings is what the workspace.md front matter says about the container and the project.
@@ -131,10 +132,14 @@ type Bundle struct {
 	Size  int64
 }
 
-// WorkspaceBundles are the two archives of a package. Grading is nil when the package has no grading folder.
+// WorkspaceBundles are the archives of a package. Grading is nil when the package has no grading folder, and Image when it has no image
+// folder (the build context of a per-exam image: its Containerfile and whatever it copies). ImageWarnings are what the Containerfile
+// checker would only say (a package install without a version); they are not part of the document.
 type WorkspaceBundles struct {
-	Starter Bundle
-	Grading *Bundle
+	Starter       Bundle
+	Grading       *Bundle
+	Image         *Bundle
+	ImageWarnings []string
 }
 
 // DocumentKind reads the kind of a compiled exam document: KindWorkspace, or KindQuestion, which is also what a document that
