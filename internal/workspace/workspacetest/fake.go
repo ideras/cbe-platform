@@ -57,6 +57,7 @@ type Runner struct {
 	Calls []string
 	// ArchiveHook, when set, replaces what Archive returns (to test what a hostile /work looks like).
 	ArchiveHook func(session string) io.ReadCloser
+	connectHook func(ctx context.Context, session string) (net.Conn, error)
 	// SilentAgents makes the agents of these sessions look as if their heartbeat had stopped.
 	SilentAgents map[string]bool
 	// FailArchive makes Archive fail.
@@ -454,6 +455,16 @@ func (r *Runner) Archive(_ context.Context, id, path string) (io.ReadCloser, err
 	return io.NopCloser(&buffer), nil
 }
 
+// SetConnectHook makes ConnectAgent return what the hook returns instead of a connection to the session's agent, until it is set to nil: the
+// way a test plays an agent that is hostile (the agent runs as the student, so whatever it says is hostile input to the server). The hook is
+// asked by everything that connects to an agent (the relay, the recorder, the wait for the agent to come up), so a test sets it once the
+// container is up.
+func (r *Runner) SetConnectHook(hook func(ctx context.Context, session string) (net.Conn, error)) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.connectHook = hook
+}
+
 func (r *Runner) ConnectAgent(ctx context.Context, id string) (net.Conn, error) {
 	r.mu.Lock()
 	s, err := r.get(id)
@@ -461,7 +472,7 @@ func (r *Runner) ConnectAgent(ctx context.Context, id string) (net.Conn, error) 
 		r.mu.Unlock()
 		return nil, err
 	}
-	state, socket := s.state, filepath.Join(s.run, "agent.sock")
+	state, socket, hook := s.state, filepath.Join(s.run, "agent.sock"), r.connectHook
 	r.mu.Unlock()
 	switch state {
 	case runner.StateRunning:
@@ -469,6 +480,9 @@ func (r *Runner) ConnectAgent(ctx context.Context, id string) (net.Conn, error) 
 		return nil, runner.ErrFrozen
 	default:
 		return nil, fmt.Errorf("%w: the container is %s", runner.ErrConflict, state)
+	}
+	if hook != nil {
+		return hook(ctx, id)
 	}
 	return (&net.Dialer{Timeout: 3 * time.Second}).DialContext(ctx, "unix", socket)
 }

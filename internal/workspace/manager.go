@@ -76,6 +76,9 @@ type Options struct {
 	ReadyTimeout time.Duration
 	// TranscriptDir is where terminal transcripts are written. Without it there are none.
 	TranscriptDir string
+	// ControlRate is how many control messages a second one student's connection may send (and ControlBurst the burst); zero is the
+	// default of limiter.go. The fuzz targets raise it, so that the decoder and not the limit is what they test.
+	ControlRate, ControlBurst float64
 }
 
 func (o *Options) fill() {
@@ -102,6 +105,12 @@ func (o *Options) fill() {
 	}
 	if o.ReadyTimeout <= 0 {
 		o.ReadyTimeout = 45 * time.Second
+	}
+	if o.ControlRate <= 0 {
+		o.ControlRate, o.ControlBurst = controlRate, controlBurst
+	}
+	if o.ControlBurst <= 0 {
+		o.ControlBurst = o.ControlRate * 2
 	}
 }
 

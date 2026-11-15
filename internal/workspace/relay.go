@@ -128,7 +128,7 @@ func (m *Manager) Serve(w http.ResponseWriter, req *http.Request, session string
 	conn.SetReadLimit(MaxClientMessage)
 	ctx, cancel := context.WithCancel(context.Background())
 	r := &relay{m: m, session: session, conn: conn, ctx: ctx, cancel: cancel, exam: exam, notified: make(chan struct{}, 1), ops: map[uint64]pendingOp{}, sizes: map[string]int64{}, pastes: newBucket(0.5, 5),
-		control: newBucket(controlRate, controlBurst), controlBytes: newBucket(controlBytesRate, controlBytesBurst), input: newBucket(inputRate, inputBurst), output: newBucket(outputRate, outputBurst)}
+		control: newBucket(m.opts.ControlRate, m.opts.ControlBurst), controlBytes: newBucket(controlBytesRate, controlBytesBurst), input: newBucket(inputRate, inputBurst), output: newBucket(outputRate, outputBurst)}
 	m.register(r)
 	m.touch(session)
 	m.event(session, EventOpened, nil)

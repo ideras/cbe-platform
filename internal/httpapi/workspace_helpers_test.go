@@ -24,7 +24,7 @@ import (
 )
 
 // tarOf makes a bundle: name to content, and a trailing / for a folder.
-func tarOf(t *testing.T, files map[string]string, headers ...tar.Header) []byte {
+func tarOf(t testing.TB, files map[string]string, headers ...tar.Header) []byte {
 	t.Helper()
 	var buffer bytes.Buffer
 	writer := tar.NewWriter(&buffer)
@@ -93,7 +93,7 @@ func document(starter, grading []byte) workspace.Document {
 var gradingFiles = map[string]string{"grade": "#!/bin/sh\necho '{}'\n", "tests/hidden.txt": "HIDDEN-GRADING-MARKER\n"}
 
 // importBody makes the multipart form of an import.
-func importBody(t *testing.T, doc workspace.Document, starter, grading []byte, extra map[string][]byte) (string, string) {
+func importBody(t testing.TB, doc workspace.Document, starter, grading []byte, extra map[string][]byte) (string, string) {
 	t.Helper()
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
@@ -146,16 +146,18 @@ type fixtureOptions struct {
 	unpublished bool
 	// noImport leaves the stack with its class and no exam, for a test that imports its own package.
 	noImport bool
+	// controlRate raises the relay's limit on control messages (a fuzz target tests the decoder, not the limit).
+	controlRate float64
 }
 
 // newWorkspaceFixture has a class, a published workspace exam made by importing a package through the admin route, and a server on a
 // real socket.
-func newWorkspaceFixture(t *testing.T, change func(*workspace.Document)) *workspaceFixture {
+func newWorkspaceFixture(t testing.TB, change func(*workspace.Document)) *workspaceFixture {
 	t.Helper()
 	return newWorkspaceFixtureWith(t, change, fixtureOptions{})
 }
 
-func newWorkspaceFixtureWith(t *testing.T, change func(*workspace.Document), opts fixtureOptions) *workspaceFixture {
+func newWorkspaceFixtureWith(t testing.TB, change func(*workspace.Document), opts fixtureOptions) *workspaceFixture {
 	t.Helper()
 	f := &workspaceFixture{apiFixture: newUnpublishedAPIFixture(t)}
 	f.dir = t.TempDir()
@@ -168,7 +170,7 @@ func newWorkspaceFixtureWith(t *testing.T, change func(*workspace.Document), opt
 	}
 	f.repo = f.store.Workspaces()
 	f.manager = workspace.NewManager(workspace.Options{Repo: f.repo, Runner: f.runner, Blobs: f.blobs, Logger: f.logger, Now: f.clock.Now, SnapshotEvery: 60 * time.Second,
-		HeartbeatTimeout: 5 * time.Second, ReadyTimeout: 10 * time.Second, Retention: time.Hour, TranscriptDir: f.dir + "/transcripts"})
+		HeartbeatTimeout: 5 * time.Second, ReadyTimeout: 10 * time.Second, Retention: time.Hour, TranscriptDir: f.dir + "/transcripts", ControlRate: opts.controlRate, ControlBurst: opts.controlRate * 2})
 	t.Cleanup(f.manager.Close)
 	f.grader = workspace.NewGrader(f.manager, workspace.GraderOptions{Parallel: 2, DefaultTimeout: 5 * time.Minute})
 	graderCtx, stopGrader := context.WithCancel(context.Background())
@@ -240,7 +242,7 @@ func requestWithType(handler http.Handler, method, path, body, contentType, auth
 }
 
 // loginReady logs a student in and waits for their workspace to be ready.
-func (f *workspaceFixture) loginReady(t *testing.T, account string) loginResponse {
+func (f *workspaceFixture) loginReady(t testing.TB, account string) loginResponse {
 	t.Helper()
 	login := f.login(t, account)
 	eventually(t, "the workspace of "+account, func() bool {
@@ -250,12 +252,12 @@ func (f *workspaceFixture) loginReady(t *testing.T, account string) loginRespons
 	return login
 }
 
-func (f *workspaceFixture) dial(t *testing.T, token string) *workspacetest.Client {
+func (f *workspaceFixture) dial(t testing.TB, token string) *workspacetest.Client {
 	t.Helper()
 	return workspacetest.Dial(t, f.server.URL, token)
 }
 
-func eventually(t *testing.T, what string, ok func() bool) {
+func eventually(t testing.TB, what string, ok func() bool) {
 	t.Helper()
 	workspacetest.Eventually(t, 20*time.Second, what, ok)
 }
