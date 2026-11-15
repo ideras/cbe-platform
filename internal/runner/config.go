@@ -45,6 +45,10 @@ type Config struct {
 	GradeParallel    int    `json:"grade_parallel"`
 	GradeMaxSeconds  int    `json:"grade_max_seconds"`
 	GradeOutputBytes int    `json:"grade_output_bytes"`
+	// BuildMaxSeconds is the longest an image build may last (a request may ask for less), and BuildMemoryMB the memory the steps of a build
+	// may use together (Phase 7). One build runs at a time.
+	BuildMaxSeconds int `json:"build_max_seconds"`
+	BuildMemoryMB   int `json:"build_memory_mb"`
 }
 
 // DefaultConfig is the configuration of the plan: the limits of its Appendix A, and the maximums of the Phase 0 sizing.
@@ -58,6 +62,7 @@ func DefaultConfig() Config {
 		Default: Resources{CPU: 1, MemoryMB: 1024, DiskMB: 100},
 		Pids:    256, Inodes: 20000, TmpMB: 64, StopSeconds: 5,
 		GradeRoot: "/data/cbe-platform/grading", GradeParallel: 2, GradeMaxSeconds: 1800, GradeOutputBytes: 256 << 10,
+		BuildMaxSeconds: 900, BuildMemoryMB: 2048,
 	}
 }
 
@@ -111,6 +116,8 @@ func LoadConfig(path string) (Config, error) {
 	set("grade_parallel", func() { merged.GradeParallel = overlay.GradeParallel })
 	set("grade_max_seconds", func() { merged.GradeMaxSeconds = overlay.GradeMaxSeconds })
 	set("grade_output_bytes", func() { merged.GradeOutputBytes = overlay.GradeOutputBytes })
+	set("build_max_seconds", func() { merged.BuildMaxSeconds = overlay.BuildMaxSeconds })
+	set("build_memory_mb", func() { merged.BuildMemoryMB = overlay.BuildMemoryMB })
 	return merged, merged.Validate()
 }
 
@@ -143,6 +150,9 @@ func (c Config) Validate() error {
 	}
 	if c.GradeParallel < 1 || c.GradeParallel > 32 || c.GradeMaxSeconds < 10 || c.GradeOutputBytes < 1<<10 || c.GradeOutputBytes > 4<<20 {
 		return errors.New("runner config: grade_parallel is 1 to 32, grade_max_seconds at least 10 and grade_output_bytes 1 KiB to 4 MiB")
+	}
+	if c.BuildMaxSeconds < 10 || c.BuildMemoryMB < 256 {
+		return errors.New("runner config: build_max_seconds is at least 10 and build_memory_mb at least 256")
 	}
 	return nil
 }

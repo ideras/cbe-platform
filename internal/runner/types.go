@@ -30,6 +30,9 @@ const (
 // ErrNotFound is what a Runtime returns for a container or an image that does not exist.
 var ErrNotFound = errors.New("not found")
 
+// ErrBuildFailed is what a Runtime's ImageBuild wraps when a step of the build failed, as opposed to the runtime itself failing.
+var ErrBuildFailed = errors.New("the build failed")
+
 // Resources are the limits of one container. The exam asks for them in `resources`; the runner keeps them within its maximums.
 type Resources struct {
 	CPU      float64 `json:"cpu"`
@@ -39,9 +42,12 @@ type Resources struct {
 
 // CreateRequest is container.create: which session, of which exam, from which approved image, with which limits.
 type CreateRequest struct {
-	Session   string    `json:"session"`
-	Exam      string    `json:"exam"`
-	Image     string    `json:"image"`
+	Session string `json:"session"`
+	Exam    string `json:"exam"`
+	Image   string `json:"image"`
+	// Build, when it is not empty, is the build of the exam's own image (16 hexadecimal digits, Phase 7) the container is made from; Image
+	// still names the course image it was built from, which must be approved.
+	Build     string    `json:"build,omitempty"`
 	Resources Resources `json:"resources"`
 }
 
@@ -79,7 +85,8 @@ type Stats struct {
 	Pids        uint64  `json:"pids"`
 }
 
-// ImageStatus is image.inspect: whether an image is on the approved list and whether the runtime has it.
+// ImageStatus is image.inspect: whether an image is on the approved list (or, for the name of an exam's built image, is the image built
+// for that exam) and whether the runtime has it.
 type ImageStatus struct {
 	Name     string `json:"name"`
 	Approved bool   `json:"approved"`

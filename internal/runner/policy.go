@@ -26,6 +26,7 @@ const (
 	LabelSession = "cbe.session"
 	LabelExam    = "cbe.exam"
 	LabelImage   = "cbe.image"
+	LabelBuild   = "cbe.build"
 )
 
 // Check validates a create request against the configuration and returns the limits the container gets, with the zero ones filled in.
@@ -36,6 +37,13 @@ func (c Config) Check(req CreateRequest) (Resources, string, error) {
 	reference, approved := c.Images[req.Image]
 	if !approved {
 		return Resources{}, "", fmt.Errorf("%w: %q", ErrNotApproved, req.Image)
+	}
+	if req.Build != "" {
+		// The exam's own image, built from the approved one (Phase 7): its name has the exam in it, and the exam must be a name an image can have.
+		if !buildHashPattern.MatchString(req.Build) || !examTagPattern.MatchString(req.Exam) {
+			return Resources{}, "", badRequest("build must be 16 hexadecimal digits, and the exam of a built image lowercase letters, digits, _ and -")
+		}
+		reference = BuiltReference(req.Exam, req.Build)
 	}
 	r := req.Resources
 	if r.CPU == 0 {
@@ -87,6 +95,9 @@ func BuildSpec(c Config, req CreateRequest, resources Resources, reference strin
 	spec := hardened(c, resources, reference)
 	spec.Name = ContainerName(req.Exam, req.Session)
 	spec.Labels = map[string]string{LabelManaged: "1", LabelSession: req.Session, LabelExam: req.Exam, LabelImage: req.Image}
+	if req.Build != "" {
+		spec.Labels[LabelBuild] = req.Build
+	}
 	spec.Binds = []Bind{
 		{Source: filepath.Join(c.WorkRoot, req.Session), Target: WorkPath},
 		{Source: filepath.Join(c.RunRoot, req.Session), Target: SocketPath},

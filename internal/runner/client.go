@@ -144,6 +144,43 @@ func (c *Client) Grade(ctx context.Context, req GradeRequest, submission, bundle
 	return result, err
 }
 
+// BuildImage is image.build: the exam's build context (a tar archive that holds a Containerfile) is built on top of the approved course image, and
+// the result comes back whatever way the build ended. It returns when the build is over, which can be minutes; ctx is its only timeout besides
+// the request's own.
+func (c *Client) BuildImage(ctx context.Context, req BuildRequest, buildContext io.Reader) (BuildResult, error) {
+	pipeReader, pipeWriter := io.Pipe()
+	defer pipeReader.Close()
+	form := multipart.NewWriter(pipeWriter)
+	go func() {
+		err := func() error {
+			part, err := form.CreateFormField("request")
+			if err != nil {
+				return err
+			}
+			if err := json.NewEncoder(part).Encode(req); err != nil {
+				return err
+			}
+			part, err = form.CreateFormFile("context", "context.tar")
+			if err != nil {
+				return err
+			}
+			if _, err := io.Copy(part, buildContext); err != nil {
+				return err
+			}
+			return form.Close()
+		}()
+		_ = pipeWriter.CloseWithError(err)
+	}()
+	var result BuildResult
+	response, err := c.request(ctx, http.MethodPost, "/v1/images/build", pipeReader, form.FormDataContentType())
+	if err != nil {
+		return result, err
+	}
+	defer response.Body.Close()
+	err = json.NewDecoder(io.LimitReader(response.Body, 4<<20)).Decode(&result)
+	return result, err
+}
+
 // Create is container.create.
 func (c *Client) Create(ctx context.Context, req CreateRequest) (Status, error) {
 	var status Status
