@@ -1,8 +1,8 @@
 # Phase 7 report: per-exam image customization
 
 **Date:** 2026-11-14. **Branch:** `feat/workspace-phase-7-image-customization` (from `feat/workspace-phase-6-grading-runner`, which is pushed). **Plan:** `.agents/WORKSPACE-PLAN.md` v1.1.
-**Status:** built and tested, **with real image builds, real containers and a real network**; **all five acceptance items are met** (below). Decisions `P7-1` to `P7-17` are **confirmed by the owner (2026-11-15) except `P7-10`**, which the owner asked to rethink (the log was shown only when a build ended); it is **revised and built** (below) and waits for their confirmation.
-**The branch is not pushed.** The installed runner is upgraded (2026-11-15); there is no installed exam server to upgrade (see "Not run"). How it works: [`docs/workspace/images.md`](../images.md).
+**Status:** built and tested, **with real image builds, real containers and a real network**; **all five acceptance items are met** (below). Decisions `P7-1` to `P7-17` are **all confirmed by the owner (2026-11-15)**; `P7-10` was first rethought at their request (the log was shown only when a build ended), then **revised, built and confirmed** in its streamed form (below).
+**The branch is pushed (owner's go, 2026-11-15).** The installed runner is upgraded (2026-11-15); there is no installed exam server to upgrade (see "Not run"). How it works: [`docs/workspace/images.md`](../images.md).
 
 ## What changed
 
@@ -81,7 +81,7 @@ Nothing from the runs (the script checks; the images it built are removed). The 
 
 ## For the owner
 
-1. **Confirm the revised P7-10** (the log is live): `image.build` streams, the server serves the log from an offset every second, the log so far is written to the database every ten seconds, and the dialog shows the step, the last output and a follow box. Try it: `deploy/workspace/test-image.sh` runs a build with sleeps, and the installed runner streams already.
-2. **May I push the branch?** (Phase 7 is committed; nothing of it is pushed.)
-3. **Your exam server:** `build/cbe-portal-server` is the new build and the old one is beside it; start it as you usually do. If you want workspace exams on it, `deployment.md` has the flags and the account to run it as; tell me if you want me to set that up.
-4. **Go for Phase 8** (hardening, load test and release): the security checklist, the load test with 40 students, the teacher guide. Items I noticed for it: image removal (P7-12), and the Phase 0 backstop on `cbe-runner`'s slice.
+Answered 2026-11-15: P7-10 confirmed as revised; the branch is pushed; setting up a workspace-enabled exam server on this host is left aside for now; Phase 8 is a go.
+
+1. **Your exam server:** `build/cbe-portal-server` is the new build and the old one is beside it (`build/cbe-portal-server.before-phase7`); start it as you usually do. Workspace exams are on only with `-runner-socket` and `-runner-secret-file` (`deployment.md` has the flags and the account to run it as). It applies migrations 020 to 023 on its first start, after copying the database.
+2. **Carried into Phase 8:** image removal (P7-12) and the Phase 0 backstop on `cbe-runner`'s slice.
