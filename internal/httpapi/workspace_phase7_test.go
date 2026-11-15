@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"exam-platform/internal/runner"
 	"exam-platform/internal/workspace"
@@ -483,5 +484,163 @@ func TestAQuestionExamInTheCatalogHasNoWorkspaceFields(t *testing.T) {
 	}
 	if question == 0 || workspaceExams != 1 {
 		t.Errorf("%d question exams, %d workspace exams", question, workspaceExams)
+	}
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------------
+// The log of a build while it goes (decision P7-10): the runner streams it, the server keeps it and serves it from an offset.
+
+func (f *workspaceFixture) imageFrom(t *testing.T, from int64) workspace.ImageView {
+	t.Helper()
+	w := request(f.router, "GET", fmt.Sprintf("/admin/workspace/exam/%s/image?log=1&log_from=%d", f.examID, from), "", "Bearer "+testAdminToken)
+	if w.Code != http.StatusOK {
+		t.Fatalf("image = %d %s", w.Code, w.Body.String())
+	}
+	return decoded[workspace.ImageView](t, w.Body.Bytes())
+}
+
+func TestTheLogOfABuildIsReadWhileItGoesFromAnOffsetWithItsProgress(t *testing.T) {
+	f := imageFixture(t)
+	first, second := make(chan struct{}), make(chan struct{})
+	f.runner.BuildHook = func(ctx context.Context, call workspacetest.BuildCall) (runner.BuildResult, error) {
+		call.Log("Base image: cbe/cpp20 digest " + workspacetest.BaseDigest + "\n")
+		call.Log("STEP 1/3: FROM cbe/cpp20\nSTEP 2/3: RUN make\n")
+		select {
+		case <-first:
+		case <-ctx.Done():
+			return runner.BuildResult{}, ctx.Err()
+		}
+		call.Log("make: compiling\nSTEP 3/3: USER 1000:1000\n")
+		select {
+		case <-second:
+		case <-ctx.Done():
+			return runner.BuildResult{}, ctx.Err()
+		}
+		call.Log("Verified.\n")
+		f.runner.Have(call.Request.Exam, "0123456789abcdef")
+		return runner.BuildResult{OK: true, Hash: "0123456789abcdef", ImageID: "sha256:x", BaseName: "cbe/cpp20", BaseDigest: workspacetest.BaseDigest,
+			Log: "Base image: cbe/cpp20 digest " + workspacetest.BaseDigest + "\nSTEP 1/3: FROM cbe/cpp20\nSTEP 2/3: RUN make\nmake: compiling\nSTEP 3/3: USER 1000:1000\nVerified.\n"}, nil
+	}
+	if status, body := f.startBuild(t, ""); status != http.StatusAccepted {
+		t.Fatalf("%d %s", status, body)
+	}
+	var one workspace.ImageView
+	eventually(t, "the first part of the log", func() bool {
+		one = f.imageFrom(t, 0)
+		return one.State == workspace.ImageBuilding && one.Build != nil && strings.Contains(one.Build.Log, "STEP 2/3: RUN make")
+	})
+	b := one.Build
+	if !b.Live || b.LogFrom != 0 || b.LogNext != int64(len(b.Log)) || b.Step != 2 || b.Steps != 3 || b.StepText != "RUN make" || b.LastOutputAt == nil || !strings.HasPrefix(b.Log, "Base image: cbe/cpp20 digest") {
+		t.Fatalf("the build while it goes: %+v", b)
+	}
+	// A look with nothing new carries nothing; the list of builds never carries a log.
+	if again := f.imageFrom(t, b.LogNext); again.Build.Log != "" || again.Build.LogNext != b.LogNext || again.Build.LogFrom != b.LogNext || again.Builds[0].Log != "" {
+		t.Errorf("a look with nothing new: %+v", again.Build)
+	}
+	// What the build prints next arrives, and only that.
+	close(first)
+	var two workspace.ImageView
+	eventually(t, "the second part of the log", func() bool {
+		two = f.imageFrom(t, b.LogNext)
+		return two.Build != nil && strings.Contains(two.Build.Log, "STEP 3/3")
+	})
+	if two.Build.Log != "make: compiling\nSTEP 3/3: USER 1000:1000\n" || two.Build.LogFrom != b.LogNext || two.Build.Step != 3 || !two.Build.Live {
+		t.Errorf("what was new: %+v", two.Build)
+	}
+	// An offset the server does not have starts again from the beginning, and an offset that is not a number is refused.
+	if stale := f.imageFrom(t, 1<<40); stale.Build.LogFrom != 0 || !strings.HasPrefix(stale.Build.Log, "Base image:") {
+		t.Errorf("a stale offset: %+v", stale.Build)
+	}
+	for _, bad := range []string{"abc", "-1", "1.5"} {
+		if w := request(f.router, "GET", "/admin/workspace/exam/"+f.examID+"/image?log=1&log_from="+bad, "", "Bearer "+testAdminToken); w.Code != http.StatusBadRequest {
+			t.Errorf("log_from=%s: %d", bad, w.Code)
+		}
+	}
+	// The look without the log asks nothing of the log but still says where the build is.
+	if quiet := f.imageView(t, false); quiet.Build.Log != "" || quiet.Build.Step != 3 || quiet.Build.StepText != "USER 1000:1000" {
+		t.Errorf("a look without the log: %+v", quiet.Build)
+	}
+	close(second)
+	done := f.waitBuild(t)
+	if done.State != workspace.ImageReady {
+		t.Fatalf("%+v", done)
+	}
+	// When it has ended the log is the runner's, whole, from the start, and it is not live any more.
+	end := f.imageFrom(t, b.LogNext)
+	if end.Build.Live || end.Build.LogFrom != 0 || !strings.HasPrefix(end.Build.Log, "Base image:") || !strings.HasSuffix(end.Build.Log, "Verified.\n") || end.Build.Step != 0 || end.Build.LogNext != int64(len(end.Build.Log)) {
+		t.Errorf("after the build: %+v", end.Build)
+	}
+}
+
+// A build that goes on is written to the database as it goes, so a server that stops leaves the log up to there on a build marked interrupted.
+func TestTheLogSoFarSurvivesAServerThatStopsDuringABuild(t *testing.T) {
+	f := imageFixture(t)
+	f.builder.PersistEvery = 20 * time.Millisecond
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	f.runner.BuildHook = func(ctx context.Context, call workspacetest.BuildCall) (runner.BuildResult, error) {
+		call.Log("Base image: cbe/cpp20\nSTEP 1/2: RUN make\ncc: compiling main.c\n")
+		select {
+		case <-release:
+		case <-ctx.Done():
+		}
+		return runner.BuildResult{}, ctx.Err()
+	}
+	if status, _ := f.startBuild(t, ""); status != http.StatusAccepted {
+		t.Fatal(status)
+	}
+	ctx := context.Background()
+	var id int64
+	eventually(t, "the log to reach the database while the build goes", func() bool {
+		builds, err := f.repo.ImageBuilds(ctx, f.examID, 1)
+		if err != nil || len(builds) == 0 || builds[0].State != workspace.BuildRunning {
+			return false
+		}
+		id = builds[0].ID
+		full, err := f.repo.ImageBuild(ctx, id)
+		return err == nil && strings.Contains(full.Log, "cc: compiling main.c")
+	})
+	// The server starts again: a new builder marks what was going as interrupted, and the log stays.
+	workspace.NewImageBuilder(f.manager).Recover(ctx)
+	full, err := f.repo.ImageBuild(ctx, id)
+	if err != nil || full.State != workspace.BuildFailed || full.Failure != workspace.BuildFailInterrupted || !strings.Contains(full.Log, "STEP 1/2: RUN make") {
+		t.Fatalf("%+v %v", full, err)
+	}
+	view := f.imageFrom(t, 0)
+	if view.State != workspace.ImageFailed || view.Build.Live || !strings.Contains(view.Build.Log, "cc: compiling main.c") {
+		t.Errorf("after the restart: %+v", view.Build)
+	}
+}
+
+// A runner that fails in the middle of a build gives no result, and what the build had printed is the failed build's log.
+func TestWhatABuildHadPrintedIsTheLogOfOneTheRunnerLost(t *testing.T) {
+	f := imageFixture(t)
+	f.runner.BuildHook = func(_ context.Context, call workspacetest.BuildCall) (runner.BuildResult, error) {
+		call.Log("Base image: cbe/cpp20\nSTEP 1/2: RUN make\n")
+		return runner.BuildResult{}, fmt.Errorf("the runner went away")
+	}
+	view := f.built(t)
+	if view.State != workspace.ImageFailed || view.Build.Failure != workspace.BuildFailRunner || view.Build.Live {
+		t.Fatalf("%+v", view.Build)
+	}
+	if log := f.imageFrom(t, 0).Build.Log; !strings.Contains(log, "STEP 1/2: RUN make") {
+		t.Errorf("the log of the failed build: %q", log)
+	}
+}
+
+// A build that is waiting has a live log with nothing in it yet.
+func TestABuildThatIsWaitingHasNothingToReadYet(t *testing.T) {
+	f := imageFixture(t)
+	ctx := context.Background()
+	exam, err := f.repo.Exam(ctx, f.examID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.repo.CreateImageBuild(ctx, f.examID, exam.ImageHash, false, f.clock.Now()); err != nil {
+		t.Fatal(err)
+	}
+	view := f.imageFrom(t, 0)
+	if view.State != workspace.ImageQueued || !view.Build.Live || view.Build.Log != "" || view.Build.LogNext != 0 || view.Build.Step != 0 {
+		t.Errorf("%+v", view.Build)
 	}
 }

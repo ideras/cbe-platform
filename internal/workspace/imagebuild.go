@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -37,11 +38,52 @@ type ImageBuilder struct {
 	m    *Manager
 	jobs chan int64
 	log  *slog.Logger
+	// PersistEvery is how often the log of a build that is going is written to the database (10 seconds when it is not set).
+	PersistEvery time.Duration
+
+	mu sync.Mutex
+	// live are the logs of the builds that are going, by build.
+	live map[int64]*liveLog
 }
 
 // NewImageBuilder makes the image builder of a manager's workspace exams.
 func NewImageBuilder(m *Manager) *ImageBuilder {
-	return &ImageBuilder{m: m, jobs: make(chan int64, maxBuildQueue), log: m.opts.Logger}
+	return &ImageBuilder{m: m, jobs: make(chan int64, maxBuildQueue), log: m.opts.Logger, live: map[int64]*liveLog{}}
+}
+
+func (b *ImageBuilder) liveOf(id int64) *liveLog {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.live[id]
+}
+
+// keepPersisting writes the log of a build that is going to the database every PersistEvery, until stop is closed.
+func (b *ImageBuilder) keepPersisting(id int64, lv *liveLog, stop <-chan struct{}) {
+	every := b.PersistEvery
+	if every <= 0 {
+		every = defaultPersistEvery
+	}
+	ticker := time.NewTicker(every)
+	defer ticker.Stop()
+	written := 0
+	for {
+		select {
+		case <-stop:
+			return
+		case <-ticker.C:
+			text := lv.snapshot()
+			if len(text) == written {
+				continue
+			}
+			bg, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			if err := b.m.opts.Repo.UpdateImageBuildLog(bg, id, clip(text, maxBuildLog)); err != nil {
+				b.log.Warn("workspace: the log of a build that is going could not be written", "build", id, "error", err)
+			} else {
+				written = len(text)
+			}
+			cancel()
+		}
+	}
 }
 
 // Recover marks the builds that were waiting or going when the exam server last stopped as failed (interrupted): the proctor builds again.
@@ -100,10 +142,23 @@ func (b *ImageBuilder) runOne(ctx context.Context, id int64) {
 	if err != nil || record.State != BuildQueued {
 		return
 	}
+	// The live log exists from the moment the build is marked running, so a look at it never finds a running build with none.
+	lv := &liveLog{}
+	b.mu.Lock()
+	b.live[id] = lv
+	b.mu.Unlock()
+	stopPersisting := make(chan struct{})
+	defer func() {
+		close(stopPersisting)
+		b.mu.Lock()
+		delete(b.live, id)
+		b.mu.Unlock()
+	}()
 	if err := repo.StartImageBuild(ctx, id, b.m.opts.Now().UTC()); err != nil {
 		b.log.Error("workspace: an image build could not be started", "build", id, "error", err)
 		return
 	}
+	go b.keepPersisting(id, lv, stopPersisting)
 	// What is recorded is recorded even when the server is stopping: the build does not end in a state it never finished.
 	done := func(failure, text string, result *runner.BuildResult) {
 		bg, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -123,7 +178,8 @@ func (b *ImageBuilder) runOne(ctx context.Context, id int64) {
 	defer bundle.Close()
 	runCtx, cancel := context.WithTimeout(ctx, buildWait)
 	defer cancel()
-	result, err := b.m.opts.Runner.BuildImage(runCtx, runner.BuildRequest{Exam: record.ExamID, Image: exam.Document.Workspace.Image, Rebuild: record.Rebuild}, bundle)
+	result, err := b.m.opts.Runner.BuildImage(runCtx, runner.BuildRequest{Exam: record.ExamID, Image: exam.Document.Workspace.Image, Rebuild: record.Rebuild}, bundle,
+		func(text string) { lv.add(text, b.m.opts.Now().UTC()) })
 	if err != nil {
 		if ctx.Err() != nil {
 			done(BuildFailInterrupted, "the exam server stopped before this build ended; build the image again", nil)
@@ -204,6 +260,9 @@ func (b *ImageBuilder) finish(ctx context.Context, record ImageBuildRecord, fail
 	if result != nil {
 		b.fill(&record, result)
 		record.Cached, record.Hash, record.ImageID = false, "", ""
+	} else if lv := b.liveOf(record.ID); lv != nil && record.Log == "" {
+		// The runner gave no result (it did not answer, or the server is stopping): what the build had printed is the log.
+		record.Log = clip(lv.snapshot(), maxBuildLog)
 	}
 	if err := b.m.opts.Repo.FinishImageBuild(ctx, record); err != nil {
 		b.log.Error("workspace: a failed image build could not be recorded", "build", record.ID, "error", err)
@@ -251,6 +310,16 @@ type ImageBuildView struct {
 	StartedAt  *time.Time `json:"started_at,omitempty"`
 	FinishedAt *time.Time `json:"finished_at,omitempty"`
 	Log        string     `json:"log,omitempty"`
+	// The log of a build that is waiting or going is read from an offset: Live says so, LogFrom is the offset Log starts at (0 when the one asked for is
+	// not one the server has) and LogNext the offset to ask for next. A build that has ended has its whole log, from 0, and Live is false.
+	Live    bool  `json:"live,omitempty"`
+	LogFrom int64 `json:"log_from,omitempty"`
+	LogNext int64 `json:"log_next,omitempty"`
+	// Step, Steps and StepText are where a build that is going is: "STEP 4/9: RUN make". LastOutputAt is when it last printed anything.
+	Step         int        `json:"step,omitempty"`
+	Steps        int        `json:"steps,omitempty"`
+	StepText     string     `json:"step_text,omitempty"`
+	LastOutputAt *time.Time `json:"last_output_at,omitempty"`
 }
 
 // ImageView is the state of an exam's image: what the proctor needs to decide whether to build and whether to publish.
@@ -353,7 +422,7 @@ func (b *ImageBuilder) States(ctx context.Context) (map[string]ExamImage, error)
 
 // View is the state of one exam's image with its builds, and the log of the latest when withLog. It asks the runner whether it still has
 // the image of a build that is recorded as ready.
-func (b *ImageBuilder) View(ctx context.Context, examID string, withLog bool) (ImageView, error) {
+func (b *ImageBuilder) View(ctx context.Context, examID string, withLog bool, logFrom int64) (ImageView, error) {
 	exam, err := b.m.opts.Repo.Exam(ctx, examID)
 	if err != nil {
 		return ImageView{}, err
@@ -362,12 +431,34 @@ func (b *ImageBuilder) View(ctx context.Context, examID string, withLog bool) (I
 	if err != nil {
 		return ImageView{}, err
 	}
-	if withLog && view.Build != nil {
+	if view.Build != nil && (view.Build.State == BuildQueued || view.Build.State == BuildRunning) {
+		// A build that is waiting or going: its log is the live one, from the offset asked for, with where it is.
+		view.Build.Live = true
+		if lv := b.liveOf(view.Build.ID); lv != nil {
+			step, steps, text, last := lv.progress()
+			view.Build.Step, view.Build.Steps, view.Build.StepText = step, steps, text
+			if !last.IsZero() {
+				view.Build.LastOutputAt = &last
+			}
+			if withLog {
+				view.Build.Log, view.Build.LogFrom, view.Build.LogNext = lv.read(logFrom)
+			}
+		} else if withLog && view.Build.State == BuildRunning {
+			// It is going and has no live log: the one the database has.
+			full, err := b.m.opts.Repo.ImageBuild(ctx, view.Build.ID)
+			if err != nil {
+				return ImageView{}, err
+			}
+			view.Build.Log, view.Build.Live = full.Log, false
+			view.Build.LogNext = int64(len(full.Log))
+		}
+	} else if withLog && view.Build != nil {
 		full, err := b.m.opts.Repo.ImageBuild(ctx, view.Build.ID)
 		if err != nil {
 			return ImageView{}, err
 		}
 		*view.Build = buildView(full, true)
+		view.Build.LogNext = int64(len(full.Log))
 	}
 	if exam.ImageHash != "" && view.Ready {
 		present, err := b.present(ctx, exam)

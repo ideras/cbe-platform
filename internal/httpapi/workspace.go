@@ -42,7 +42,7 @@ type WorkspaceAPI interface {
 	UnconfirmGrading(ctx context.Context, id int64) error
 	// Images (Phase 7): a proctor builds an exam's own image before publishing, and reads the build and its log.
 	StartImageBuild(ctx context.Context, examID string, rebuild bool) (workspace.ImageView, error)
-	ImageView(ctx context.Context, examID string, withLog bool) (workspace.ImageView, error)
+	ImageView(ctx context.Context, examID string, withLog bool, logFrom int64) (workspace.ImageView, error)
 	ImageBuildLog(ctx context.Context, examID string, id int64) (workspace.ImageBuildView, error)
 	ImageStates(ctx context.Context) (map[string]workspace.ExamImage, error)
 }

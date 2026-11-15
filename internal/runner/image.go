@@ -108,6 +108,9 @@ type BuildResult struct {
 type logBuffer struct {
 	head []byte
 	ring []byte
+	// live, when it is set, is given everything written to the buffer as it is written (the stream of a build's log to whoever asked for it); a
+	// write to it that fails is not the build's failure.
+	live io.Writer
 	// pos is where the next byte of the ring goes, and written how many bytes went to it in all.
 	pos     int
 	written int64
@@ -117,6 +120,9 @@ func newLogBuffer() *logBuffer { return &logBuffer{ring: make([]byte, maxLogByte
 
 func (l *logBuffer) Write(p []byte) (int, error) {
 	n := len(p)
+	if l.live != nil {
+		_, _ = l.live.Write(p)
+	}
 	if room := logHeadBytes - len(l.head); room > 0 {
 		take := min(room, len(p))
 		l.head = append(l.head, p[:take]...)
@@ -214,6 +220,13 @@ func CheckBuildContext(r io.Reader) (string, error) {
 // BuildImage is image.build. One build runs at a time; others wait. It returns when the build is over and everything it made but the image
 // is removed, whatever way it ended.
 func (s *Service) BuildImage(ctx context.Context, req BuildRequest, buildContext io.Reader) (BuildResult, error) {
+	return s.BuildImageLive(ctx, req, buildContext, nil)
+}
+
+// BuildImageLive is BuildImage that also gives live, when it is not nil, what the build prints as it prints it: the base image and the digest
+// the build is pinned to, every step, and what verification says (the result's Log is the same text, cut to its limit). Writes to live are
+// made by the goroutine that builds, one at a time.
+func (s *Service) BuildImageLive(ctx context.Context, req BuildRequest, buildContext io.Reader, live io.Writer) (BuildResult, error) {
 	reference, approved := s.cfg.Images[req.Image]
 	switch {
 	case !examTagPattern.MatchString(req.Exam):
@@ -256,6 +269,7 @@ func (s *Service) BuildImage(ctx context.Context, req BuildRequest, buildContext
 	started := time.Now()
 	result := BuildResult{Exam: req.Exam, BaseName: req.Image}
 	log := newLogBuffer()
+	log.live = live
 	finish := func(code, message string) (BuildResult, error) {
 		result.OK = code == ""
 		result.Failure, result.Message = code, message

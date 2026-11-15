@@ -166,12 +166,13 @@ func (s *Service) StartImageBuild(ctx context.Context, examID string, rebuild bo
 	if _, err := s.Images.Start(ctx, examID, rebuild); err != nil {
 		return ImageView{}, err
 	}
-	return s.Images.View(ctx, examID, false)
+	return s.Images.View(ctx, examID, false, 0)
 }
 
-// ImageView is the state of an exam's own image with its builds, and the log of the latest build when withLog.
-func (s *Service) ImageView(ctx context.Context, examID string, withLog bool) (ImageView, error) {
-	return s.Images.View(ctx, examID, withLog)
+// ImageView is the state of an exam's own image with its builds, and the log of the latest build when withLog; the log of a build that is going is
+// read from the offset logFrom.
+func (s *Service) ImageView(ctx context.Context, examID string, withLog bool, logFrom int64) (ImageView, error) {
+	return s.Images.View(ctx, examID, withLog, logFrom)
 }
 
 // ImageBuildLog is one build with its log.

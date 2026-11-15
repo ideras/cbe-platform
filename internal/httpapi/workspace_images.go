@@ -31,10 +31,19 @@ func workspaceImageBuildHandler(api WorkspaceAPI, logger *slog.Logger) http.Hand
 	}
 }
 
-// workspaceImageHandler reads the state of an exam's image with its builds; ?log=1 adds the log of the latest build.
+// workspaceImageHandler reads the state of an exam's image with its builds; ?log=1 adds the log of the latest build, and, for a build that is going,
+// ?log_from=N asks for it from the offset N on (the log_next of the last look), so each look transfers only what is new.
 func workspaceImageHandler(api WorkspaceAPI, logger *slog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		view, err := api.ImageView(r.Context(), r.PathValue("id"), r.URL.Query().Get("log") == "1")
+		var from int64
+		if text := r.URL.Query().Get("log_from"); text != "" {
+			var err error
+			if from, err = strconv.ParseInt(text, 10, 64); err != nil || from < 0 {
+				writeError(w, http.StatusBadRequest, "log_from must be a whole number of bytes, from 0")
+				return
+			}
+		}
+		view, err := api.ImageView(r.Context(), r.PathValue("id"), r.URL.Query().Get("log") == "1", from)
 		if err != nil {
 			workspaceError(w, logger, "read an exam's image", err)
 			return

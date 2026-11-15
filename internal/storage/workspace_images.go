@@ -175,3 +175,9 @@ func (s Workspaces) ImageSummaries(ctx context.Context) ([]workspace.ImageSummar
 	}
 	return out, latest.Err()
 }
+
+// UpdateImageBuildLog keeps the log of a running build up to date in the database, so that a server that stops in the middle leaves it there.
+func (s Workspaces) UpdateImageBuildLog(ctx context.Context, id int64, log string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE workspace_image_builds SET log = ? WHERE build_id = ? AND state = 'running'`, log, id)
+	return err
+}

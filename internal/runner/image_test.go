@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -546,23 +548,23 @@ func TestImageBuildOverTheAPI(t *testing.T) {
 	r := newRig(t)
 	client := r.api(t)
 	ctx := context.Background()
-	result, err := client.BuildImage(ctx, r.buildRequest(), bytes.NewReader(archive(t, map[string]string{"Containerfile": plainContainerfile, "x.txt": "x"})))
+	result, err := client.BuildImage(ctx, r.buildRequest(), bytes.NewReader(archive(t, map[string]string{"Containerfile": plainContainerfile, "x.txt": "x"})), nil)
 	if err != nil || !result.OK || result.Hash == "" || !strings.Contains(result.Log, "Base image: cbe/cpp20") {
 		t.Fatalf("%+v %v", result, err)
 	}
 	// A build that fails is a result with a 200, as a refused Containerfile is.
-	refused, err := client.BuildImage(ctx, r.buildRequest(), bytes.NewReader(archive(t, map[string]string{"Containerfile": "FROM ubuntu\n"})))
+	refused, err := client.BuildImage(ctx, r.buildRequest(), bytes.NewReader(archive(t, map[string]string{"Containerfile": "FROM ubuntu\n"})), nil)
 	if err != nil || refused.OK || refused.Failure != FailContainerfile {
 		t.Errorf("a Containerfile that is refused: %+v %v", refused, err)
 	}
 	// What the runner cannot take is the right status.
-	if _, err := client.BuildImage(ctx, BuildRequest{Exam: "exam1", Image: "docker.io/library/alpine"}, bytes.NewReader(archive(t, map[string]string{"Containerfile": "FROM x\n"}))); !errors.Is(err, ErrNotApproved) {
+	if _, err := client.BuildImage(ctx, BuildRequest{Exam: "exam1", Image: "docker.io/library/alpine"}, bytes.NewReader(archive(t, map[string]string{"Containerfile": "FROM x\n"})), nil); !errors.Is(err, ErrNotApproved) {
 		t.Errorf("an image that is not approved: %v", err)
 	}
-	if _, err := client.BuildImage(ctx, r.buildRequest(), bytes.NewReader(archive(t, map[string]string{"x": "y"}))); !errors.Is(err, ErrBadRequest) {
+	if _, err := client.BuildImage(ctx, r.buildRequest(), bytes.NewReader(archive(t, map[string]string{"x": "y"})), nil); !errors.Is(err, ErrBadRequest) {
 		t.Errorf("no Containerfile: %v", err)
 	}
-	if _, err := NewClient(client.socket, "not the secret").BuildImage(ctx, r.buildRequest(), strings.NewReader("")); err == nil {
+	if _, err := NewClient(client.socket, "not the secret").BuildImage(ctx, r.buildRequest(), strings.NewReader(""), nil); err == nil {
 		t.Error("a build without the secret")
 	}
 	if r.rt.builds != 1 {
@@ -740,5 +742,159 @@ func TestACancelledBuildHasItsWorkingContainersRemoved(t *testing.T) {
 	}
 	if _, err := r.rt.Inspect(context.Background(), "cpp20-working-container-1"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("the working container of a build that was stopped is still there: %v", err)
+	}
+}
+
+// The answer of image.build is a stream (decision P7-10): what the build prints reaches the client while the build is still going, and the stream
+// ends with the result, which holds the same log.
+func TestTheLogOfABuildReachesTheClientWhileTheBuildGoes(t *testing.T) {
+	r := newRig(t)
+	release := make(chan struct{})
+	r.rt.build = func(ctx context.Context, spec ImageBuildSpec, _ []byte, log io.Writer) error {
+		fmt.Fprint(log, "STEP 1/2: FROM cbe/cpp20\nSTEP 2/2: RUN make\n")
+		select {
+		case <-release:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		fmt.Fprint(log, "make: done\n")
+		r.rt.addImage(spec.Tag, r.rt.builtOn(baseImage(), spec))
+		return nil
+	}
+	client := r.api(t)
+	chunks := make(chan string, 100)
+	type outcome struct {
+		result BuildResult
+		err    error
+	}
+	done := make(chan outcome, 1)
+	go func() {
+		result, err := client.BuildImage(context.Background(), r.buildRequest(), bytes.NewReader(archive(t, map[string]string{"Containerfile": plainContainerfile})), func(text string) { chunks <- text })
+		done <- outcome{result, err}
+	}()
+	// The base image and the steps are there while the build has not ended.
+	var seen strings.Builder
+	deadline := time.After(5 * time.Second)
+	for !strings.Contains(seen.String(), "STEP 2/2: RUN make") {
+		select {
+		case text := <-chunks:
+			seen.WriteString(text)
+		case <-deadline:
+			t.Fatalf("the log did not arrive while the build went: %q", seen.String())
+		case got := <-done:
+			t.Fatalf("the build ended first: %+v %v", got.result, got.err)
+		}
+	}
+	if !strings.Contains(seen.String(), "Base image: cbe/cpp20") {
+		t.Errorf("the start of the log: %q", seen.String())
+	}
+	select {
+	case got := <-done:
+		t.Fatalf("the build ended before it was released: %+v %v", got.result, got.err)
+	default:
+	}
+	close(release)
+	got := <-done
+	if got.err != nil || !got.result.OK {
+		t.Fatalf("%+v %v", got.result, got.err)
+	}
+	for len(chunks) > 0 {
+		seen.WriteString(<-chunks)
+	}
+	// What was streamed is what the result's log says.
+	if seen.String() != got.result.Log || !strings.Contains(got.result.Log, "make: done") || !strings.Contains(got.result.Log, "Verified:") {
+		t.Errorf("the streamed text and the result's log differ:\nstreamed: %q\nresult:   %q", seen.String(), got.result.Log)
+	}
+}
+
+// A great deal of output is sent in few messages, and none of it is lost; the result's own log is cut to its limit as before.
+func TestAChattyBuildIsStreamedWholeInFewMessages(t *testing.T) {
+	r := newRig(t)
+	line := strings.Repeat("x", 99) + "\n"
+	const writes = 30000
+	r.rt.build = func(_ context.Context, spec ImageBuildSpec, _ []byte, log io.Writer) error {
+		for range writes {
+			fmt.Fprint(log, line)
+		}
+		r.rt.addImage(spec.Tag, r.rt.builtOn(baseImage(), spec))
+		return nil
+	}
+	client := r.api(t)
+	messages, total := 0, 0
+	result, err := client.BuildImage(context.Background(), r.buildRequest(), bytes.NewReader(archive(t, map[string]string{"Containerfile": plainContainerfile})), func(text string) { messages++; total += len(text) })
+	if err != nil || !result.OK {
+		t.Fatalf("%+v %v", result, err)
+	}
+	if total < writes*len(line) || messages > writes/20 {
+		t.Errorf("%d bytes in %d messages for %d writes of %d bytes", total, messages, writes, len(line))
+	}
+	if len(result.Log) > maxLogBytes+1024 || !strings.Contains(result.Log, "bytes of the log are not kept") {
+		t.Errorf("the result's log is %d bytes", len(result.Log))
+	}
+}
+
+// What the runner cannot take is refused with a status, as before, because the stream has not begun; a failure of its own after it began is the
+// last message of the stream, and the client turns it into the error it is.
+func TestAFailureBeforeAndAfterTheStreamBeginsIsTheRightError(t *testing.T) {
+	r := newRig(t)
+	client := r.api(t)
+	if _, err := client.BuildImage(context.Background(), BuildRequest{Exam: "exam1", Image: "docker.io/library/alpine"}, bytes.NewReader(archive(t, map[string]string{"Containerfile": "FROM x\n"})), func(string) {}); !errors.Is(err, ErrNotApproved) {
+		t.Errorf("before: %v", err)
+	}
+	r.rt.build = func(_ context.Context, _ ImageBuildSpec, _ []byte, log io.Writer) error {
+		fmt.Fprint(log, "STEP 1/1: RUN make\n")
+		return errors.New("the runtime is gone")
+	}
+	var seen strings.Builder
+	_, err := client.BuildImage(context.Background(), r.buildRequest(), bytes.NewReader(archive(t, map[string]string{"Containerfile": plainContainerfile})), func(text string) { seen.WriteString(text) })
+	var api *APIError
+	if !errors.As(err, &api) || api.Status != http.StatusInternalServerError || strings.Contains(api.Message, "gone") {
+		t.Errorf("after: %v", err)
+	}
+	if !strings.Contains(seen.String(), "STEP 1/1: RUN make") {
+		t.Errorf("what was printed before the failure was lost: %q", seen.String())
+	}
+}
+
+// A client that goes away ends the build, which is what cancels it in the runtime; one whose runner goes away says the stream ended.
+func TestAClientThatCancelsEndsTheBuildAndABrokenStreamIsAnError(t *testing.T) {
+	r := newRig(t)
+	cancelled := make(chan struct{})
+	r.rt.build = func(ctx context.Context, _ ImageBuildSpec, _ []byte, log io.Writer) error {
+		fmt.Fprint(log, "STEP 1/1: RUN sleep 1000\n")
+		<-ctx.Done()
+		close(cancelled)
+		return ctx.Err()
+	}
+	client := r.api(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	_, err := client.BuildImage(ctx, r.buildRequest(), bytes.NewReader(archive(t, map[string]string{"Containerfile": plainContainerfile})), func(string) { cancel() })
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("a client that cancels: %v", err)
+	}
+	select {
+	case <-cancelled:
+	case <-time.After(5 * time.Second):
+		t.Error("the build was not ended when the client went away")
+	}
+
+	// A stream that ends with no result: a runner that died.
+	dir := t.TempDir()
+	socket := filepath.Join(dir, "x.sock")
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, "{\"log\":\"the first line\\n\"}\n")
+	})}
+	go func() { _ = server.Serve(listener) }()
+	t.Cleanup(func() { _ = server.Close() })
+	var got strings.Builder
+	_, err = NewClient(socket, "secret").BuildImage(context.Background(), r.buildRequest(), bytes.NewReader(archive(t, map[string]string{"Containerfile": plainContainerfile})), func(text string) { got.WriteString(text) })
+	if err == nil || !strings.Contains(err.Error(), "ended before the build's result") || got.String() != "the first line\n" {
+		t.Errorf("a stream that ends with no result: %v (%q)", err, got.String())
 	}
 }

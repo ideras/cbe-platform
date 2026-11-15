@@ -254,7 +254,7 @@ func (r *rig) buildNow(t *testing.T, exam, containerfile string, files map[strin
 	for name, content := range files {
 		all[name] = content
 	}
-	return r.runner.BuildImage(context.Background(), runner.BuildRequest{Exam: exam, Image: "cbe/cpp20", TimeoutSeconds: seconds}, bytes.NewReader(tarBundle(t, all)))
+	return r.runner.BuildImage(context.Background(), runner.BuildRequest{Exam: exam, Image: "cbe/cpp20", TimeoutSeconds: seconds}, bytes.NewReader(tarBundle(t, all)), nil)
 }
 
 func badFrom(t *testing.T, r *rig) {
@@ -283,10 +283,10 @@ func badFrom(t *testing.T, r *rig) {
 		t.Errorf("a digest that is the server's: %+v %v", result, err)
 	}
 	// What the runner cannot take at all is an error, not a result.
-	if _, err := r.runner.BuildImage(context.Background(), runner.BuildRequest{Exam: "e2e-badfrom", Image: "docker.io/library/alpine"}, bytes.NewReader(tarBundle(t, map[string]string{"Containerfile": "FROM alpine\n"}))); !errors.Is(err, runner.ErrNotApproved) {
+	if _, err := r.runner.BuildImage(context.Background(), runner.BuildRequest{Exam: "e2e-badfrom", Image: "docker.io/library/alpine"}, bytes.NewReader(tarBundle(t, map[string]string{"Containerfile": "FROM alpine\n"})), nil); !errors.Is(err, runner.ErrNotApproved) {
 		t.Errorf("an image that is not approved: %v", err)
 	}
-	if _, err := r.runner.BuildImage(context.Background(), runner.BuildRequest{Exam: "e2e-badfrom", Image: "cbe/cpp20"}, bytes.NewReader(tarBundle(t, map[string]string{"setup.sh": "x"}))); !errors.Is(err, runner.ErrBadRequest) {
+	if _, err := r.runner.BuildImage(context.Background(), runner.BuildRequest{Exam: "e2e-badfrom", Image: "cbe/cpp20"}, bytes.NewReader(tarBundle(t, map[string]string{"setup.sh": "x"})), nil); !errors.Is(err, runner.ErrBadRequest) {
 		t.Errorf("a context with no Containerfile: %v", err)
 	}
 }

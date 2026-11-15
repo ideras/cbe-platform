@@ -282,6 +282,8 @@ type Repository interface {
 	ImageBuild(ctx context.Context, id int64) (ImageBuildRecord, error)
 	ImageBuilds(ctx context.Context, examID string, limit int) ([]ImageBuildRecord, error)
 	LatestImageBuild(ctx context.Context, examID, bundleHash string) (ImageBuildRecord, error)
+	// UpdateImageBuildLog writes the log of a build that is running, so far (nothing happens to a build that is not running).
+	UpdateImageBuildLog(ctx context.Context, id int64, log string) error
 	// ImageSummaries lists every workspace exam with its TODO count, its image bundle and its latest image build (without its log), for the exam list.
 	ImageSummaries(ctx context.Context) ([]ImageSummary, error)
 

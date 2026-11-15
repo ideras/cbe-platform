@@ -145,9 +145,10 @@ func (c *Client) Grade(ctx context.Context, req GradeRequest, submission, bundle
 }
 
 // BuildImage is image.build: the exam's build context (a tar archive that holds a Containerfile) is built on top of the approved course image, and
-// the result comes back whatever way the build ended. It returns when the build is over, which can be minutes; ctx is its only timeout besides
-// the request's own.
-func (c *Client) BuildImage(ctx context.Context, req BuildRequest, buildContext io.Reader) (BuildResult, error) {
+// the result comes back whatever way the build ended. onLog, when it is not nil, is given what the build prints as it prints it, a few times
+// a second (decision P7-10). It returns when the build is over, which can be minutes; ctx is its only timeout besides the request's own, and ending it
+// ends the build.
+func (c *Client) BuildImage(ctx context.Context, req BuildRequest, buildContext io.Reader, onLog func(text string)) (BuildResult, error) {
 	pipeReader, pipeWriter := io.Pipe()
 	defer pipeReader.Close()
 	form := multipart.NewWriter(pipeWriter)
@@ -177,8 +178,31 @@ func (c *Client) BuildImage(ctx context.Context, req BuildRequest, buildContext 
 		return result, err
 	}
 	defer response.Body.Close()
-	err = json.NewDecoder(io.LimitReader(response.Body, 4<<20)).Decode(&result)
-	return result, err
+	decoder := json.NewDecoder(response.Body)
+	for {
+		var message struct {
+			Log    *string      `json:"log"`
+			Result *BuildResult `json:"result"`
+			Error  string       `json:"error"`
+			Status int          `json:"status"`
+		}
+		if err := decoder.Decode(&message); err != nil {
+			if ctx.Err() != nil {
+				return result, ctx.Err()
+			}
+			return result, fmt.Errorf("the runner's answer ended before the build's result: %w", err)
+		}
+		switch {
+		case message.Log != nil:
+			if onLog != nil {
+				onLog(*message.Log)
+			}
+		case message.Result != nil:
+			return *message.Result, nil
+		case message.Error != "":
+			return result, &APIError{Status: message.Status, Message: message.Error}
+		}
+	}
 }
 
 // Create is container.create.

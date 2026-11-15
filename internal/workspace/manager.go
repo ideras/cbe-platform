@@ -31,8 +31,9 @@ type RunnerAPI interface {
 	ImageInspect(ctx context.Context, name string) (runner.ImageStatus, error)
 	// Grade is grading.run (Phase 6): a submission and the grading bundle, two tar archives, go to a fresh container.
 	Grade(ctx context.Context, req runner.GradeRequest, submission, bundle io.Reader) (runner.GradeResult, error)
-	// BuildImage is image.build (Phase 7): the exam's build context, a tar archive, is built on its course image.
-	BuildImage(ctx context.Context, req runner.BuildRequest, buildContext io.Reader) (runner.BuildResult, error)
+	// BuildImage is image.build (Phase 7): the exam's build context, a tar archive, is built on its course image. onLog is given what the build prints
+	// as it prints it.
+	BuildImage(ctx context.Context, req runner.BuildRequest, buildContext io.Reader, onLog func(text string)) (runner.BuildResult, error)
 }
 
 // ErrImageNotBuilt is returned when a container or a grading run is wanted for an exam whose image has not been built.

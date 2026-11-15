@@ -38,6 +38,8 @@ type GradeCall struct {
 type BuildCall struct {
 	Request runner.BuildRequest
 	Files   map[string]string
+	// Log sends text to whoever is watching the build, as the runner's stream does while a build goes; a hook calls it to print.
+	Log func(text string)
 }
 
 // BaseDigest is the digest the fake says its course image has.
@@ -498,7 +500,10 @@ func (r *Runner) Forget(exam, hash string) {
 
 // BuildImage is image.build: it reads the build context (so that whoever writes it to a pipe is let go), notes the call, and returns what
 // BuildHook says, or what the default build makes of it.
-func (r *Runner) BuildImage(ctx context.Context, req runner.BuildRequest, buildContext io.Reader) (runner.BuildResult, error) {
+func (r *Runner) BuildImage(ctx context.Context, req runner.BuildRequest, buildContext io.Reader, onLog func(text string)) (runner.BuildResult, error) {
+	if onLog == nil {
+		onLog = func(string) {}
+	}
 	raw, err := io.ReadAll(buildContext)
 	if err != nil {
 		return runner.BuildResult{}, err
@@ -507,7 +512,7 @@ func (r *Runner) BuildImage(ctx context.Context, req runner.BuildRequest, buildC
 	if err != nil {
 		return runner.BuildResult{}, fmt.Errorf("%w: the build context is not a tar archive: %v", runner.ErrBadRequest, err)
 	}
-	call := BuildCall{Request: req, Files: files}
+	call := BuildCall{Request: req, Files: files, Log: onLog}
 	r.mu.Lock()
 	r.Builds = append(r.Builds, call)
 	hook := r.BuildHook
@@ -532,12 +537,18 @@ func (r *Runner) BuildImage(ctx context.Context, req runner.BuildRequest, buildC
 	if !found {
 		return runner.BuildResult{}, fmt.Errorf("%w: the build context has no file called Containerfile", runner.ErrBadRequest)
 	}
-	result := runner.BuildResult{Exam: req.Exam, BaseName: req.Image, BaseDigest: BaseDigest, Log: "Base image: " + req.Image + " digest " + BaseDigest + "\n"}
+	result := runner.BuildResult{Exam: req.Exam, BaseName: req.Image, BaseDigest: BaseDigest}
+	// say adds to the log and sends it on, as the runner does.
+	say := func(text string) {
+		result.Log += text
+		onLog(text)
+	}
+	say("Base image: " + req.Image + " digest " + BaseDigest + "\n")
 	check := containerfile.Check(text, req.Image)
 	result.Warnings = check.Warnings
 	if len(check.Problems) > 0 {
 		result.Failure, result.Message = runner.FailContainerfile, "the Containerfile is not accepted: "+strings.Join(check.Problems, "; ")
-		result.Log += result.Message + "\n"
+		say(result.Message + "\n")
 		return result, nil
 	}
 	sum := sha256.Sum256(append([]byte(BaseDigest), raw...))
@@ -549,9 +560,10 @@ func (r *Runner) BuildImage(ctx context.Context, req runner.BuildRequest, buildC
 	defer r.mu.Unlock()
 	if r.Built[name] != "" && !req.Rebuild {
 		result.Cached = true
-		result.Log += "The image " + result.Tag + " is built already: nothing was built.\n"
+		say("The image " + result.Tag + " is built already: nothing was built.\n")
 	} else {
-		result.Log += "STEP 1/1: FROM " + req.Image + "\nVerified. Tagged " + result.Tag + "\n"
+		say("STEP 1/1: FROM " + req.Image + "\n")
+		say("Verified. Tagged " + result.Tag + "\n")
 	}
 	r.Built[name] = req.Exam
 	result.OK = true
