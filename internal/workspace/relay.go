@@ -294,6 +294,9 @@ func (r *relay) keepalive() {
 	}
 }
 
+// slowReply is how long the server's handling of a reply from the agent may take before it is logged as slow.
+const slowReply = 500 * time.Millisecond
+
 // serverReply is a reply the server itself makes, in the shape of the agent's.
 type serverReply struct {
 	ID       uint64 `json:"id,omitempty"`
@@ -600,9 +603,11 @@ func (r *relay) fromAgent(agent net.Conn) {
 				continue
 			}
 			passes := message.OK != nil
+			began := time.Now()
 			if message.OK != nil && message.ID != 0 {
 				r.replied(message)
 			}
+			recorded := time.Since(began)
 			switch message.Type {
 			case agentproto.TypeFSEvent, agentproto.TypePTYExit, agentproto.TypeSessionErr:
 				passes = true
@@ -614,7 +619,12 @@ func (r *relay) fromAgent(agent net.Conn) {
 			if err := r.output.wait(r.ctx, float64(len(frame.Data))); err != nil {
 				return
 			}
+			sending := time.Now()
 			r.sendJSON(message)
+			// A reply the student waits for that took long says where the time went (the history's write is made before the reply is sent).
+			if total := time.Since(began); total > slowReply {
+				r.m.opts.Logger.Warn("workspace: a reply was slow", "session", r.session, "type", message.Type, "recording_ms", recorded.Milliseconds(), "waiting_for_the_output_limit_ms", sending.Sub(began).Milliseconds()-recorded.Milliseconds(), "sending_ms", time.Since(sending).Milliseconds())
+			}
 		}
 	}
 }

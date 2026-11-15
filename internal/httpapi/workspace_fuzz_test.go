@@ -257,7 +257,23 @@ func FuzzHostileAgent(f *testing.F) {
 	}
 	agents := &hostileAgents{conns: make(chan net.Conn)}
 	fixture, token := fuzzFixture(f)
-	// From here on the relay is given the fuzzer's agent (the container is up, so nothing else is waiting for the real one).
+	// The first connection of a student starts the recorder of their terminals, which holds a connection to the real agent of its own: let it
+	// have it before the hook is set, or it would take the fuzzer's first one and wait on it.
+	warm, err := dialFuzz(fixture.server.URL, token, checkServerMessage)
+	if err != nil {
+		f.Fatal(err)
+	}
+	for start := time.Now(); time.Since(start) < 10*time.Second; time.Sleep(10 * time.Millisecond) {
+		warm.mu.Lock()
+		told := warm.texts
+		warm.mu.Unlock()
+		if told > 0 {
+			break
+		}
+	}
+	time.Sleep(300 * time.Millisecond)
+	warm.close()
+	// From here on the relay is given the fuzzer's agent (the container is up, and nothing else will ask for a connection).
 	fixture.runner.SetConnectHook(agents.connect)
 	f.Cleanup(func() { fixture.runner.SetConnectHook(nil) })
 	var protocolTypes = map[string]bool{agentproto.TypeFSEvent: true, agentproto.TypePTYExit: true, agentproto.TypeSessionErr: true, "ws.status": true, "ws.agent_restarted": true}

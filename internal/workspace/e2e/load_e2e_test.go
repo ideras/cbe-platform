@@ -72,7 +72,9 @@ func phaseLoad(t *testing.T, r *rig) {
 			var cpu, memory float64
 			var pids uint64
 			for _, s := range stats {
-				cpu += s.CPUPercent
+				if s.CPUKnown {
+					cpu += s.CPUPercent
+				}
 				memory += float64(s.MemoryBytes) / (1 << 20)
 				pids += s.Pids
 			}
@@ -111,6 +113,18 @@ func phaseLoad(t *testing.T, r *rig) {
 	result.MachineMarkdown(&report)
 	if err := os.WriteFile(filepath.Join(dir, "load-report.md"), []byte(report.String()), 0o644); err != nil {
 		t.Fatal(err)
+	}
+	// What the server said while it went (its warnings and errors), for whoever has to find out why a save was slow.
+	if logText, err := os.ReadFile(filepath.Join(dir, "server.log")); err == nil {
+		var kept []string
+		for _, line := range strings.Split(string(logText), "\n") {
+			if strings.Contains(line, "WARN") || strings.Contains(line, "ERROR") {
+				kept = append(kept, line)
+			}
+		}
+		if err := os.WriteFile(filepath.Join(dir, "load-server-warnings.log"), []byte(strings.Join(kept, "\n")+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 	t.Logf("\n%s", report.String())
 

@@ -216,7 +216,9 @@ func (s *student) call(ctx context.Context, kind string, fields map[string]any, 
 	}
 	payload, _ := json.Marshal(request)
 	start := time.Now()
-	writeCtx, cancel := context.WithTimeout(ctx, within)
+	// The write has a time limit of its own and not the caller's context: the WebSocket library closes the connection when the context of a write
+	// that is going is cancelled, and the end of the steady state cancels the students' contexts while some of them are writing.
+	writeCtx, cancel := context.WithTimeout(context.Background(), within)
 	defer cancel()
 	if err := conn.Write(writeCtx, websocket.MessageText, payload); err != nil {
 		return nil, 0, fmt.Errorf("write: %w", err)
@@ -256,7 +258,9 @@ func (s *student) keys(ctx context.Context, term uint32, text string) error {
 		return errors.New("not connected")
 	}
 	frame := binary.BigEndian.AppendUint32(nil, term)
-	return conn.Write(ctx, websocket.MessageBinary, append(frame, text...))
+	writeCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return conn.Write(writeCtx, websocket.MessageBinary, append(frame, text...))
 }
 
 // waitOutput waits until what a terminal printed matches, and takes it (and what came before it) out of the buffer.
@@ -416,8 +420,8 @@ func (s *student) echo(ctx context.Context) {
 
 // typist is a student's writing of a file of notes while their programs build, as the IDE's autosave goes on whatever the terminals are doing: a
 // save every few seconds, with no relation to the stretches of work, so that the autosave is measured while the machine is busy too.
-func (s *student) typist(ctx context.Context) {
-	rnd := rand.New(rand.NewSource(s.rnd.Int63()))
+func (s *student) typist(ctx context.Context, seed int64) {
+	rnd := rand.New(rand.NewSource(seed)) // its own: a rand.Rand is not for two goroutines, and the student's own work uses s.rnd
 	path := "notes-" + s.account + ".txt"
 	if _, err := s.timed(ctx, OpCreate, "fs.create", map[string]any{"path": path, "content": "Notes of " + s.account + "\n"}); err != nil {
 		return

@@ -133,12 +133,12 @@ In the proctor application, open the class and use **Import workspace exam…**:
 ## During the exam
 
 - **Publish** the exam when you are ready (it is disabled, with the reason, until the image is built). Students log in with their account and the PIN; a
-  workspace is made for each of them as they log in (about 5 seconds for a class), and the IDE opens when theirs is up.
+  workspace is made for each of them as they log in (in the load test, 40 logins over 30 seconds each had theirs in under a second), and the IDE opens when theirs is up.
 - The monitoring table gets a **Workspace** column. Per student: the container's state (Starting, Running, Paused, Frozen, Failed, Removed), whether they are
   connected, when they last did anything, the container's CPU and memory, the TODO ticks ("2 of 3 done (self-reported)"), how many times they pressed
   **Save**, and how many times the workspace restarted. The reference for each line is [proctor-view.md](proctor-view.md).
-- **A student says "my workspace does not open":** look at their badge. *Starting* for more than a minute, or *Failed* with a reason, is yours to read: the
-  reason names what went wrong (the exam's image not built, the host's memory budget used, the runtime unavailable). They try again by logging in again; a
+- **A student says "my workspace does not open":** look at their badge. *Starting* for more than a minute, or *Failed*, is yours to read: open their **Review** window and the
+  **Container** row says why (the exam's image not built, the host's memory budget used, the runtime unavailable). They try again by logging in again; a
   workspace that failed is made again. Their files are never lost by this: they live on the server's disk, and a restarted workspace has them.
 - **A student is disconnected** (Wi-Fi): their container keeps running, and their work stays. When they come back, the workspace is as they left it. The
   platform snapshots a student's files every 60 seconds (or the `snapshot` of the exam), so even a lost machine loses at most that.
@@ -176,7 +176,7 @@ In the proctor application, open the class and use **Import workspace exam…**:
 | Import says the package has problems | The compiler found a rule broken; it lists all of them | Fix them in the package; `build/examc` shows the same list |
 | **Publish** is off, "image not built" | The exam has an `image/` and no good build | **Image → Build the image**; read the log if it fails |
 | Build failed: "the image is not the course image" | The Containerfile changed the user, the entrypoint or the agent | Make it end with `USER 1000:1000` and keep the course image's `ENTRYPOINT`; [images.md](images.md) |
-| A student's badge is *Failed* with a reason | Their workspace could not be made | Read the reason; most often the memory budget or the image; ask them to log in again |
+| A student's badge is *Failed* | Their workspace could not be made | Open their Review window: the Container row has the reason; most often the memory budget or the image; ask them to log in again |
 | A graded run says *malformed* | `grade` printed something besides the JSON on standard output | Send diagnostics to standard error |
 | A graded run says *timeout* | `grade` did not end in `grade_timeout` | Make it faster, or set `grade_timeout:` in `workspace.md` |
 | A run says *crash* with 137 | Memory: the container's limit was reached | Raise `resources: memory=` for the exam (within the server's maximum) |

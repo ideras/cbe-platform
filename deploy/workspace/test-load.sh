@@ -47,7 +47,7 @@ echo "== the load test: ${CBE_LOAD_STUDENTS:-40} students for ${CBE_LOAD_DURATIO
 status=0
 run L || status=$?
 mkdir -p "$out"
-for name in load-report.md load-summary.json load-machine.csv; do
+for name in load-report.md load-summary.json load-machine.csv load-server-warnings.log; do
   for file in $(sudo -n -u cbe-server find "$state" -name "$name" 2>/dev/null); do sudo -n cat "$file" > "$out/$name"; done
 done
 echo "== results in $out ($(date +%T))"

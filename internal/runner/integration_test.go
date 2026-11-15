@@ -349,6 +349,28 @@ func TestRealRunner(t *testing.T) {
 		}
 	})
 
+	// Phase 8 (found by the load test): rootless Podman gives no previous sample, so its percentage of a container using a whole core is 0.03%; the
+	// runner makes the figure from two samples of its own.
+	t.Run("the processor use of a busy container is the runner's own figure", func(t *testing.T) {
+		c := a.connect()
+		defer c.Close()
+		reply, err := c.Do(&agentproto.PTYOpen{Header: agentproto.Header{Type: agentproto.TypePTYOpen}, Cols: 80, Rows: 24, Cmd: "timeout 6 sh -c 'while :; do :; done'"}, 10*time.Second)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := runner.Stats(ctx, a.session); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(2 * time.Second)
+		busy, err := runner.Stats(ctx, a.session)
+		if err != nil || !busy.CPUKnown || busy.CPUPercent < 50 || busy.CPUPercent > 105 {
+			t.Errorf("the processor use of a container running a loop on its one core: %+v, %v", busy, err)
+		} else {
+			t.Logf("a loop on the container's one core: %.0f%% (the runner's figure from its own two samples)", busy.CPUPercent)
+		}
+		_, _ = c.Do(&agentproto.PTYClose{Header: agentproto.Header{Type: agentproto.TypePTYClose}, Term: reply.Term}, 10*time.Second)
+	})
+
 	// Phase 8, security checklist: nothing a student makes in /work leads out of it, and the container holds nothing but /work and the agent's folder.
 	t.Run("nothing leads out of /work, and the container sees only what it was given", func(t *testing.T) {
 		ca, cb := a.connect(), b.connect()
@@ -415,7 +437,7 @@ func TestRealRunner(t *testing.T) {
 		if _, out := a.run(ca, "find / -xdev -name '"+secret+"*' 2>/dev/null; find / -name '"+secret+"*' 2>/dev/null; echo found-end"); strings.Contains(out, secret) {
 			t.Errorf("the other student's file is visible from this container: %q", out)
 		}
-		if _, out := a.run(ca, "for p in /data /host /var/run/docker.sock /run/podman /run/user /var/lib/containers; do [ -e $p ] && echo present:$p; done; echo checked"); strings.Contains(out, "present:") || !strings.Contains(out, "checked") {
+		if _, out := a.run(ca, "for p in /grading /data /host /var/run/docker.sock /run/podman /run/user /var/lib/containers; do [ -e $p ] && echo present:$p; done; echo checked"); strings.Contains(out, "present:") || !strings.Contains(out, "checked") {
 			t.Errorf("the host is visible from the container: %q", out)
 		}
 		// Mounts: the only ones that are not the runtime's own (its tmpfs for /run, /tmp and /var/tmp, /proc, /sys, /dev) are /work and the agent's
@@ -451,10 +473,11 @@ func TestRealRunner(t *testing.T) {
 			t.Errorf("the container has mounts nobody asked for: %v\nall of them:\n%s", extra, mounts)
 		}
 		// A student cannot become anyone else or get any privilege: no capability, no new privileges, no setuid helper that works.
-		if _, out := a.run(ca, "grep -E '^(CapEff|CapBnd|NoNewPrivs|Seccomp):' /proc/self/status; id -u"); !strings.Contains(out, "CapEff:\t0000000000000000") || !strings.Contains(out, "NoNewPrivs:\t1") || !strings.Contains(out, "Seccomp:\t2") {
-			t.Errorf("privileges of a student's program: %q", out)
+		_, privileges := a.run(ca, "grep -E '^(CapEff|CapBnd|NoNewPrivs|Seccomp):' /proc/self/status; id -u")
+		if !strings.Contains(privileges, "CapEff:\t0000000000000000") || !strings.Contains(privileges, "NoNewPrivs:\t1") || !strings.Contains(privileges, "Seccomp:\t2") {
+			t.Errorf("privileges of a student's program: %q", privileges)
 		}
-		t.Logf("privileges of a student's program: %s", strings.Join(strings.Fields(strings.ReplaceAll(out, "\r", "")), " "))
+		t.Logf("privileges of a student's program: %s", strings.Join(strings.Fields(strings.ReplaceAll(privileges, "\r", "")), " "))
 		// Creating files without end is stopped by the limit on files (20,000), and the other student is not touched.
 		_, out = a.run(ca, "mkdir -p many && cd many && seq 1 25000 | xargs -n 500 touch 2>&1 | tail -1; ls | wc -l")
 		lines := strings.Fields(out)

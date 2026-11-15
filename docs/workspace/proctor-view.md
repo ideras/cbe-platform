@@ -27,7 +27,7 @@ On a workspace exam the table has one more column, **Workspace**, headed "TODO i
 | the badge | Starting, Running, Paused, Frozen, Failed or Removed: the container's state | `workspace_sessions.state` |
 | Student | connected or not connected | whether the student's application holds the workspace's connection now |
 | Last activity | "12 s ago", or "no activity yet" | the time of the last event the workspace wrote (a save, a terminal, a tick) |
-| Container | "12.5% CPU · 180 MB", or "not measured" | the runtime's statistics, sampled by the server every 10 s |
+| Container | "12.5% CPU · 180 MB", or "not measured" | the runtime's statistics, sampled by the server every 10 s. **The CPU is made by the runner from two of its own samples** (Phase 8: rootless Podman gives no previous sample, and its own percentage of a container using a whole core was 0.03%), so the first reading of a container shows its memory alone |
 | TODO | "2 of 3 done (self-reported)" | the ticks the student made; **nothing checks them** |
 | submissions | "2 submissions · last 4:20 PM · final made" | `workspace_submissions` |
 | restarts | "Workspace restarted 2 times" | how often the agent's container restarted |
@@ -46,7 +46,7 @@ Each student's review window (Review) is the session's summary and, for a worksp
 **Terminals** (with the number of terminals) and **Grading** (with the number of runs). A session that is not a workspace's has no tabs, only the history. The tabs go by arrow keys, Home and End;
 every tab stays in the page, so a file that was chosen or a replay that was started is still there when its tab is chosen again.
 
-- **The summary** (above the tabs) adds to the session's own rows the container's state and restarts, the ticks (as the student's word), and the
+- **The summary** (above the tabs) adds to the session's own rows the container's state and restarts (and, for a workspace that **failed**, **why**, as text: the exam's image not built, the host's memory budget used, the runtime away; Phase 8), the ticks (as the student's word), and the
   submissions.
 - **Downloads** (under the summary): *Download submitted files (zip)…* and *Download report (Markdown)…*, both of the latest submission, saved where the proctor
   chooses. Both are disabled until something has been submitted.

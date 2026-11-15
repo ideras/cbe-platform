@@ -83,8 +83,12 @@ func (s *Service) Roster(ctx context.Context, examID string) ([]RosterEntry, err
 			entry.LastActivity = &last
 		}
 		if stats, ok := s.Manager.StatsOf(row.SessionID); ok {
-			cpu, memory := stats.CPUPercent, int(stats.MemoryBytes>>20)
-			entry.CPUPercent, entry.MemoryMB = &cpu, &memory
+			memory := int(stats.MemoryBytes >> 20)
+			entry.MemoryMB = &memory
+			if stats.CPUKnown {
+				cpu := stats.CPUPercent
+				entry.CPUPercent = &cpu
+			}
 		}
 		out = append(out, entry)
 	}

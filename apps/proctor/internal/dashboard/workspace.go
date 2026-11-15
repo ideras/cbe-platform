@@ -110,8 +110,10 @@ type WorkspaceTerminal struct {
 
 // WorkspaceSession is what a proctor reads of one student's workspace.
 type WorkspaceSession struct {
-	SessionID     string                `json:"session_id"`
-	State         string                `json:"state"`
+	SessionID string `json:"session_id"`
+	State     string `json:"state"`
+	// Failure is why a workspace that is failed could not be made or went on (the exam's image not built, the host's memory used, the runtime away).
+	Failure       string                `json:"failure,omitempty"`
 	AgentRestarts int                   `json:"agent_restarts"`
 	Snapshots     []WorkspaceSnapshot   `json:"snapshots"`
 	Submissions   []WorkspaceSubmission `json:"submissions"`
@@ -135,7 +137,7 @@ func (s *Service) WorkspaceSession(sessionID string) (WorkspaceSession, error) {
 	if err := s.stillLinked(link); err != nil {
 		return WorkspaceSession{}, err
 	}
-	if out.SessionID != sessionID || out.Snapshots == nil || out.Submissions == nil || out.Terminals == nil {
+	if out.SessionID != sessionID || out.Snapshots == nil || out.Submissions == nil || out.Terminals == nil || len(out.Failure) > 8<<10 {
 		return WorkspaceSession{}, errors.New("Invalid workspace response.")
 	}
 	return out, nil

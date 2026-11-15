@@ -78,8 +78,11 @@ type Status struct {
 
 // Stats is container.stats: what a container uses now.
 type Stats struct {
-	Session     string  `json:"session"`
+	Session string `json:"session"`
+	// CPUPercent is the processor the container used since the last time it was asked, as a percentage of one core (200 is two cores busy), and
+	// CPUKnown says there was a last time to compare with, at least a second before: the first answer for a container has no percentage.
 	CPUPercent  float64 `json:"cpu_percent"`
+	CPUKnown    bool    `json:"cpu_known"`
 	MemoryBytes uint64  `json:"memory_bytes"`
 	MemoryLimit uint64  `json:"memory_limit"`
 	Pids        uint64  `json:"pids"`

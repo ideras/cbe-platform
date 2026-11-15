@@ -74,9 +74,11 @@ type Output struct {
 	StderrTruncated bool
 }
 
-// RawStats is one sample of a container's use.
+// RawStats is one sample of a container's use. CPUNanos is the processor time the container has used since it started, in nanoseconds: the
+// runtime's own percentage is not used because rootless Podman gives no previous sample to compare with (it answers about 0.03% for a container
+// using a whole core), so the runner makes the percentage from two of its own samples.
 type RawStats struct {
-	CPUPercent  float64
+	CPUNanos    uint64
 	MemoryBytes uint64
 	MemoryLimit uint64
 	Pids        uint64

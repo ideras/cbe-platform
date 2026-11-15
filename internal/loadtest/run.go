@@ -183,7 +183,7 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 			case <-ctx.Done():
 				return
 			}
-			go s.typist(stop)
+			go s.typist(stop, s.rnd.Int63())
 			next := 0
 			for stop.Err() == nil {
 				if _, closed := s.connection(); closed != nil {

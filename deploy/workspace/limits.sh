@@ -26,6 +26,9 @@ fi
 if [ -z "$budget" ] || [ "$budget" -eq 0 ]; then budget=$((total_mb * 7 / 10)); fi
 # Room for what is not a student's container: two grading runs of the largest size, a build, the runtime and the runner.
 max_mb=$((budget + 2 * 2048 + 2048 + 3072))
+# ... but the machine keeps 8 GiB for everything that is not a student (the exam server, the desktop), whatever the budget says.
+if [ "$max_mb" -gt $((total_mb - 8192)) ]; then max_mb=$((total_mb - 8192)); fi
+if [ "$max_mb" -lt $((budget + 2048)) ]; then max_mb=$((budget + 2048)); fi
 dropin=/etc/systemd/system/user-"$RUNNER_UID".slice.d
 install -d "$dropin"
 if [ -f "$dropin/spike-backstop.conf" ]; then

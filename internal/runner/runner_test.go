@@ -395,7 +395,7 @@ func TestStatsAndImages(t *testing.T) {
 	if _, err := r.svc.Start(ctx, "s1"); err != nil {
 		t.Fatal(err)
 	}
-	if st, err := r.svc.Stats(ctx, "s1"); err != nil || st.CPUPercent != 12.5 || st.Pids != 3 {
+	if st, err := r.svc.Stats(ctx, "s1"); err != nil || st.CPUKnown || st.Pids != 3 {
 		t.Errorf("stats = %+v, %v", st, err)
 	}
 	if all, err := r.svc.ExamStats(ctx, "exam1"); err != nil || len(all) != 1 || all[0].Session != "s1" {
@@ -769,5 +769,53 @@ func TestTheHostBudgetDefaultsToMostOfTheMachinesMemory(t *testing.T) {
 	cfg.HostMemoryMB = -1
 	if cfg.Validate() == nil {
 		t.Error("a negative budget was accepted")
+	}
+}
+
+// Phase 8 (found by the load test): rootless Podman gives no previous sample, so its own percentage of a container using a whole core is 0.03%. The
+// runner makes the percentage from its own two samples.
+func TestTheRunnerMakesTheCPUPercentageFromItsOwnSamples(t *testing.T) {
+	r := newRig(t)
+	ctx := context.Background()
+	if _, err := r.svc.Create(ctx, r.request("s1")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.svc.Seed(ctx, "s1", tarOf(t, nil, nil)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.svc.Start(ctx, "s1"); err != nil {
+		t.Fatal(err)
+	}
+	clock := time.Unix(1000, 0)
+	r.svc.now = func() time.Time { return clock }
+	ask := func(nanos uint64, after time.Duration) Stats {
+		r.rt.mu.Lock()
+		r.rt.cpuNanos = nanos
+		r.rt.mu.Unlock()
+		clock = clock.Add(after)
+		st, err := r.svc.Stats(ctx, "s1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return st
+	}
+	if st := ask(5_000_000_000, 0); st.CPUKnown {
+		t.Errorf("the first answer has nothing to compare with: %+v", st)
+	}
+	if st := ask(15_000_000_000, 10*time.Second); !st.CPUKnown || st.CPUPercent < 99.9 || st.CPUPercent > 100.1 {
+		t.Errorf("a whole core for 10 seconds: %+v", st)
+	}
+	if st := ask(15_500_000_000, 200*time.Millisecond); st.CPUKnown {
+		t.Errorf("a second asking within a second is not a measurement: %+v", st)
+	}
+	// The 200 ms did not move the last sample: this is 10.2 s after it, with 25 s of processor time.
+	if st := ask(40_000_000_000, 10*time.Second); !st.CPUKnown || st.CPUPercent < 240 || st.CPUPercent > 250 {
+		t.Errorf("two and a half cores: %+v", st)
+	}
+	if st := ask(1_000, 10*time.Second); st.CPUKnown {
+		t.Errorf("a counter that went back (the container started again) is not a measurement: %+v", st)
+	}
+	if st := ask(2_000_000_000+1_000, 10*time.Second); !st.CPUKnown || st.CPUPercent < 19 || st.CPUPercent > 21 {
+		t.Errorf("a fifth of a core: %+v", st)
 	}
 }

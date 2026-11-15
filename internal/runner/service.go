@@ -58,6 +58,15 @@ type Service struct {
 	// check; budgetMB is the budget (0: none, because the machine's memory could not be read).
 	createMu sync.Mutex
 	budgetMB int
+	// cpuLast is the last sample of each container's processor time, for the percentage; now is the clock (a test sets it).
+	cpuMu   sync.Mutex
+	cpuLast map[string]cpuSample
+	now     func() time.Time
+}
+
+type cpuSample struct {
+	nanos uint64
+	at    time.Time
 }
 
 // NewService makes the runner's service. It makes the run and state folders, and adopts the containers that are already there
@@ -71,7 +80,7 @@ func NewService(cfg Config, rt Runtime, q Quota, logger *slog.Logger) (*Service,
 			return nil, err
 		}
 	}
-	s := &Service{cfg: cfg, rt: rt, quota: q, logger: logger, locks: map[string]*sync.Mutex{}, links: map[string]*agentLink{}, gradeSlots: make(chan struct{}, cfg.GradeParallel), buildSlot: make(chan struct{}, 1)}
+	s := &Service{cfg: cfg, rt: rt, quota: q, logger: logger, locks: map[string]*sync.Mutex{}, links: map[string]*agentLink{}, gradeSlots: make(chan struct{}, cfg.GradeParallel), buildSlot: make(chan struct{}, 1), cpuLast: map[string]cpuSample{}, now: time.Now}
 	s.budgetMB = cfg.HostMemoryMB
 	if s.budgetMB == 0 {
 		if total := machineMemoryMB(); total > 0 {
@@ -372,6 +381,9 @@ func (s *Service) Remove(ctx context.Context, session string) error {
 		if err := s.rt.Remove(ctx, m.Name); err != nil && !errors.Is(err, ErrNotFound) {
 			return err
 		}
+		s.cpuMu.Lock()
+		delete(s.cpuLast, m.Name)
+		s.cpuMu.Unlock()
 	}
 	if err := s.quota.Remove(session); err != nil {
 		return fmt.Errorf("the /work folder: %w", err)
@@ -438,7 +450,19 @@ func (s *Service) statsOf(ctx context.Context, m meta) (Stats, error) {
 	if err != nil {
 		return Stats{}, err
 	}
-	return Stats{Session: m.Session, CPUPercent: raw.CPUPercent, MemoryBytes: raw.MemoryBytes, MemoryLimit: raw.MemoryLimit, Pids: raw.Pids}, nil
+	out := Stats{Session: m.Session, MemoryBytes: raw.MemoryBytes, MemoryLimit: raw.MemoryLimit, Pids: raw.Pids}
+	now := s.now()
+	s.cpuMu.Lock()
+	defer s.cpuMu.Unlock()
+	if last, seen := s.cpuLast[m.Name]; !seen {
+		s.cpuLast[m.Name] = cpuSample{nanos: raw.CPUNanos, at: now}
+	} else if elapsed := now.Sub(last.at); elapsed >= time.Second {
+		if raw.CPUNanos >= last.nanos {
+			out.CPUPercent, out.CPUKnown = float64(raw.CPUNanos-last.nanos)/float64(elapsed.Nanoseconds())*100, true
+		}
+		s.cpuLast[m.Name] = cpuSample{nanos: raw.CPUNanos, at: now}
+	}
+	return out, nil
 }
 
 // ExamStats is container.stats for every running container of an exam.

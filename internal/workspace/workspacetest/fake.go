@@ -381,7 +381,7 @@ func (r *Runner) Stats(_ context.Context, id string) (runner.Stats, error) {
 	if _, err := r.get(id); err != nil {
 		return runner.Stats{}, err
 	}
-	return runner.Stats{Session: id, CPUPercent: 1, MemoryBytes: 1 << 20, MemoryLimit: 64 << 20, Pids: 2}, nil
+	return runner.Stats{Session: id, CPUPercent: 1, CPUKnown: true, MemoryBytes: 1 << 20, MemoryLimit: 64 << 20, Pids: 2}, nil
 }
 
 func (r *Runner) ExamStats(_ context.Context, exam string) ([]runner.Stats, error) {
@@ -390,7 +390,7 @@ func (r *Runner) ExamStats(_ context.Context, exam string) ([]runner.Stats, erro
 	var out []runner.Stats
 	for id, s := range r.sessions {
 		if s.exam == exam && s.state == runner.StateRunning {
-			out = append(out, runner.Stats{Session: id, CPUPercent: 1, MemoryBytes: 1 << 20, MemoryLimit: 64 << 20, Pids: 2})
+			out = append(out, runner.Stats{Session: id, CPUPercent: 1, CPUKnown: true, MemoryBytes: 1 << 20, MemoryLimit: 64 << 20, Pids: 2})
 		}
 	}
 	return out, nil

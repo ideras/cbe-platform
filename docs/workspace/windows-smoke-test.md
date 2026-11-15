@@ -11,7 +11,7 @@ What was already checked without a Windows machine is at the end.
 
 | Thing | Where |
 |---|---|
-| `cbe-portal-student.exe` (this tree, cross-built from Linux, unsigned) | `build/phase8/cbe-portal-student.exe`; the CI job `windows-2025` builds the same program (`.github/workflows`) |
+| `cbe-portal-student.exe` (this tree, cross-built from Linux, unsigned) | `build/phase8/cbe-portal-student.exe` (built from this tree with `GOOS=windows`, version `v0.16.0-91-g727c6b9-dirty`; your own `build/cbe-portal-student.exe` was not touched); the CI job `windows-2025` builds the same program (`.github/workflows`) |
 | A throwaway workspace exam server the VM can reach | on the Linux host: `deploy/workspace/test-server.sh --manual 0.0.0.0:8090` (it prints the PIN, the accounts `0001` to `0003` and the address; Ctrl+C removes everything it made) |
 | For the question-exam check, an ordinary exam server | the one you already use, or `make demo-server` |
 
@@ -24,7 +24,7 @@ Mark each with what you saw. **Stop and tell me** at the first thing that is not
 
 **A. It starts and logs in**
 
-1. The window opens with the login page (no console window, no error dialog). *Expected:* the usual rules page, then the login.
+1. The window opens with the login page (no error dialog; **a console window may open beside it**: the cross-build from Linux is a console program, and nothing in the build asks Windows for the GUI subsystem; tell me if it is in the way). *Expected:* the usual rules page, then the login.
 2. Log in as `0001` with the PIN. *Expected:* the exam's instructions, the TODO list, the file tree with `Makefile`, `include`, `src`, `tests`, and the status in the toolbar goes from
    *Starting the workspace* to *Connected*, within about 10 seconds.
 

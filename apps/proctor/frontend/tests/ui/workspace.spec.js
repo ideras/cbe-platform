@@ -111,6 +111,17 @@ test('the review window shows a student\'s workspace: its state, what they ticke
   await expect(panel).toContainText('2 · latest is the final one');
 });
 
+test('a workspace that failed says why, as text and not as markup (Phase 8)', async ({ page }) => {
+  const extra = data();
+  extra.session.state = 'failed';
+  extra.session.failure = 'creating the container: the host has no room for another workspace <b>x</b>';
+  await review(page, extra);
+  const panel = page.getByRole('region', { name: 'Session review' });
+  await expect(panel).toContainText('failed');
+  await expect(panel.locator('.workspace-failure')).toHaveText(' · creating the container: the host has no room for another workspace <b>x</b>');
+  await expect(panel.locator('.workspace-failure b')).toHaveCount(0);
+});
+
 test('a workspace exam\'s review is in tabs, the history first, and the tabs go by keyboard', async ({ page }) => {
   await review(page);
   const tabs = page.getByRole('tablist', { name: 'Parts of the session review' });
