@@ -15,6 +15,7 @@ import (
 	"unicode/utf8"
 
 	"exam-platform/internal/runner"
+	"exam-platform/shared/containerfile"
 	"exam-platform/shared/examimage"
 )
 
@@ -88,7 +89,7 @@ func plainLine(value string) bool {
 
 // Import checks a package (the compiled document and its two bundles) and stores it as a new exam of the class. The document is the
 // compiler's, with the PIN the proctor chose. It returns the new exam's ID, or a *ValidationError.
-func (im *Importer) Import(ctx context.Context, classID string, documentJSON, starter, grading []byte) (string, error) {
+func (im *Importer) Import(ctx context.Context, classID string, documentJSON, starter, grading, image []byte) (string, error) {
 	problems := &ValidationError{}
 	if len(documentJSON) == 0 || len(documentJSON) > MaxDocumentBytes {
 		problems.add("the document must be 1 to %d bytes", MaxDocumentBytes)
@@ -152,6 +153,14 @@ func (im *Importer) Import(ctx context.Context, classID string, documentJSON, st
 	case doc.GradingBundle != "":
 		problems.add("the document names a grading bundle but none came with it")
 	}
+	imageHash := ""
+	switch {
+	case len(image) > 0:
+		imageHash = im.checkBundle("image", image, doc.ImageBundle, false, problems)
+		im.checkImageBundle(image, doc.Workspace.Image, problems)
+	case doc.ImageBundle != "":
+		problems.add("the document names an image bundle but none came with it")
+	}
 	if len(problems.Problems) > 0 {
 		return "", problems
 	}
@@ -163,6 +172,11 @@ func (im *Importer) Import(ctx context.Context, classID string, documentJSON, st
 			return "", err
 		}
 	}
+	if len(image) > 0 {
+		if _, err := im.Blobs.PutBytes(image); err != nil {
+			return "", err
+		}
+	}
 	id, err := newID()
 	if err != nil {
 		return "", err
@@ -170,11 +184,24 @@ func (im *Importer) Import(ctx context.Context, classID string, documentJSON, st
 	stored := doc
 	stored.PIN = ""
 	err = im.Repo.CreateExam(ctx, ExamRecord{ExamID: id, ClassID: classID, Title: strings.TrimSpace(doc.Title), PIN: doc.PIN, DurationSeconds: doc.DurationSeconds, GraceSeconds: grace,
-		MinVolumePercent: volume, OpensAt: doc.OpensAt, ClosesAt: doc.ClosesAt, Tools: doc.Tools, Document: stored, StarterHash: starterHash, GradingHash: gradingHash, CreatedAt: im.Now().UTC()})
+		MinVolumePercent: volume, OpensAt: doc.OpensAt, ClosesAt: doc.ClosesAt, Tools: doc.Tools, Document: stored, StarterHash: starterHash, GradingHash: gradingHash, ImageHash: imageHash, CreatedAt: im.Now().UTC()})
 	if err != nil {
 		return "", err
 	}
 	return id, nil
+}
+
+// checkImageBundle applies to an exam's image bundle the rules the compiler applied and the runner will apply again: it is a build context with
+// a Containerfile, and the Containerfile starts from the exam's own course image (decision P7-3) and breaks none of the rules of P7-4.
+func (im *Importer) checkImageBundle(data []byte, image string, problems *ValidationError) {
+	text, err := runner.CheckBuildContext(bytes.NewReader(data))
+	if err != nil {
+		problems.add("image bundle: %v", strings.TrimPrefix(err.Error(), "bad request: "))
+		return
+	}
+	for _, problem := range containerfile.Check(text, image).Problems {
+		problems.add("image/Containerfile %s", problem)
+	}
 }
 
 func (im *Importer) checkWorkspace(ctx context.Context, w Settings, problems *ValidationError) {

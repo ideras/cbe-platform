@@ -1,6 +1,7 @@
 package service_test
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"slices"
@@ -263,5 +264,54 @@ func TestPreviewValidatesWithoutStoring(t *testing.T) {
 	}
 	if f.count(t, `SELECT count(*) FROM exams`) != 1 {
 		t.Fatal("preview stored an exam")
+	}
+}
+
+// The gate of an exam's own image (Phase 7) is asked before an exam is admitted to, never for closing admission, and a refusal changes nothing.
+func TestThePublishGateIsAskedBeforeAnExamIsAdmittedToAndARefusalChangesNothing(t *testing.T) {
+	f := newUnpublishedFixture(t, 30)
+	f.addExam(t, secondExamID, "second-pin", 2)
+	publisher := service.NewPublisher(f.store, f.clock)
+	var asked []string
+	blocked := &service.PublishBlockedError{Reason: "the image is not built"}
+	var gateErr error = blocked
+	publisher.Gate = func(_ context.Context, examID string) error {
+		asked = append(asked, examID)
+		return gateErr
+	}
+	if _, err := publisher.Publish(t.Context(), testExamID, "", false); !errors.As(err, &blocked) || blocked.Reason != "the image is not built" {
+		t.Fatalf("publish through a gate that refuses: %v", err)
+	}
+	end := f.clock.Now().Add(time.Hour)
+	if _, err := publisher.PublishWithEndTime(t.Context(), testExamID, "", false, &end); !errors.As(err, &blocked) {
+		t.Fatalf("publish with an end time through a gate that refuses: %v", err)
+	}
+	catalog, err := publisher.Catalog(t.Context())
+	if err != nil || catalog.CurrentExamID != "" {
+		t.Fatalf("a refused publication changed the current exam: %q %v", catalog.CurrentExamID, err)
+	}
+	// A gate that fails in some other way fails the publication with that error.
+	gateErr = errors.New("the runner did not answer")
+	if _, err := publisher.Publish(t.Context(), testExamID, "", false); err == nil || errors.As(err, &blocked) || !strings.Contains(err.Error(), "did not answer") {
+		t.Fatalf("a gate that fails: %v", err)
+	}
+	// A gate that allows it lets it through, and is asked about the exam being published.
+	gateErr = nil
+	if _, err := publisher.Publish(t.Context(), testExamID, "", false); err != nil {
+		t.Fatal(err)
+	}
+	// Closing admission is not gated: a proctor can always close it.
+	asked = nil
+	gateErr = blocked
+	if _, err := publisher.Unpublish(t.Context(), testExamID, true); err != nil {
+		t.Fatalf("unpublish through a gate that refuses: %v", err)
+	}
+	if len(asked) != 0 {
+		t.Errorf("the gate was asked about closing admission: %v", asked)
+	}
+	// No gate at all is the default.
+	plain := service.NewPublisher(f.store, f.clock)
+	if _, err := plain.Publish(t.Context(), secondExamID, "", false); err != nil {
+		t.Fatal(err)
 	}
 }

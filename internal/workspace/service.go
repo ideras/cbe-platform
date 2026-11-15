@@ -14,6 +14,8 @@ type Service struct {
 	Repo     Repository
 	// Grader runs the gradings of the exam's hidden tests (Phase 6).
 	Grader *Grader
+	// Images builds the exams' own images (Phase 7).
+	Images *ImageBuilder
 }
 
 // OnLogin is called when a student has logged in.
@@ -25,8 +27,8 @@ func (s *Service) Serve(w http.ResponseWriter, r *http.Request, session string) 
 }
 
 // Import stores a package as a new exam of the class.
-func (s *Service) Import(ctx context.Context, classID string, document, starter, grading []byte) (string, error) {
-	return s.Importer.Import(ctx, classID, document, starter, grading)
+func (s *Service) Import(ctx context.Context, classID string, document, starter, grading, image []byte) (string, error) {
+	return s.Importer.Import(ctx, classID, document, starter, grading, image)
 }
 
 // StudentView is what a student's application reads before it opens the workspace: the instructions, the TODO list with what is
@@ -156,4 +158,40 @@ func (s *Service) Admin(ctx context.Context, session string) (AdminSession, erro
 // SnapshotTar writes a snapshot as a tar archive.
 func (s *Service) SnapshotTar(ctx context.Context, id int64, w io.Writer) error {
 	return s.Manager.Snapshots.WriteTar(ctx, id, w)
+}
+
+// StartImageBuild queues a build of an exam's own image (Phase 7). ErrNoImage when the exam has no image folder, ErrBuildBusy when a build of it
+// is waiting or going.
+func (s *Service) StartImageBuild(ctx context.Context, examID string, rebuild bool) (ImageView, error) {
+	if _, err := s.Images.Start(ctx, examID, rebuild); err != nil {
+		return ImageView{}, err
+	}
+	return s.Images.View(ctx, examID, false)
+}
+
+// ImageView is the state of an exam's own image with its builds, and the log of the latest build when withLog.
+func (s *Service) ImageView(ctx context.Context, examID string, withLog bool) (ImageView, error) {
+	return s.Images.View(ctx, examID, withLog)
+}
+
+// ImageBuildLog is one build with its log.
+func (s *Service) ImageBuildLog(ctx context.Context, examID string, id int64) (ImageBuildView, error) {
+	record, err := s.Repo.ImageBuild(ctx, id)
+	if err != nil {
+		return ImageBuildView{}, err
+	}
+	if record.ExamID != examID {
+		return ImageBuildView{}, ErrNotFound
+	}
+	return buildView(record, true), nil
+}
+
+// ImageStates gives every workspace exam's TODO count and the state of its own image, by exam, for the exam list.
+func (s *Service) ImageStates(ctx context.Context) (map[string]ExamImage, error) {
+	return s.Images.States(ctx)
+}
+
+// CheckPublishable is the gate the publisher asks: nil, or *PublishBlocked saying why the exam's image stops it.
+func (s *Service) CheckPublishable(ctx context.Context, examID string) error {
+	return s.Images.CheckPublishable(ctx, examID)
 }

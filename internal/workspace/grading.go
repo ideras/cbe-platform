@@ -255,6 +255,11 @@ func (g *Grader) runOne(ctx context.Context, id int64) {
 	}
 	defer bundle.Close()
 	settings := exam.Document.Workspace
+	build, err := g.m.currentBuild(ctx, exam)
+	if err != nil {
+		done(record, FailRunner, "the exam's own image has not been built, so it cannot be graded", nil)
+		return
+	}
 	timeout := g.opts.DefaultTimeout
 	if settings.GradeTimeoutSeconds != nil {
 		timeout = time.Duration(*settings.GradeTimeoutSeconds) * time.Second
@@ -265,7 +270,7 @@ func (g *Grader) runOne(ctx context.Context, id int64) {
 	// The runner enforces the timeout itself; this one is for a runner that does not answer (its set-up and clean-up included).
 	runCtx, cancel := context.WithTimeout(ctx, timeout+3*time.Minute)
 	defer cancel()
-	result, err := g.m.opts.Runner.Grade(runCtx, runner.GradeRequest{Grading: strconv.FormatInt(id, 10), Exam: info.ExamID, Image: settings.Image, TimeoutSeconds: int(timeout / time.Second),
+	result, err := g.m.opts.Runner.Grade(runCtx, runner.GradeRequest{Grading: strconv.FormatInt(id, 10), Exam: info.ExamID, Image: settings.Image, Build: build, TimeoutSeconds: int(timeout / time.Second),
 		Resources: runner.Resources{CPU: settings.Resources.CPU, MemoryMB: settings.Resources.MemoryMB, DiskMB: settings.Resources.DiskMB}}, pipeReader, bundle)
 	_ = pipeReader.Close()
 	if err != nil {

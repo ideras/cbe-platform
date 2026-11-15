@@ -67,8 +67,8 @@ func (s Workspaces) CreateExam(ctx context.Context, exam workspace.ExamRecord) e
 		if _, err := tx.ExecContext(ctx, `UPDATE exams SET kind = 'workspace' WHERE exam_id = ?`, exam.ExamID); err != nil {
 			return err
 		}
-		_, err := tx.ExecContext(ctx, `INSERT INTO workspace_exams(exam_id, document_json, image, starter_hash, grading_hash, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
-			exam.ExamID, string(document), exam.Document.Workspace.Image, exam.StarterHash, exam.GradingHash, timestamp(exam.CreatedAt))
+		_, err := tx.ExecContext(ctx, `INSERT INTO workspace_exams(exam_id, document_json, image, starter_hash, grading_hash, image_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			exam.ExamID, string(document), exam.Document.Workspace.Image, exam.StarterHash, exam.GradingHash, exam.ImageHash, timestamp(exam.CreatedAt))
 		return err
 	})
 }
@@ -79,9 +79,9 @@ func (s Workspaces) Exam(ctx context.Context, examID string) (workspace.ExamReco
 	var document, created string
 	var opens, closes sql.NullString
 	err := s.db.QueryRowContext(ctx, `SELECT e.exam_id, e.class_id, e.title, e.pin, e.duration_seconds, e.grace_seconds, e.min_volume_percent, e.opens_at, e.closes_at,
-			w.document_json, w.starter_hash, w.grading_hash, w.created_at FROM exams e JOIN workspace_exams w ON w.exam_id = e.exam_id WHERE e.exam_id = ?`, examID).
+			w.document_json, w.starter_hash, w.grading_hash, w.image_hash, w.created_at FROM exams e JOIN workspace_exams w ON w.exam_id = e.exam_id WHERE e.exam_id = ?`, examID).
 		Scan(&record.ExamID, &record.ClassID, &record.Title, &record.PIN, &record.DurationSeconds, &record.GraceSeconds, &record.MinVolumePercent, &opens, &closes,
-			&document, &record.StarterHash, &record.GradingHash, &created)
+			&document, &record.StarterHash, &record.GradingHash, &record.ImageHash, &created)
 	if errors.Is(err, sql.ErrNoRows) {
 		return record, workspace.ErrNotFound
 	}

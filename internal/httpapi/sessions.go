@@ -171,7 +171,10 @@ func serviceError(w http.ResponseWriter, logger *slog.Logger, operation string, 
 	var invalid *service.ValidationError
 	var active *service.ActiveSessionsError
 	var open *service.SessionOpenError
+	var blocked *service.PublishBlockedError
 	switch {
+	case errors.As(err, &blocked):
+		writeError(w, http.StatusConflict, blocked.Reason)
 	case errors.As(err, &open):
 		// The account is open on another computer. Retry-After says when that is no longer assumed, which is how the
 		// student application tells this refusal from the other conflicts.

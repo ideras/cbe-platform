@@ -79,6 +79,7 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	options := httpapi.Options{AdminToken: cfg.AdminToken, Exams: exams, Publisher: publisher, Classes: classes, Proctor: sessions, Screenshots: images, Rules: sessions, MaxJSONBytes: cfg.MaxJSONBytes, Version: cfg.Version}
 	var workspaces *workspace.Manager
 	var grader *workspace.Grader
+	var imageBuilder *workspace.ImageBuilder
 	if cfg.RunnerSocket != "" {
 		secret, err := os.ReadFile(cfg.RunnerSecretFile)
 		if err != nil {
@@ -93,13 +94,24 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		workspaces = workspace.NewManager(workspace.Options{Repo: repo, Runner: runnerClient, Blobs: blobs, Logger: logger, Now: timekeeper.Now,
 			SnapshotEvery: cfg.WorkspaceSnapshotEvery, Retention: cfg.WorkspaceRetention, TranscriptDir: filepath.Join(cfg.WorkspaceDir, "transcripts")})
 		grader = workspace.NewGrader(workspaces, workspace.GraderOptions{Parallel: cfg.WorkspaceGradeParallel, DefaultTimeout: cfg.WorkspaceGradeTimeout})
-		options.Workspace = &workspace.Service{Manager: workspaces, Repo: repo, Grader: grader, Importer: &workspace.Importer{Repo: repo, Runner: runnerClient, Blobs: blobs, Now: timekeeper.Now,
+		imageBuilder = workspace.NewImageBuilder(workspaces)
+		options.Workspace = &workspace.Service{Manager: workspaces, Repo: repo, Grader: grader, Images: imageBuilder, Importer: &workspace.Importer{Repo: repo, Runner: runnerClient, Blobs: blobs, Now: timekeeper.Now,
 			Max: workspace.Resources{CPU: cfg.WorkspaceMaxCPU, MemoryMB: cfg.WorkspaceMaxMemoryMB, DiskMB: cfg.WorkspaceMaxDiskMB}, DefaultGrace: sessions.DefaultGraceSeconds}}
 		if err := runnerClient.Ping(ctx); err != nil {
 			logger.Warn("workspace exams are enabled but the runner does not answer yet; containers are made when it does", "socket", cfg.RunnerSocket, "error", err)
 		}
-		// The grading runs a stop interrupted are over: they are marked failed before any request can ask about them.
+		// The grading runs and the image builds a stop interrupted are over: they are marked failed before any request can ask about them.
 		grader.Recover(ctx)
+		imageBuilder.Recover(ctx)
+		// An exam with its own image is published only once the image is built (decision P7-11).
+		publisher.Gate = func(ctx context.Context, examID string) error {
+			err := imageBuilder.CheckPublishable(ctx, examID)
+			var blocked *workspace.PublishBlocked
+			if errors.As(err, &blocked) {
+				return &service.PublishBlockedError{Reason: blocked.Reason}
+			}
+			return err
+		}
 	}
 	httpServer := &http.Server{
 		Handler: httpapi.New(timekeeper, sessions, logger, options), ReadHeaderTimeout: 5 * time.Second,
@@ -151,12 +163,20 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 			grader.Run(workerCtx)
 		}
 	}()
+	buildingDone := make(chan struct{})
+	go func() {
+		defer close(buildingDone)
+		if imageBuilder != nil {
+			imageBuilder.Run(workerCtx)
+		}
+	}()
 	defer func() {
 		cancelWorker()
 		<-workerDone
 		<-imageWorkerDone
 		<-workspaceDone
 		<-gradingDone
+		<-buildingDone
 		if workspaces != nil {
 			workspaces.Close()
 		}

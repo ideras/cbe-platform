@@ -59,6 +59,9 @@ func New(clock clock.Clock, sessions SessionAPI, logger *slog.Logger, options ..
 		admin.Handle("GET /admin/workspace/grading/{id}", workspaceGradingHandler(cfg.Workspace, logger))
 		admin.Handle("POST /admin/workspace/grading/{id}/confirm", workspaceConfirmHandler(cfg.Workspace, logger, false))
 		admin.Handle("POST /admin/workspace/grading/{id}/unconfirm", workspaceConfirmHandler(cfg.Workspace, logger, true))
+		admin.Handle("POST /admin/workspace/exam/{id}/image/build", workspaceImageBuildHandler(cfg.Workspace, logger))
+		admin.Handle("GET /admin/workspace/exam/{id}/image", workspaceImageHandler(cfg.Workspace, logger))
+		admin.Handle("GET /admin/workspace/exam/{id}/image/build/{build}", workspaceImageBuildLogHandler(cfg.Workspace, logger))
 	}
 	if cfg.Screenshots != nil {
 		mux.Handle("POST /screenshot", StudentAuth(sessions, logger, screenshotUploadHandler(cfg.Screenshots, logger)))
@@ -73,7 +76,7 @@ func New(clock clock.Clock, sessions SessionAPI, logger *slog.Logger, options ..
 		admin.Handle("DELETE /admin/exam/{id}", deleteExamHandler(cfg.Exams, logger))
 	}
 	if cfg.Publisher != nil {
-		admin.Handle("GET /admin/exams", examCatalogHandler(cfg.Publisher, cfg.Version, logger))
+		admin.Handle("GET /admin/exams", catalogHandler(cfg.Publisher, cfg.Version, cfg.Workspace, logger))
 		admin.Handle("POST /admin/exam/{id}/publish", publishHandler(cfg.Publisher, logger))
 		admin.Handle("POST /admin/unpublish", unpublishHandler(cfg.Publisher, logger))
 	}

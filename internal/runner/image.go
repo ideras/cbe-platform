@@ -190,6 +190,27 @@ func (s *Service) checkImage(ctx context.Context, exam, build, reference string)
 	return nil
 }
 
+// CheckBuildContext checks the build context of an exam's image as the runner will take it: a tar archive that passes the rules of a starter
+// bundle (links stay inside it, no device files) within the context's limits, with a file called Containerfile. It returns the Containerfile.
+func CheckBuildContext(r io.Reader) (string, error) {
+	raw, err := io.ReadAll(io.LimitReader(r, maxBuildContextBytes+1))
+	if err != nil {
+		return "", err
+	}
+	if len(raw) > maxBuildContextBytes {
+		return "", badRequest("the build context holds more than %d MiB", maxBuildContextBytes>>20)
+	}
+	var clean bytes.Buffer
+	if _, _, err := sanitize(bytes.NewReader(raw), &clean, sanitizeLimits{bytes: maxBuildContextBytes, files: maxBuildContextFiles, what: "build context"}, false); err != nil {
+		return "", err
+	}
+	text, found := contextFile(clean.Bytes(), "Containerfile")
+	if !found {
+		return "", badRequest("the build context has no file called Containerfile")
+	}
+	return string(text), nil
+}
+
 // BuildImage is image.build. One build runs at a time; others wait. It returns when the build is over and everything it made but the image
 // is removed, whatever way it ended.
 func (s *Service) BuildImage(ctx context.Context, req BuildRequest, buildContext io.Reader) (BuildResult, error) {
