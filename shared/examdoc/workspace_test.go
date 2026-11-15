@@ -712,3 +712,31 @@ func TestAnImageFolderIsBundledAndItsContainerfileChecked(t *testing.T) {
 		t.Errorf("no image folder: %v %+v", err, plainBundles)
 	}
 }
+
+// The example package with its own image: its compiled document names the image bundle, and the bundle is the context of a Containerfile
+// that builds a library in one stage and installs it in the other, both from the course image.
+func TestTheImageExampleMatchesItsCompiledDocument(t *testing.T) {
+	exam, bundles, err := CompileWorkspaceDir("../../testdata/workspace/lab-image")
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled := encode(t, exam)
+	if *update {
+		if err := os.WriteFile("../../testdata/workspace/lab-image.json", compiled, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	golden, err := os.ReadFile("../../testdata/workspace/lab-image.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(golden, compiled) {
+		t.Fatalf("testdata/workspace/lab-image.json is not the compiled testdata/workspace/lab-image; run go test ./... -update in shared/examdoc\n%s", compiled)
+	}
+	if bundles.Image == nil || exam.ImageBundle != bundles.Image.Hash || bundles.Image.Files != 3 || len(bundles.ImageWarnings) != 0 || exam.GradingBundle == "" {
+		t.Errorf("the image bundle: %+v, warnings %q", bundles.Image, bundles.ImageWarnings)
+	}
+	if exam.Workspace.Image != "cbe/cpp20" {
+		t.Errorf("image %q", exam.Workspace.Image)
+	}
+}

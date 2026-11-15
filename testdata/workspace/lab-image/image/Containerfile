@@ -1,0 +1,14 @@
+# This exam's image: the course image with libgreet installed. It builds the library from source in a first stage (so the build needs no
+# network at all) and installs the header and the archive in the second, which is the image the exam uses. Both stages start from the course
+# image; the build pins them to the digest of the course image the server has, and says which in its log.
+FROM cbe/cpp20 AS build
+USER root
+COPY lib/ /src/
+RUN g++ -std=c++20 -O2 -c /src/greet.cpp -o /src/greet.o && ar rcs /src/libgreet.a /src/greet.o
+
+FROM cbe/cpp20
+USER root
+COPY --from=build /src/libgreet.a /usr/local/lib/libgreet.a
+COPY lib/greet.hpp /usr/local/include/greet.hpp
+# The student, and the agent, as in every course image.
+USER 1000:1000

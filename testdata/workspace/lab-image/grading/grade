@@ -1,0 +1,18 @@
+#!/bin/sh
+# Hidden test of lab-image: it builds the student's src/main.cpp against libgreet (which only this exam's image has) and checks the greeting.
+# Standard output is the JSON alone.
+work=${WORK:-/work}
+tmp=$(mktemp -d "$work/.grade.XXXXXX") || exit 1
+trap 'rm -rf "$tmp"' EXIT
+if g++ -std=c++20 -o "$tmp/main" "$work/src/main.cpp" -lgreet 2>"$tmp/build.log"; then
+  out=$(timeout 10 "$tmp/main" 2>&1 | head -n 1)
+  if [ "$out" = "hello, Ada" ]; then
+    echo '{"t1": {"passed": true, "points": 10, "log": "printed the greeting for Ada"}}'
+  else
+    echo "printed: $out" >&2
+    echo '{"t1": {"passed": false, "points": 0, "log": "did not print hello, Ada"}}'
+  fi
+else
+  cat "$tmp/build.log" >&2
+  echo '{"t1": {"passed": false, "points": 0, "log": "src/main.cpp does not compile against libgreet"}}'
+fi
