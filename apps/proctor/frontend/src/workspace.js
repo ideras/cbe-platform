@@ -172,6 +172,13 @@ export function gradingSummary(students) {
   return out;
 }
 
+/** What to say once the grade sheet is saved: where, and how many of its grades are confirmed. */
+export function gradeSheetNote(path, grading) {
+  const advisory = grading.done - grading.confirmed;
+  const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+  return `Grades saved to ${path}: ${plural(grading.confirmed, 'grade')} confirmed${advisory ? `, ${advisory} not confirmed yet (in the advisory_points column, not in points)` : ''}.`;
+}
+
 // An exam's own image (docs/workspace/images.md): what the exam list and the image dialog say of it. The names are the server's states.
 const imageStates = {
   not_built: { text: 'Image not built', tone: 'warn', title: 'This exam has its own image. Build it before you publish the exam.' },

@@ -231,3 +231,66 @@ func TestSubmissionsAreSavedWhereTheProctorChoosesAndNowhereElse(t *testing.T) {
 		t.Error("saved without a dialog")
 	}
 }
+
+// Phase 8: the grade sheet of the exam being monitored is saved where the proctor chooses, as the server made it, and a question exam has none.
+func TestTheGradeSheetIsSavedWhereTheProctorChoosesAndNowhereElse(t *testing.T) {
+	sheet := "\xef\xbb\xbfaccount_number,name,status\r\n0012,Ada,confirmed\r\n"
+	var cancelled bool
+	var asked []SaveDialog
+	s, _ := start(t, sessionsHandler(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/admin/workspace/exam/" + examID + "/roster":
+			reply(w, workspaceRoster())
+		case "/admin/workspace/exam/" + examID + "/grades.csv":
+			w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+			_, _ = w.Write([]byte(sheet))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	wait(t, func() bool { return s.Snapshot().Workspace != nil })
+	dir := t.TempDir()
+	s.opts.Save = func(dialog SaveDialog) (string, error) {
+		asked = append(asked, dialog)
+		if cancelled {
+			return "", nil
+		}
+		return filepath.Join(dir, dialog.Filename), nil
+	}
+	path, err := s.SaveWorkspaceGrades(examID)
+	if err != nil || !strings.HasSuffix(path, "-grades.csv") {
+		t.Fatalf("grades = %q, %v", path, err)
+	}
+	if data, err := os.ReadFile(path); err != nil || string(data) != sheet {
+		t.Errorf("the file holds %q, %v", data, err)
+	}
+	if info, _ := os.Stat(path); info.Mode().Perm() != 0o600 {
+		t.Errorf("mode = %v", info.Mode())
+	}
+	if len(asked) != 1 || asked[0].Pattern != "*.csv" || strings.ContainsAny(asked[0].Filename, `/\`) {
+		t.Errorf("the dialog = %+v", asked)
+	}
+	// Cancelling writes nothing, and nothing is left beside the file.
+	cancelled = true
+	if path, err := s.SaveWorkspaceGrades(examID); path != "" || err != nil {
+		t.Errorf("cancelled = %q, %v", path, err)
+	}
+	cancelled = false
+	entries, _ := os.ReadDir(dir)
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".download-") {
+			t.Errorf("a temporary file was left: %s", entry.Name())
+		}
+	}
+	// A question exam has no sheet (the server answers 404), and an ID that is not one is refused before the server is asked.
+	if path, err := s.SaveWorkspaceGrades(otherExam); path != "" || err == nil {
+		t.Errorf("a sheet of an exam that is not a workspace exam: %q, %v", path, err)
+	}
+	if _, err := s.SaveWorkspaceGrades("../x"); err == nil {
+		t.Error("a bad exam ID was taken")
+	}
+	s.opts.Save = nil
+	if _, err := s.SaveWorkspaceGrades(examID); err == nil {
+		t.Error("saved without a dialog")
+	}
+}

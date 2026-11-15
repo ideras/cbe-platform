@@ -63,7 +63,12 @@ type Settings struct {
 	SnapshotSeconds *int64    `json:"snapshot_seconds,omitempty"`
 	// GradeTimeoutSeconds is how long a grading run of the exam may take; nil is the server's default (5 minutes).
 	GradeTimeoutSeconds *int64 `json:"grade_timeout_seconds,omitempty"`
+	// ImageWarnings is false when the exam says `image_warnings: off`; nil is on (the default).
+	ImageWarnings *bool `json:"image_warnings,omitempty"`
 }
+
+// WarnAboutImage says whether the Containerfile checker's warnings are shown and kept for the exam's own image.
+func (s Settings) WarnAboutImage() bool { return s.ImageWarnings == nil || *s.ImageWarnings }
 
 // Todo is one item of the TODO list.
 type Todo struct {
@@ -232,8 +237,28 @@ type RosterRow struct {
 	Grade *GradeSummary
 }
 
+// GradeSheetRow is one student of an exam's class in the grade sheet, whether or not they ever logged in.
+type GradeSheetRow struct {
+	Account string
+	Name    string
+	Email   string
+	// SessionID is empty for a student who never logged in.
+	SessionID      string
+	Submissions    int
+	LastSubmission *time.Time
+	Final          bool
+	// Ticked is how many TODO items the student says they did (self-reported).
+	Ticked int
+	// Grade is the student's grade as it stands (the confirmed run, or the latest); nil before any grading. Results are the TODO results of that run
+	// when it is done.
+	Grade   *GradeSummary
+	Results []GradingResult
+}
+
 // Repository is what the exam server's database does for workspace exams; internal/storage implements it.
 type Repository interface {
+	// GradeSheet lists every student of the exam's class (and anyone who has a session of the exam) by name, with the grade each has as it stands.
+	GradeSheet(ctx context.Context, examID string) ([]GradeSheetRow, error)
 	// CreateExam stores a workspace exam in its class: the exams row (kind workspace, no exercises) and the workspace row.
 	CreateExam(ctx context.Context, exam ExamRecord) error
 	// Exam reads an imported exam; ErrNotFound when the exam is not a workspace exam.

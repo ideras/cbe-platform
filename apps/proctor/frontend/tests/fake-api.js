@@ -646,6 +646,7 @@ export async function ConfirmGrading(id, confirm) {
 }
 export async function SaveWorkspaceZip(sessionId, submissionId) { calls.workspace.push({ call: 'SaveWorkspaceZip', sessionId, submissionId }); return saveCancelled ? '' : `${workspaceSavePath}-files.zip`; }
 export async function SaveWorkspaceReport(sessionId) { calls.workspace.push({ call: 'SaveWorkspaceReport', sessionId }); return saveCancelled ? '' : `${workspaceSavePath}-report.md`; }
+export async function SaveWorkspaceGrades(examId) { calls.workspace = calls.workspace ?? []; calls.workspace.push({ call: 'SaveWorkspaceGrades', examId }); if (gradeFailure) throw new Error(gradeFailure); return saveCancelled ? '' : `${workspaceSavePath}-grades.csv`; }
 Object.assign(window.ProctorHarness, {
   // Makes the monitored exam a workspace exam: `roster` is what the dashboard reads with the sessions; `data` is what the review window
   // reads of the first student's workspace (session, trees by "kind:id", files by "kind:id:path", transcripts by terminal id).

@@ -214,6 +214,66 @@ func (s Workspaces) Gradings(ctx context.Context, session string) ([]workspace.G
 }
 
 // gradesOf reads, for every student of an exam who has been graded, the grade that stands: the confirmed grading, or else the latest.
+// GradeSheet lists the students of the exam's class, and any who has a session of the exam, with the grade each has as it stands and the TODO
+// results of that run.
+func (s Workspaces) GradeSheet(ctx context.Context, examID string) ([]workspace.GradeSheetRow, error) {
+	grades, err := s.gradesOf(ctx, examID)
+	if err != nil {
+		return nil, err
+	}
+	// The rows are read to the end and closed before the results are read: the database has one connection.
+	rows, err := s.db.QueryContext(ctx, `SELECT st.account_number, st.name, st.email, COALESCE(s.session_id, ''), COALESCE(w.todo_json, '{}'),
+			(SELECT count(*) FROM workspace_submissions u WHERE u.session_id = s.session_id),
+			(SELECT submitted_at FROM workspace_submissions u WHERE u.session_id = s.session_id ORDER BY submission_id DESC LIMIT 1),
+			COALESCE((SELECT kind FROM workspace_submissions u WHERE u.session_id = s.session_id ORDER BY submission_id DESC LIMIT 1), '')
+		FROM students st
+		LEFT JOIN sessions s ON s.exam_id = ? AND s.account_number = st.account_number
+		LEFT JOIN workspace_sessions w ON w.session_id = s.session_id
+		WHERE st.account_number IN (SELECT cs.account_number FROM class_students cs JOIN exams e ON e.class_id = cs.class_id WHERE e.exam_id = ?
+			UNION SELECT account_number FROM sessions WHERE exam_id = ?)
+		ORDER BY st.name COLLATE NOCASE, st.account_number`, examID, examID, examID)
+	if err != nil {
+		return nil, err
+	}
+	var out []workspace.GradeSheetRow
+	for rows.Next() {
+		var row workspace.GradeSheetRow
+		var submitted sql.NullString
+		var todo, kind string
+		if err := rows.Scan(&row.Account, &row.Name, &row.Email, &row.SessionID, &todo, &row.Submissions, &submitted, &kind); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		if row.LastSubmission, err = nullTime(submitted); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		row.Final = kind == workspace.SubmissionFinal
+		ticks := map[string]bool{}
+		_ = json.Unmarshal([]byte(todo), &ticks)
+		for _, done := range ticks {
+			if done {
+				row.Ticked++
+			}
+		}
+		row.Grade = grades[row.SessionID]
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+	for i := range out {
+		if g := out[i].Grade; g != nil && g.State == workspace.GradingDone {
+			if out[i].Results, err = s.resultsOf(ctx, g.GradingID); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return out, nil
+}
+
 func (s Workspaces) gradesOf(ctx context.Context, examID string) (map[string]*workspace.GradeSummary, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT session_id, grading_id, state, failure, points, max_points, confirmed_at, COALESCE(finished_at, started_at, queued_at) FROM (
 			SELECT g.*, ROW_NUMBER() OVER (PARTITION BY g.session_id ORDER BY (g.confirmed_at IS NOT NULL) DESC, g.grading_id DESC) AS rank

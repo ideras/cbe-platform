@@ -116,6 +116,20 @@ test('the image chips of the exam list say what each exam has, and only workspac
   }
 });
 
+test('the download of a workspace exam is its grades, and a question exam still downloads students\' answers (Phase 8)', async ({ page }) => {
+  const exams = await open(page, () => window.ProctorHarness.workspaceExam('33333333-3333-4333-8333-333333333333', { state: 'ready', ready: true, builds: [{ build_id: 1, state: 'ok', hash: '0123456789abcdef' }] }));
+  const practice = examCard(exams, 'Practice exam');
+  await expect(practice.getByRole('button', { name: 'Download submissions of Practice exam…' })).toHaveCount(0);
+  await practice.getByRole('button', { name: 'Download grades of Practice exam…' }).click();
+  await expect(exams.getByRole('status')).toContainText('Grades of “Practice exam” saved to ');
+  await expect(exams.getByRole('status')).toContainText('advisory_points');
+  await expect(page.getByRole('dialog', { name: /Download/ })).toHaveCount(0);
+  expect((await calls(page)).workspace.filter(call => call.call === 'SaveWorkspaceGrades')).toEqual([{ call: 'SaveWorkspaceGrades', examId: PRACTICE }]);
+  // A question exam opens the dialog of its answers, as it always did.
+  await examCard(exams, 'Databases midterm').getByRole('button', { name: 'Download submissions of Databases midterm…' }).click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+});
+
 test('the image dialog builds the image, follows the build and shows its log with the base image’s digest', async ({ page }) => {
   const exams = await open(page, () => window.ProctorHarness.workspaceExam('33333333-3333-4333-8333-333333333333', { state: 'not_built', ready: false }));
   const practice = examCard(exams, 'Practice exam');

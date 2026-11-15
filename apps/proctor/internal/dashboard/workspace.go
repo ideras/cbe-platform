@@ -292,7 +292,37 @@ func (s *Service) saveWorkspace(sessionID, path string, valid bool, suffix, filt
 	if account == "" {
 		name, account = "student", sessionID[:8]
 	}
-	target, err := s.pickSave(SaveDialog{Title: title, Filename: strings.TrimSuffix(downloadName(name, account, ""), ".md") + suffix, FilterName: filter, Pattern: pattern})
+	return s.downloadToChosenFile(ctx, base, token, link, path, strings.TrimSuffix(downloadName(name, account, ""), ".md")+suffix, filter, pattern, title, limit)
+}
+
+// SaveWorkspaceGrades writes the grade sheet of a workspace exam (a CSV, docs/workspace/TEACHER-GUIDE.md) to a file the proctor chooses, and
+// returns its path, or "" when they cancel. The server makes the sheet (and answers that a question exam has none); the dashboard only keeps it.
+func (s *Service) SaveWorkspaceGrades(examID string) (string, error) {
+	if s.opts.Save == nil {
+		return "", errors.New("Saving files is not available in this build.")
+	}
+	ctx, base, token, link, err := s.linkState()
+	if err != nil {
+		return "", err
+	}
+	examID = strings.TrimSpace(examID)
+	if !validID(examID) {
+		return "", errors.New("Invalid exam selection.")
+	}
+	s.mu.Lock()
+	class, title := "", ""
+	for _, exam := range s.view.Catalog.Exams {
+		if exam.ID == examID {
+			class, title = exam.ClassName, exam.Title
+		}
+	}
+	s.mu.Unlock()
+	return s.downloadToChosenFile(ctx, base, token, link, "/admin/workspace/exam/"+url.PathEscape(examID)+"/grades.csv", downloadFolderName(class, title)+"-grades.csv", "CSV (spreadsheet)", "*.csv", "Save grades", 16<<20)
+}
+
+// downloadToChosenFile asks the proctor where to save, and writes what the server answers to path there.
+func (s *Service) downloadToChosenFile(ctx context.Context, base, token string, link uint64, path, filename, filter, pattern, title string, limit int64) (string, error) {
+	target, err := s.pickSave(SaveDialog{Title: title, Filename: filename, FilterName: filter, Pattern: pattern})
 	if err != nil || target == "" {
 		return "", err
 	}

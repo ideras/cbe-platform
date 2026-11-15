@@ -32,6 +32,7 @@ type WorkspaceAPI interface {
 	SubmissionFile(ctx context.Context, id int64, path string) (workspace.FileContent, error)
 	SubmissionZip(ctx context.Context, id int64, w io.Writer) error
 	Report(ctx context.Context, session string) (string, error)
+	GradesCSV(ctx context.Context, examID string) ([]byte, error)
 	OpenCast(ctx context.Context, id int64) (*os.File, workspace.TerminalRecord, error)
 	// Grading (Phase 6): a proctor starts gradings, reads their results and confirms a grade.
 	GradeExam(ctx context.Context, examID string, sessions []string) (workspace.Started, error)
@@ -297,6 +298,21 @@ func workspaceReportHandler(api WorkspaceAPI, logger *slog.Logger) http.HandlerF
 		w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
 		_, _ = io.WriteString(w, report)
+	}
+}
+
+// workspaceGradesHandler downloads the exam's grade sheet, a CSV (Phase 8).
+func workspaceGradesHandler(api WorkspaceAPI, logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		sheet, err := api.GradesCSV(r.Context(), r.PathValue("id"))
+		if err != nil {
+			workspaceError(w, logger, "grades", err)
+			return
+		}
+		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+		w.Header().Set("Content-Disposition", `attachment; filename="grades.csv"`)
+		w.Header().Set("Cache-Control", "no-store")
+		_, _ = w.Write(sheet)
 	}
 }
 

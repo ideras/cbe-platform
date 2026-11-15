@@ -36,6 +36,8 @@ On a workspace exam the table has one more column, **Workspace**, headed "TODO i
 A student who has no workspace yet reads "No workspace yet". On an exam that is not a workspace exam the column is not there: the application asks
 `GET /admin/workspace/exam/{id}/roster`, the server answers 404 for a question exam, and the application remembers that and does not ask again.
 
+**Download grades…**, beside it, saves the class's grades as a spreadsheet file the proctor chooses (enabled once somebody has a grade), and tells how many of the grades in it are confirmed. The exam list's download button of a workspace exam does the same (a question exam's opens the dialog of its students' answers, as before).
+
 Above the table, a **Grading** line counts the class ("2 graded (1 confirmed) · 1 waiting or being graded · 1 failed · 3 submitted, not graded") and has
 **Grade submissions…**: it asks first (how many submissions will be graded, that students already being graded or with nothing submitted are left out, that
 grades are advisory), then queues one run for each, and says how many were queued and who was left out. The button is not there for a question exam.
@@ -77,6 +79,7 @@ All need the admin token. `{id}` is a session, snapshot, submission or terminal 
 | Route | Answers |
 |-------|---------|
 | `GET /admin/workspace/exam/{exam}/roster` | the table's column; 404 for a question exam |
+| `GET /admin/workspace/exam/{exam}/grades.csv` | **the grade sheet** (Phase 8): a CSV, UTF-8 with a byte order mark and CR LF line ends, a line for every student of the class (`grading.md`, "The grade sheet"); 404 for a question exam |
 | `POST /admin/class/{class}/workspace-exam` (multipart: `document`, `starter`, and `grading`, `image` when the package has them) | import a package (the proctor application sends it); 400 lists every problem, and the PIN is in the document |
 | `GET /admin/exams` | the exam list; a workspace exam carries `kind: "workspace"`, `todos` and `image` (its state, from the database alone: it does not ask the runner), and a question exam none of the three |
 | `POST /admin/workspace/exam/{exam}/image/build` (`{"rebuild": true}` optional) | queue a build of the exam's own image: `202` with the image's state; 409 when the exam has no image folder or one is already being built |
