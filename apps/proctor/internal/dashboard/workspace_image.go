@@ -40,6 +40,16 @@ type ImageBuild struct {
 	StartedAt  *time.Time `json:"started_at"`
 	FinishedAt *time.Time `json:"finished_at"`
 	Log        string     `json:"log"`
+	// A build that is waiting or going has its log read from an offset (decision P7-10): Live says so, LogFrom is where Log starts (0 when the offset asked
+	// for was not one the server had) and LogNext the offset to ask for next. Step, Steps and StepText say where the build is, and LastOutputAt when it last
+	// printed anything.
+	Live         bool       `json:"live"`
+	LogFrom      int64      `json:"log_from"`
+	LogNext      int64      `json:"log_next"`
+	Step         int        `json:"step"`
+	Steps        int        `json:"steps"`
+	StepText     string     `json:"step_text"`
+	LastOutputAt *time.Time `json:"last_output_at"`
 }
 
 // ExamImage is the state of a workspace exam's own image: none (the exam has no image folder), not_built, queued, building, ready, failed or
@@ -66,6 +76,9 @@ func validImageState(state string) bool {
 var buildHashFormat = regexp.MustCompile(`^[0-9a-f]{16}$`)
 
 func validBuild(b ImageBuild) bool {
+	if b.LogFrom < 0 || b.LogNext < b.LogFrom || b.Step < 0 || b.Steps < b.Step || len(b.StepText) > 1024 || !utf8.ValidString(b.StepText) || b.Live && b.State != "queued" && b.State != "running" {
+		return false
+	}
 	if b.ID <= 0 || b.QueuedAt.IsZero() || b.DurationMS < 0 || len(b.Warnings) > 200 || len(b.Log) > 2<<20 || len(b.Message) > 8<<10 || len(b.Failure) > 32 ||
 		len(b.BaseName) > 128 || len(b.BaseDigest) > 128 || !utf8.ValidString(b.Log) || !utf8.ValidString(b.Message) || b.Hash != "" && !buildHashFormat.MatchString(b.Hash) {
 		return false
@@ -105,19 +118,20 @@ func validImage(image *ExamImage) bool {
 	return true
 }
 
-// ExamImage reads the state of an exam's own image; with withLog the latest build comes with its log. The server asks the runner whether it still
-// has the image, which is why this is not part of the polling.
-func (s *Service) ExamImage(examID string, withLog bool) (ExamImage, error) {
+// ExamImage reads the state of an exam's own image; with withLog the latest build comes with its log, and, when that build is going, only the part of it
+// from the offset logFrom on (the LogNext of the last look; 0 for all of it), so a look every second transfers what is new. The server asks the runner
+// whether it still has the image, which is why this is not part of the polling.
+func (s *Service) ExamImage(examID string, withLog bool, logFrom int64) (ExamImage, error) {
 	ctx, base, token, link, err := s.linkState()
 	if err != nil {
 		return ExamImage{}, err
 	}
-	if !validID(examID) {
+	if !validID(examID) || logFrom < 0 {
 		return ExamImage{}, errors.New("Choose an exam.")
 	}
 	path := "/admin/workspace/exam/" + url.PathEscape(examID) + "/image"
 	if withLog {
-		path += "?log=1"
+		path += "?log=1&log_from=" + strconv.FormatInt(logFrom, 10)
 	}
 	var out ExamImage
 	if err := getJSON(ctx, s.client, base, token, http.MethodGet, path, nil, &out); err != nil {

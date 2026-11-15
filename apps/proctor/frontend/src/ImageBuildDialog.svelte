@@ -1,12 +1,13 @@
 <script>
-  import { onMount, onDestroy, untrack } from 'svelte';
+  import { onMount, onDestroy, untrack, tick } from 'svelte';
   import * as api from '$proctor-api';
   import Modal from './Modal.svelte';
   import Icon from '../../../../shared/theme/Icon.svelte';
-  import { imageChip, shortDigest, buildTime, buildLine, buildFailureLabel } from './workspace.js';
+  import { imageChip, shortDigest, buildTime, buildLine, buildFailureLabel, stepProgress, outputAgo, atEnd } from './workspace.js';
   // The image of a workspace exam that has its own (docs/workspace/images.md): its state, a button to build it, and the log of the build,
   // which is what the builder printed: the base image's digest, the steps, what verification said. The build goes on in the background and
-  // takes seconds to minutes; while it does, the dialog reads it again every two seconds. The log is text, shown as text.
+  // takes seconds to minutes. While it does, the dialog reads it every second, asking only for the log from where the last look ended, and
+  // shows it as it grows with where the build is (step 4 of 9) and when it last printed anything. The log is text, shown as text.
   // The exam is the entry the proctor chose; the dialog keeps it, and onChanged tells the exam list to read the catalog again.
   let { entry, locked = false, onClose, onChanged } = $props();
   const exam = untrack(() => entry);
@@ -20,12 +21,22 @@
   let now = $state(Date.now());
   let timer, clock, alive = true;
   // The log of a build that was asked for by number is read once: it does not change, unlike the latest build's.
-  const POLL_MS = 2000;
+  const POLL_MS = 1000;
+  // The log of the latest build as it has been read: its text, the build it is the log of and the offset to ask for next. A build that is going is
+  // read from the offset; one that has ended is read whole.
+  let latestLog = $state('');
+  let latestBuild = 0;
+  let nextOffset = 0;
+  // Whether the log box keeps its end in view as the log grows; scrolling up to read stops it, and the box below turns it back on.
+  let follow = $state(true);
+  let box = $state(null);
 
   const going = $derived(view?.state === 'queued' || view?.state === 'building');
   const chip = $derived(view ? imageChip({ state: view.state, ready: view.ready }) : null);
   const build = $derived(pickedBuild ?? view?.build ?? null);
-  const log = $derived(build?.log ?? '');
+  const log = $derived(pickedBuild ? pickedBuild.log ?? '' : latestLog);
+  const progress = $derived(view?.state === 'building' ? stepProgress(view.build) : null);
+  const quiet = $derived(view?.state === 'building' ? outputAgo(view.build?.last_output_at, now) : '');
   const elapsed = $derived.by(() => {
     if (view?.state !== 'building' || !view.build?.started_at) return '';
     return buildTime(Math.max(0, now - Date.parse(view.build.started_at)));
@@ -33,10 +44,21 @@
 
   async function read({ quiet = false } = {}) {
     try {
-      const next = await api.ExamImage(exam.exam_id, true);
+      // From where the last look ended, if what is going is the build that look was of; otherwise all of it.
+      const asked = view?.build?.build_id === latestBuild && view?.build?.live ? nextOffset : 0;
+      const next = await api.ExamImage(exam.exam_id, true, asked);
       if (!alive) return;
       // The exam list reads the catalog again when the state of the image changes, not at every look.
       const changed = view?.state !== next.state || view?.build?.build_id !== next.build?.build_id;
+      const latest = next.build;
+      if (latest) {
+        // What came starts where the look asked for it: it goes on from the text there is. If it starts elsewhere (the server did not have the offset),
+        // or this is another build, it is all of the log there is.
+        const goesOn = latest.build_id === latestBuild && latest.live && latest.log_from === asked && asked > 0;
+        latestLog = goesOn ? latestLog + (latest.log ?? '') : latest.log ?? '';
+        latestBuild = latest.build_id;
+        nextOffset = latest.log_next ?? 0;
+      } else { latestLog = ''; latestBuild = 0; nextOffset = 0; }
       view = next;
       if (!quiet) problem = '';
       if (changed) onChanged?.();
@@ -64,6 +86,12 @@
     } catch (err) { problem = String(err); await read({ quiet: true }); }
     finally { working = false; }
   }
+  // A log that grows is kept in view, unless the proctor scrolled up to read it.
+  $effect(() => {
+    latestLog;
+    if (follow && box) tick().then(() => { if (box && follow) box.scrollTop = box.scrollHeight; });
+  });
+  const scrolled = () => { if (box) follow = atEnd(box); };
   async function pick(event) {
     const id = Number(event.currentTarget.value);
     problem = '';
@@ -106,7 +134,7 @@
 
       <div class="buttons">
         <button type="button" class="primary" disabled={locked || working || going} onclick={() => start(false)}>
-          <Icon name={view.state === 'not_built' ? 'play' : 'refresh'} size={16} />{view.state === 'not_built' ? 'Build the image' : view.ready ? 'Build again' : 'Try the build again'}
+          <Icon name={view.state === 'not_built' ? 'play' : 'refresh'} size={16} />{going ? 'Building…' : view.state === 'not_built' ? 'Build the image' : view.ready ? 'Build again' : 'Try the build again'}
         </button>
         {#if view.ready || view.state === 'failed'}
           <button type="button" disabled={locked || working || going} title="Build without the runner’s cache: every step runs again" onclick={() => start(true)}>Build again from scratch</button>
@@ -125,8 +153,17 @@
       {#if build}
         <section aria-labelledby="image-log-title">
           <h3 id="image-log-title">Build log{#if build.build_id}{' · '}build #{build.build_id}{/if}</h3>
-          {#if log}<pre class="log" tabindex="0" aria-label="Build output">{log}</pre>
-          {:else if build.state === 'queued' || build.state === 'running'}<p class="muted">The log appears when the build ends.</p>
+          {#if progress}
+            <div class="progress" data-testid="build-progress">
+              <div class="progress-line"><strong>{progress.text}</strong><code>{progress.command}</code>{#if quiet}<span class="quiet">Last output {quiet}</span>{/if}</div>
+              <div class="bar" role="progressbar" aria-label="Build progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow={progress.percent}><span style:width="{progress.percent}%"></span></div>
+            </div>
+          {/if}
+          {#if log}
+            <pre class="log" tabindex="0" aria-label="Build output" bind:this={box} onscroll={scrolled}>{log}</pre>
+            {#if !pickedBuild && going}<label class="follow"><input type="checkbox" bind:checked={follow} onchange={() => { if (follow && box) box.scrollTop = box.scrollHeight; }} /> Follow the end of the log</label>{/if}
+          {:else if build.state === 'queued'}<p class="muted">The build is waiting for its turn: the server builds one image at a time.</p>
+          {:else if build.state === 'running'}<p class="muted">The build has started and has not printed anything yet.</p>
           {:else}<p class="muted">This build has no log.</p>{/if}
         </section>
       {:else}
@@ -163,6 +200,13 @@
   .pick { display: flex; align-items: center; gap: .5rem; font-size: .88rem; }
   .pick select { min-width: 0; max-width: 100%; }
   h3 { margin: 0 0 .3rem; font-size: .95rem; }
+  .progress { display: grid; gap: .35rem; margin-bottom: .5rem; }
+  .progress-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: .2rem .7rem; }
+  .progress-line code { min-width: 0; overflow-wrap: anywhere; color: var(--text-muted); }
+  .quiet { margin-left: auto; color: var(--text-muted); font-size: .82rem; }
+  .bar { height: 7px; overflow: hidden; border-radius: 999px; background: var(--bg-secondary); }
+  .bar span { display: block; height: 100%; border-radius: inherit; background: var(--bar-fill, var(--action-primary)); transition: width .4s ease; }
+  .follow { display: inline-flex; align-items: center; gap: .4rem; margin-top: .35rem; font-size: .85rem; color: var(--text-muted); }
   .log { max-height: 20rem; margin: 0; padding: .6rem .75rem; overflow: auto; border: 1px solid var(--border-subtle); border-radius: 9px; background: var(--bg-primary); color: var(--text-main); font-family: var(--font-mono); font-size: .78rem; line-height: 1.4; white-space: pre-wrap; overflow-wrap: anywhere; }
   .problem { color: var(--alert-text); overflow-wrap: anywhere; }
 </style>

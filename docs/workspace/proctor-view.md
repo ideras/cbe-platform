@@ -15,8 +15,8 @@ In the exam list a workspace exam has a **Workspace** tag, the number of **TODO 
 *Image not built*, *Build waiting*, *Building the image…*, *Image ready*, *Build failed*, *Last build failed* (an earlier build of the same files is still the exam's image) or *Image missing* (the runner lost
 it). **Preview** is off for a workspace exam (it has no question fields), and **Publish** is off, with the reason, until the image is ready. The **Image** button opens the dialog of
 [images.md](images.md): the state, **Build the image** (or **Build again**, **Build again from scratch**), the course image and its digest the build was made on, the image's name, how long it took, the
-Containerfile's warnings, and the log of the latest build or of any earlier one (a list of the exam's builds). While a build goes the dialog reads it every two seconds; the log appears when
-the build ends.
+Containerfile's warnings, and the log of the latest build or of any earlier one (a list of the exam's builds). While a build goes the dialog reads it every second, **asking only for the log from where the last look ended**, and shows it as it grows with the build's step
+(*Step 4 of 9*, the command, a bar), when it last printed anything, and a *Follow the end of the log* box. A build that is waiting says it is waiting its turn.
 
 ## The monitoring table
 
@@ -80,7 +80,7 @@ All need the admin token. `{id}` is a session, snapshot, submission or terminal 
 | `POST /admin/class/{class}/workspace-exam` (multipart: `document`, `starter`, and `grading`, `image` when the package has them) | import a package (the proctor application sends it); 400 lists every problem, and the PIN is in the document |
 | `GET /admin/exams` | the exam list; a workspace exam carries `kind: "workspace"`, `todos` and `image` (its state, from the database alone: it does not ask the runner), and a question exam none of the three |
 | `POST /admin/workspace/exam/{exam}/image/build` (`{"rebuild": true}` optional) | queue a build of the exam's own image: `202` with the image's state; 409 when the exam has no image folder or one is already being built |
-| `GET /admin/workspace/exam/{exam}/image[?log=1]` | the state of the image (`none`, `not_built`, `queued`, `building`, `ready`, `failed`, `missing`), whether the exam can be published as far as its image goes (`ready`), whether the runner has it (`present`), the latest build (with its log when asked) and the exam's builds without their logs |
+| `GET /admin/workspace/exam/{exam}/image[?log=1[&log_from=N]]` | the state of the image (`none`, `not_built`, `queued`, `building`, `ready`, `failed`, `missing`), whether the exam can be published as far as its image goes (`ready`), whether the runner has it (`present`), the latest build (with its log when asked) and the exam's builds without their logs. For a build that is waiting or going, `live` is true and the log is read **from the offset `log_from`** (the `log_next` of the last look): `log_from` says where `log` starts (0 when the offset is not one the server has), `log_next` where to ask next, and `step`, `steps`, `step_text` and `last_output_at` say where the build is. A build that has ended has all of its log and `live` false. A `log_from` that is not a whole number is a 400 |
 | `GET /admin/workspace/exam/{exam}/image/build/{build}` | one build with its log |
 | `POST /admin/exam/{exam}/publish` | **409** when the exam's image is not ready, with the reason in the answer (Phase 7) |
 | `GET /admin/workspace/session/{session}` | the review panel's summary: state, restarts, `done`, `snapshots`, `submissions`, `terminals` |

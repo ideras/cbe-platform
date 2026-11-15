@@ -285,11 +285,11 @@ func TestAnExamsImageIsBuiltAndReadThroughTheServer(t *testing.T) {
 		}
 		return true
 	})
-	view, err := f.ExamImage(examID, false)
+	view, err := f.ExamImage(examID, false, 0)
 	if err != nil || view.State != "ready" || !view.Ready || view.Build == nil || view.Build.Hash != "0123456789abcdef" || len(view.Builds) != 1 || view.Build.Log != "" {
 		t.Fatalf("%+v %v", view, err)
 	}
-	logged, err := f.ExamImage(examID, true)
+	logged, err := f.ExamImage(examID, true, 0)
 	if err != nil || !strings.Contains(logged.Build.Log, "digest sha256:bbbb") {
 		t.Fatalf("with the log: %+v %v", logged, err)
 	}
@@ -309,7 +309,7 @@ func TestAnExamsImageIsBuiltAndReadThroughTheServer(t *testing.T) {
 		t.Error("a build that is ok with no name was taken")
 	}
 	for _, bad := range []func() error{
-		func() error { _, err := f.ExamImage("not an id", false); return err },
+		func() error { _, err := f.ExamImage("not an id", false, 0); return err },
 		func() error { _, err := f.BuildExamImage("not an id", false); return err },
 		func() error { _, err := f.ExamImageBuild(examID, 0); return err },
 		func() error { _, err := f.ExamImageBuild("nope", 3); return err },
@@ -365,7 +365,7 @@ func TestTheServersAnswersAboutAnImageAreChecked(t *testing.T) {
 		"a negative time":                     ExamImage{ExamID: examID, State: "ready", Build: &ImageBuild{ID: 1, State: "ok", Hash: "0123456789abcdef", QueuedAt: at, DurationMS: -1}},
 	} {
 		answer(http.StatusOK, view)
-		if got, err := f.ExamImage(examID, false); err == nil {
+		if got, err := f.ExamImage(examID, false, 0); err == nil {
 			t.Errorf("%s was taken: %+v", name, got)
 		}
 	}
@@ -417,6 +417,55 @@ func TestTheCatalogCarriesTheWorkspaceFieldsAndRefusesInconsistentOnes(t *testin
 		c := catalog()
 		change(&c)
 		if validateCatalog(c) == nil {
+			t.Errorf("%s was accepted", name)
+		}
+	}
+}
+
+// The log of a build that is going is read from an offset, with where the build is; what the server answers is checked.
+func TestTheLogOfABuildThatIsGoingIsAskedForFromAnOffset(t *testing.T) {
+	f := newPublishFixture(t, "")
+	var mu sync.Mutex
+	var queries []string
+	running := ImageBuild{ID: 4, State: "running", BaseName: "cbe/cpp20", Warnings: []string{}, QueuedAt: at, Live: true, Log: "STEP 2/9: RUN make\n", LogFrom: 120, LogNext: 140, Step: 2, Steps: 9, StepText: "RUN make", LastOutputAt: &at}
+	f.server.setReply(func(w http.ResponseWriter, r *http.Request, body []byte) bool {
+		if r.URL.Path != imageRoute {
+			return false
+		}
+		mu.Lock()
+		queries = append(queries, r.URL.RawQuery)
+		mu.Unlock()
+		reply(w, ExamImage{ExamID: examID, State: "building", Image: "cbe/cpp20", Build: &running, Builds: []ImageBuild{running}})
+		return true
+	})
+	view, err := f.ExamImage(examID, true, 120)
+	if err != nil || view.Build == nil || !view.Build.Live || view.Build.LogFrom != 120 || view.Build.LogNext != 140 || view.Build.Step != 2 || view.Build.Steps != 9 || view.Build.StepText != "RUN make" || view.Build.LastOutputAt == nil {
+		t.Fatalf("%+v %v", view.Build, err)
+	}
+	if _, err := f.ExamImage(examID, false, 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.ExamImage(examID, true, -1); err == nil {
+		t.Error("a negative offset was sent")
+	}
+	mu.Lock()
+	got := append([]string{}, queries...)
+	mu.Unlock()
+	if len(got) != 2 || got[0] != "log=1&log_from=120" || got[1] != "" {
+		t.Errorf("what was asked: %q", got)
+	}
+	// Answers that make no sense are not taken for one.
+	for name, mutate := range map[string]func(b *ImageBuild){
+		"an offset that goes back":        func(b *ImageBuild) { b.LogNext = 10 },
+		"a negative offset":               func(b *ImageBuild) { b.LogFrom, b.LogNext = -5, 0 },
+		"more steps done than there are":  func(b *ImageBuild) { b.Step, b.Steps = 9, 4 },
+		"a negative step":                 func(b *ImageBuild) { b.Step = -1 },
+		"a step of a thousand characters": func(b *ImageBuild) { b.StepText = strings.Repeat("x", 2000) },
+		"a live build that has ended":     func(b *ImageBuild) { b.State, b.Hash = "ok", "0123456789abcdef" },
+	} {
+		bad := running
+		mutate(&bad)
+		if validBuild(bad) {
 			t.Errorf("%s was accepted", name)
 		}
 	}

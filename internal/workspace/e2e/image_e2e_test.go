@@ -5,6 +5,8 @@ package e2e
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -242,6 +244,7 @@ func phaseImage(t *testing.T, r *rig) {
 	t.Run("a FROM that is not the exam's course image fails with a clear message", func(t *testing.T) { badFrom(t, r) })
 	t.Run("a Containerfile that changes the user, the entrypoint or the agent fails verification", func(t *testing.T) { breaksTheContract(t, r) })
 	t.Run("the limits of a build: its time, its memory, and one at a time", func(t *testing.T) { buildLimits(t, r) })
+	t.Run("the log of a build is read while it goes, in pieces, with its progress", func(t *testing.T) { liveLog(t, r, class.Class.ID) })
 	if os.Getenv("CBE_E2E_APT") == "1" {
 		t.Run("a library from the Ubuntu archive over HTTPS, with the lent certificates", func(t *testing.T) { aptLibrary(t, r) })
 	}
@@ -408,5 +411,143 @@ echo '{}'
 	}
 	if out := run("").Stderr; !strings.Contains(out, "library: missing") {
 		t.Errorf("in the course image the library is there: %s", out)
+	}
+}
+
+// liveLog is decision P7-10 with nothing replaced: a build with sleeps in it, imported as an exam of its own, is built through the server, and the
+// log is read the way the proctor's dialog reads it, every half second from where the last look ended. The log has to arrive while the build is
+// still going, in pieces, with the builder's progress, and the pieces have to add up to exactly the log the finished build has.
+func liveLog(t *testing.T, r *rig, classID string) {
+	containerfile := "FROM cbe/cpp20\nUSER root\nRUN echo first-step-begins; sleep 4; echo first-step-ends\nRUN for i in 1 2 3; do echo \"tick $i\"; sleep 2; done\nRUN echo last-step\nUSER 1000:1000\n"
+	image := tarBundle(t, map[string]string{"Containerfile": containerfile})
+	sum := sha256.Sum256(image)
+	dir := t.TempDir()
+	var document map[string]any
+	data, err := os.ReadFile(filepath.Join(r.pkgDir, "document.json"))
+	if err != nil || json.Unmarshal(data, &document) != nil {
+		t.Fatalf("the package's document: %v", err)
+	}
+	document["image_bundle"] = "sha256:" + hex.EncodeToString(sum[:])
+	data, _ = json.Marshal(document)
+	for name, content := range map[string][]byte{"document.json": data, "image.tar": image} {
+		if err := os.WriteFile(filepath.Join(dir, name), content, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, name := range []string{"starter.tar", "grading.tar"} {
+		content, err := os.ReadFile(filepath.Join(r.pkgDir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), content, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	exam := r.importExamFrom(dir, classID, "A build with sleeps", 0, 0)
+
+	r.admin("POST", "/admin/workspace/exam/"+exam+"/image/build", "", nil, 202)
+	type look struct {
+		at        time.Duration
+		state     string
+		text      string
+		from      int64
+		next      int64
+		step      int
+		steps     int
+		stepText  string
+		lastAt    string
+		live      bool
+		fullAfter string
+	}
+	var looks []look
+	var offset int64
+	var assembled strings.Builder
+	begin := time.Now()
+	for time.Since(begin) < 3*time.Minute {
+		var view struct {
+			State string `json:"state"`
+			Build *struct {
+				ID           int64  `json:"build_id"`
+				Log          string `json:"log"`
+				LogFrom      int64  `json:"log_from"`
+				LogNext      int64  `json:"log_next"`
+				Live         bool   `json:"live"`
+				Step         int    `json:"step"`
+				Steps        int    `json:"steps"`
+				StepText     string `json:"step_text"`
+				LastOutputAt string `json:"last_output_at"`
+			} `json:"build"`
+		}
+		if err := json.Unmarshal(r.admin("GET", fmt.Sprintf("/admin/workspace/exam/%s/image?log=1&log_from=%d", exam, offset), "", nil, 200), &view); err != nil {
+			t.Fatal(err)
+		}
+		b := view.Build
+		if b == nil {
+			time.Sleep(200 * time.Millisecond)
+			continue
+		}
+		l := look{at: time.Since(begin), state: view.State, text: b.Log, from: b.LogFrom, next: b.LogNext, step: b.Step, steps: b.Steps, stepText: b.StepText, lastAt: b.LastOutputAt, live: b.Live}
+		looks = append(looks, l)
+		if b.Live {
+			if b.LogFrom != offset {
+				t.Fatalf("a look from %d started at %d", offset, b.LogFrom)
+			}
+			assembled.WriteString(b.Log)
+			offset = b.LogNext
+		} else if view.State != "queued" && view.State != "building" {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	final := r.imageOf(exam, true)
+	if final.State != "ready" || final.Build == nil {
+		t.Fatalf("the build did not end well: %+v", final)
+	}
+	var withText, building, withProgress int
+	var firstText time.Duration = -1
+	for _, l := range looks {
+		if l.live && l.text != "" {
+			withText++
+			if firstText < 0 {
+				firstText = l.at
+			}
+		}
+		if l.state == "building" {
+			building++
+		}
+		if l.state == "building" && l.steps >= 4 && l.step >= 1 && l.lastAt != "" {
+			withProgress++
+		}
+	}
+	end := looks[len(looks)-1].at
+	t.Logf("%d looks in %v: %d with new text while building (the first at %v), %d with progress; the build took %d ms", len(looks), end.Round(time.Millisecond), withText, firstText.Round(time.Millisecond), withProgress, final.Build.DurationMS)
+	if final.Build.DurationMS < 8000 {
+		t.Errorf("the build took %d ms: it has sleeps of 10 seconds in it", final.Build.DurationMS)
+	}
+	// The log arrived while the build was still going, in several pieces, well before the end.
+	if withText < 4 || firstText < 0 || end-firstText < 6*time.Second {
+		t.Errorf("the log arrived in %d pieces, the first at %v of a build that ended at %v", withText, firstText, end)
+	}
+	if withProgress < 3 {
+		t.Errorf("the progress (the step, the steps and the last output) was there in %d looks while the build went", withProgress)
+	}
+	seen := map[string]bool{}
+	for _, l := range looks {
+		if l.state == "building" && l.stepText != "" {
+			seen[l.stepText] = true
+		}
+	}
+	if !seen["RUN echo first-step-begins; sleep 4; echo first-step-ends"] {
+		t.Errorf("the steps seen while it went: %v", seen)
+	}
+	// What was read in pieces is the start of what the finished build has, to the byte: nothing lost, nothing twice. (What the build printed after
+	// the last look is not in the pieces: when the build ends the live log is gone and the runner's own log, whole, takes its place.)
+	if !strings.HasPrefix(final.Build.Log, assembled.String()) || assembled.Len() < len(final.Build.Log)/2 {
+		t.Errorf("the pieces (%d bytes) are not the start of the finished log (%d bytes):\n%s\n----\n%s", assembled.Len(), len(final.Build.Log), assembled.String(), final.Build.Log)
+	}
+	for _, want := range []string{"first-step-begins", "tick 3", "last-step", "Verified:"} {
+		if !strings.Contains(final.Build.Log, want) {
+			t.Errorf("the log does not say %q", want)
+		}
 	}
 }

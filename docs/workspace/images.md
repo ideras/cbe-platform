@@ -65,8 +65,11 @@ RUN --mount=type=bind,source=ca.crt,target=/run/host-ca.crt,ro \
 ## Building it
 
 In the proctor application, an exam with an image shows **Image not built** and an **Image** button. The dialog has **Build the image**; the build goes on in the background (seconds
-when the Containerfile only copies files and compiles a little, minutes when it installs packages), and the dialog follows it. **Its log appears when the build ends**, not while it
-runs. The log starts with the course image's name and **digest** (it is what the build was made on) and ends with what verification said.
+when the Containerfile only copies files and compiles a little, minutes when it installs packages), and the dialog follows it, **with the log as it grows**: the runner streams what the build prints a few times a second, the server keeps it and hands the dialog only what is new
+each second, and the dialog shows it with **where the build is** (*Step 4 of 9: RUN apt-get install …*, a bar), **how long ago it last printed anything** (a step that downloads can be quiet for a
+while) and a *Follow the end of the log* box (scroll up to read and it stops following). The log starts with the course image's name and **digest** (it is what the build was made on) and ends with
+what verification said. While the build goes the log kept for the view stops at 2 MiB (and says so); when it ends, the runner's own log (its start and its end) is the one that stays. The log so far
+is written to the database every ten seconds, so a server that stops during a build leaves it on the build marked *interrupted*.
 
 - **The base is pinned.** A `FROM cbe/cpp20` is built on the digest of the course image the server has *now*, and the log says so (`pinned by this build`). A `FROM cbe/cpp20@sha256:…` is
   compared with that digest: if it is another, the build fails and says both, so a file written against one version of the course image does not silently build on another.

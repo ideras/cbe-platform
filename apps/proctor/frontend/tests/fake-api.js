@@ -670,15 +670,24 @@ const IMAGE_DIGEST = 'sha256:baac8cde6b9011521f80a878fc8fc475f9cf173da0ee274c2c0
 calls.workspaceImport = { chosen: [], imported: [], discarded: 0, builds: [], reads: [], buildReads: [] };
 const examById = id => exams.find(item => item.exam_id === id);
 const buildOf = (id, state, extra = {}) => ({ build_id: id, state, failure: '', message: '', cached: false, rebuild: false, hash: state === 'ok' ? '0123456789abcdef' : '', base_name: 'cbe/cpp20', base_digest: IMAGE_DIGEST, warnings: [],
+  live: false, log_from: 0, log_next: 0, step: 0, steps: 0, step_text: '', last_output_at: null,
   duration_ms: state === 'ok' || state === 'failed' ? 3600 : 0, queued_at: AT, started_at: state === 'queued' ? null : AT, finished_at: state === 'ok' || state === 'failed' ? AT : null, log: '', ...extra });
 // The state of an exam's image as the server's view says it, from the exam's entry and its builds.
-function imageView(id, withLog) {
+function imageView(id, withLog, logFrom = 0) {
   const entry = examById(id);
   if (!entry?.image) throw new Error('Requested record or image is unavailable, missing or purged.');
   const detail = imageDetail[id] ?? { builds: [] };
   const builds = detail.builds.map(({ log, ...rest }) => structuredClone(rest));
   const latest = detail.builds[0];
   const build = latest ? structuredClone(withLog ? latest : { ...latest, log: '' }) : null;
+  // A build that is waiting or going has its log read from an offset, with where it is, as the server's does; one that has ended has all of it.
+  if (build && (build.state === 'queued' || build.state === 'running')) {
+    const text = latest.log ?? '';
+    const from = logFrom >= 0 && logFrom <= text.length ? logFrom : 0;
+    Object.assign(build, { live: true, log: withLog ? text.slice(from) : '', log_from: withLog ? from : 0, log_next: withLog ? text.length : 0 });
+  } else if (build) {
+    Object.assign(build, { live: false, log_from: 0, log_next: build.log.length });
+  }
   return { exam_id: id, state: entry.image.state, image: 'cbe/cpp20', present: entry.image.state === 'ready' ? true : null, ready: entry.image.ready, build, builds };
 }
 // Changes the state of an exam's image in the catalog to match its latest build.
@@ -706,10 +715,10 @@ export async function ImportWorkspaceExam(classId, pin) {
   imageDetail[id] = { builds: [] };
   return { exam_id: id };
 }
-export async function ExamImage(id, withLog) {
-  calls.workspaceImport.reads.push({ id, withLog });
+export async function ExamImage(id, withLog, logFrom) {
+  calls.workspaceImport.reads.push({ id, withLog, logFrom });
   if (imageReadFails) throw new Error(imageReadFails);
-  return imageView(id, withLog);
+  return imageView(id, withLog, logFrom);
 }
 export async function BuildExamImage(id, rebuild) {
   calls.workspaceImport.builds.push({ id, rebuild });

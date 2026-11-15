@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { imageChip, publishBlock, shortDigest, buildTime, buildLine, buildFailureLabel, workspaceBadge, activityText, todoText, useText, kindLabel, endText, sizeText, treeRows, parseCast, playbackPlan, numberedLines, plainText, gradeLine, gradingSummary, pointsText, failureLabel, gradeNote } from '../src/workspace.js';
+import { stepProgress, outputAgo, atEnd, imageChip, publishBlock, shortDigest, buildTime, buildLine, buildFailureLabel, workspaceBadge, activityText, todoText, useText, kindLabel, endText, sizeText, treeRows, parseCast, playbackPlan, numberedLines, plainText, gradeLine, gradingSummary, pointsText, failureLabel, gradeNote } from '../src/workspace.js';
 
 test('the roster says what the container is doing in words', () => {
   assert.deepEqual(workspaceBadge({ state: 'ready' }), { text: 'Running', tone: 'active' });
@@ -160,4 +160,24 @@ test('a build is told by its number, its state and how long it took', () => {
   assert.match(buildFailureLabel('verify'), /contract/);
   assert.match(buildFailureLabel('containerfile'), /not accepted/);
   assert.equal(buildFailureLabel('something new'), 'The build failed');
+});
+
+test('where a build is going is told as a step, and how long it has been quiet', () => {
+  assert.equal(stepProgress(null), null);
+  assert.equal(stepProgress({ step: 0, steps: 0 }), null);
+  assert.equal(stepProgress({ state: 'running' }), null);
+  assert.deepEqual(stepProgress({ step: 1, steps: 9, step_text: 'FROM x' }), { text: 'Step 1 of 9', command: 'FROM x', percent: 0 });
+  assert.deepEqual(stepProgress({ step: 4, steps: 9, step_text: 'RUN make' }), { text: 'Step 4 of 9', command: 'RUN make', percent: 33 });
+  assert.equal(stepProgress({ step: 9, steps: 9 }).percent, 89);
+  assert.equal(stepProgress({ step: 12, steps: 9 }).percent, 100);
+  const now = Date.parse('2035-01-01T00:10:00Z');
+  assert.equal(outputAgo('2035-01-01T00:09:59Z', now), 'just now');
+  assert.equal(outputAgo('2035-01-01T00:09:15Z', now), '45 s ago');
+  assert.equal(outputAgo('2035-01-01T00:08:55Z', now), '1:05 ago');
+  assert.equal(outputAgo('2035-01-01T00:10:30Z', now), 'just now');
+  assert.equal(outputAgo(null, now), '');
+  assert.equal(outputAgo('garbage', now), '');
+  assert.equal(atEnd({ scrollHeight: 1000, scrollTop: 700, clientHeight: 300 }), true);
+  assert.equal(atEnd({ scrollHeight: 1000, scrollTop: 690, clientHeight: 300 }), true);
+  assert.equal(atEnd({ scrollHeight: 1000, scrollTop: 300, clientHeight: 300 }), false);
 });

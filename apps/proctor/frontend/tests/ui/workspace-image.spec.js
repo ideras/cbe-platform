@@ -128,12 +128,13 @@ test('the image dialog builds the image, follows the build and shows its log wit
   await dialog.getByRole('button', { name: 'Build the image' }).click();
   await expect(dialog).toContainText('Build waiting');
   await expect(dialog.getByRole('button', { name: 'Build the image' })).toHaveCount(0);
-  await expect(dialog.getByRole('button', { name: /Try the build again|Build again/ }).first()).toBeDisabled();
-  await expect(dialog).toContainText('The log appears when the build ends.');
+  await expect(dialog.getByRole('button', { name: 'Building…' })).toBeDisabled();
+  await expect(dialog).toContainText('The build is waiting for its turn');
   expect((await calls(page)).workspaceImport.builds).toEqual([{ id: PRACTICE, rebuild: false }]);
   // The build starts, goes on, and ends: the dialog follows it without a click.
   await page.evaluate(() => window.ProctorHarness.imageBuild('33333333-3333-4333-8333-333333333333', { state: 'running', started_at: new Date().toISOString() }));
   await expect(dialog).toContainText('Building the image…', { timeout: 6000 });
+  await expect(dialog).toContainText('has not printed anything yet');
   await page.evaluate(log => window.ProctorHarness.imageBuild('33333333-3333-4333-8333-333333333333', { state: 'ok', hash: '0123456789abcdef', duration_ms: 3600, finished_at: new Date().toISOString(), log }),
     `Base image: cbe/cpp20 is localhost/cbe/cpp20:latest\n            digest ${DIGEST} (pinned by this build to the image the server has)\n\nVerified: made from cbe/cpp20, user 1000:1000, the agent is the course image's.\n`);
   await expect(dialog).toContainText('Image ready', { timeout: 6000 });
@@ -213,4 +214,68 @@ test('the dialog says so when the image cannot be read, and closes with the keyb
   await expect(dialog.getByRole('alert')).toContainText('Server unreachable');
   await page.keyboard.press('Escape');
   await expect(dialog).toBeHidden();
+});
+
+// The log of a build that is going (decision P7-10): it grows in the dialog as the build prints, from where the last look ended, with where the
+// build is and when it last printed; the follow box keeps its end in view, and scrolling up to read stops it.
+test('the dialog shows the log of a build as it grows, asking only for what is new, with its progress', async ({ page }) => {
+  const exams = await open(page);
+  const P = '33333333-3333-4333-8333-333333333333';
+  const lines = (from, to) => Array.from({ length: to - from + 1 }, (_, i) => `output line ${from + i}\n`).join('');
+  const start = 'Base image: cbe/cpp20 is localhost/cbe/cpp20:latest\nSTEP 1/9: FROM localhost/cbe/cpp20@sha256:baac\nSTEP 2/9: RUN make\n';
+  await page.evaluate(({ id, args }) => window.ProctorHarness.workspaceExam(id, args), { id: P, args: workspaceExam('building', false, [{ build_id: 1, state: 'running', started_at: new Date().toISOString(), step: 2, steps: 9, step_text: 'RUN make', log: start, last_output_at: new Date().toISOString() }]) });
+  await examCard(exams, 'Practice exam').getByRole('button', { name: /^Image of / }).click();
+  const dialog = page.getByRole('dialog', { name: 'Image of Practice exam' });
+  const output = dialog.getByLabel('Build output');
+  await expect(output).toContainText('STEP 2/9: RUN make');
+  await expect(dialog.getByTestId('build-progress')).toContainText('Step 2 of 9');
+  await expect(dialog.getByTestId('build-progress')).toContainText('RUN make');
+  await expect(dialog.getByRole('progressbar', { name: 'Build progress' })).toHaveAttribute('aria-valuenow', '11');
+  await expect(dialog.getByTestId('build-progress')).toContainText('Last output just now');
+  // More output arrives, and only it is asked for: the offset of the last look.
+  const first = start.length;
+  await page.evaluate(({ log, step }) => window.ProctorHarness.imageBuild('33333333-3333-4333-8333-333333333333', { log, step, step_text: 'RUN apt-get install -y make' }), { log: start + lines(1, 3), step: 3 });
+  await expect(output).toContainText('output line 3', { timeout: 6000 });
+  await expect(dialog.getByTestId('build-progress')).toContainText('Step 3 of 9');
+  await expect(dialog.getByTestId('build-progress')).toContainText('apt-get install');
+  const reads = (await calls(page)).workspaceImport.reads.filter(item => item.withLog);
+  expect(reads[0].logFrom).toBe(0);
+  expect(reads.some(item => item.logFrom === first)).toBe(true);
+  // What was shown once is not shown twice.
+  expect(await output.innerText()).toBe(start + lines(1, 3));
+  // A long log keeps its end in view while the box follows it.
+  await page.evaluate(({ log }) => window.ProctorHarness.imageBuild('33333333-3333-4333-8333-333333333333', { log }), { log: start + lines(1, 200) });
+  await expect(output).toContainText('output line 200', { timeout: 6000 });
+  await expect.poll(() => output.evaluate(box => box.scrollHeight - box.scrollTop - box.clientHeight)).toBeLessThan(24);
+  // Scrolling up to read stops following: new output does not move the box. The follow box says so, and turns it on again.
+  await output.evaluate(box => { box.scrollTop = 0; });
+  await expect(dialog.getByLabel('Follow the end of the log')).not.toBeChecked();
+  await page.evaluate(({ log }) => window.ProctorHarness.imageBuild('33333333-3333-4333-8333-333333333333', { log }), { log: start + lines(1, 220) });
+  await expect(output).toContainText('output line 220', { timeout: 6000 });
+  expect(await output.evaluate(box => box.scrollTop)).toBeLessThan(24);
+  await dialog.getByLabel('Follow the end of the log').check();
+  await expect.poll(() => output.evaluate(box => box.scrollHeight - box.scrollTop - box.clientHeight)).toBeLessThan(24);
+  // The build ends: the log is the whole of the runner's, the progress is gone, and there is nothing to follow.
+  await page.evaluate(({ log }) => window.ProctorHarness.imageBuild('33333333-3333-4333-8333-333333333333', { state: 'ok', hash: '0123456789abcdef', duration_ms: 9000, finished_at: new Date().toISOString(), log }), { log: 'Base image: cbe/cpp20\n[the whole log of the runner]\nVerified.\n' });
+  await expect(dialog).toContainText('Image ready', { timeout: 6000 });
+  await expect(output).toHaveText('Base image: cbe/cpp20\n[the whole log of the runner]\nVerified.\n');
+  await expect(dialog.getByTestId('build-progress')).toHaveCount(0);
+  await expect(dialog.getByLabel('Follow the end of the log')).toHaveCount(0);
+});
+
+test('a build that has been quiet for a while says so, and a build that goes on from the start of a new one starts its log again', async ({ page }) => {
+  const exams = await open(page);
+  const P = '33333333-3333-4333-8333-333333333333';
+  await page.evaluate(({ id, args }) => window.ProctorHarness.workspaceExam(id, args), { id: P, args: workspaceExam('building', false, [{ build_id: 1, state: 'running', started_at: new Date(Date.now() - 90000).toISOString(), step: 4, steps: 4, step_text: 'RUN apt-get update', log: 'STEP 4/4: RUN apt-get update\n', last_output_at: new Date(Date.now() - 65000).toISOString() }]) });
+  await examCard(exams, 'Practice exam').getByRole('button', { name: /^Image of / }).click();
+  const dialog = page.getByRole('dialog', { name: 'Image of Practice exam' });
+  await expect(dialog.getByTestId('build-progress')).toContainText(/Last output 1:0\d ago/);
+  // The build fails and the proctor starts another: its log is its own, from the start.
+  await page.evaluate(() => window.ProctorHarness.imageBuild('33333333-3333-4333-8333-333333333333', { state: 'failed', failure: 'build', message: 'exit status 100', log: 'STEP 4/4: RUN apt-get update\nE: could not resolve\n' }));
+  await expect(dialog).toContainText('Build failed', { timeout: 6000 });
+  await dialog.getByRole('button', { name: /Try the build again/ }).click();
+  await expect(dialog).toContainText('Build waiting');
+  await page.evaluate(() => window.ProctorHarness.imageBuild('33333333-3333-4333-8333-333333333333', { state: 'running', started_at: new Date().toISOString(), step: 1, steps: 4, step_text: 'FROM x', log: 'STEP 1/4: FROM x\n' }));
+  await expect(dialog.getByLabel('Build output')).toHaveText('STEP 1/4: FROM x\n', { timeout: 6000 });
+  await expect(dialog.getByLabel('Build output')).not.toContainText('could not resolve');
 });

@@ -226,3 +226,20 @@ export function buildLine(build) {
   const states = { queued: 'waiting', running: 'building…', ok: build.cached ? 'ready (already built)' : 'ready', failed: 'failed' };
   return `#${build.build_id} · ${states[build.state] ?? build.state}${build.rebuild ? ' · from scratch' : ''}`;
 }
+
+/** Where a build that is going is: "Step 4 of 9", what the step is, and how much of the build is done (a step that is going is not done yet). null before the first step. */
+export function stepProgress(build) {
+  if (!build || !build.steps || !build.step) return null;
+  return { text: `Step ${build.step} of ${build.steps}`, command: build.step_text ?? '', percent: Math.min(100, Math.round((build.step - 1) / build.steps * 100)) };
+}
+
+/** "just now", "45 s ago", "1:05 ago": how long ago the build last printed anything; '' when it has not yet. */
+export function outputAgo(at, nowMs) {
+  const then = at ? Date.parse(at) : NaN;
+  if (Number.isNaN(then)) return '';
+  const ms = Math.max(0, nowMs - then);
+  return ms < 3000 ? 'just now' : `${buildTime(ms)} ago`;
+}
+
+/** Whether a log that is shown in a box that scrolls is at its end, so a new line should keep it there (a few pixels of slack). */
+export const atEnd = box => box.scrollHeight - box.scrollTop - box.clientHeight < 24;

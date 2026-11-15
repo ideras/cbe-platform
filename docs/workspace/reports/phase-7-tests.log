@@ -1,0 +1,58 @@
+# Phase 7 test results (2026-11-15, after the log was made live)
+
+## scripts/ci/test.py --race (vet and tests of the 8 modules)
+?   	exam-platform/cmd/cbe-agent	[no test files]
+ok  	exam-platform/cmd/cbe-agent-cli	
+?   	exam-platform/cmd/cbe-quota-helper	[no test files]
+?   	exam-platform/cmd/cbe-runner	[no test files]
+?   	exam-platform/cmd/server	[no test files]
+ok  	exam-platform/internal/agent	
+ok  	exam-platform/internal/agentproto	
+?   	exam-platform/internal/clock	[no test files]
+ok  	exam-platform/internal/config	
+ok  	exam-platform/internal/domain	
+ok  	exam-platform/internal/httpapi	143.069s
+ok  	exam-platform/internal/quota	
+ok  	exam-platform/internal/roster	
+ok  	exam-platform/internal/runner	5.878s
+ok  	exam-platform/internal/runner/dockerrt	1.036s
+ok  	exam-platform/internal/server	3.238s
+ok  	exam-platform/internal/service	187.356s
+ok  	exam-platform/internal/storage	36.733s
+ok  	exam-platform/internal/workspace	5.231s
+ok  	exam-platform/internal/workspace/e2e	1.018s
+?   	exam-platform/internal/workspace/workspacetest	[no test files]
+ok  	exam-platform/shared/calc	
+ok  	exam-platform/shared/clientwire	
+ok  	exam-platform/shared/containerfile	
+ok  	exam-platform/shared/examdoc	
+ok  	exam-platform/shared/examdoc/cmd/examc	
+ok  	exam-platform/shared/examimage	
+ok  	exam-platform/apps/student	
+?   	exam-platform/apps/student/cmd/student	[no test files]
+ok  	exam-platform/apps/student/internal/client	
+ok  	exam-platform/apps/student/internal/remotewatch	
+ok  	exam-platform/apps/student/internal/sessionwatch	
+ok  	exam-platform/apps/student/internal/spike	
+?   	exam-platform/apps/student/internal/sysvolume	[no test files]
+ok  	exam-platform/apps/proctor	1.028s
+?   	exam-platform/apps/proctor/cmd/proctor	[no test files]
+ok  	exam-platform/apps/proctor/internal/dashboard	13.624s
+exit=0
+
+## proctor unit tests
+ℹ tests 91
+ℹ pass 91
+ℹ fail 0
+
+## proctor Playwright (Chromium, all specs)
+  331 passed (5.3m)
+
+## proctor workspace-image spec in WebKit
+11 passed
+
+## proctor Go (dashboard package, 10 runs with -race earlier: 0 failures)
+?   	exam-platform/apps/proctor/cmd/proctor	[no test files]
+ok  	exam-platform/apps/proctor/internal/dashboard	3.476s
+
+## real test, deploy/workspace/test-image.sh (hermetic): see phase-7-e2e-live.log (exit 0, 9 subtests); with CBE_E2E_APT=1: phase-7-e2e.log
