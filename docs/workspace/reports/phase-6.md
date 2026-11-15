@@ -1,7 +1,7 @@
 # Phase 6 report: the grading runner
 
 **Date:** 2026-11-14. **Branch:** `feat/workspace-phase-6-grading-runner` (from `feat/workspace-phase-5-submission-logging`, which is pushed). **Plan:** `.agents/WORKSPACE-PLAN.md` v1.1.
-**Status:** built and tested; **all four acceptance items are met** (below), in real containers as well as with fakes. Decisions `P6-1` to `P6-13` are proposed and wait for you.
+**Status:** built and tested; **all four acceptance items are met** (below), in real containers as well as with fakes. Decisions `P6-1` to `P6-13` are **confirmed by the owner (2026-11-14)**.
 **The branch is not pushed.** How it works: `docs/workspace/grading.md`.
 
 ## What changed
@@ -71,8 +71,6 @@
 
 On this machine: nothing from the runs (checked by the script). The private runner's files are removed when the script ends. The Phase 0 resource backstop on `cbe-runner`'s slice **must still go before production**. The proctor application's bindings (`apps/proctor/frontend/bindings/`) are regenerated and git-ignored.
 
-## For the owner
+## Closed (2026-11-14)
 
-1. **Confirm or change P6-1 to P6-13** (first **P6-4**: the contract `grade` must keep, strict on purpose; **P6-7**: two runs at a time; **P6-13**: the student's code can read the hidden cases).
-2. **Upgrade the host** when your manual server is stopped (the commands are in `deployment.md`), and try *Grade submissions…* in the proctor application on the example package: `deploy/workspace/test-server.sh --manual` makes a throwaway server with it published; a student who edits `src/list.cpp` and presses Save can be graded.
-3. **May I push the branch?** And **go for Phase 7** (per-exam image customization), or tell me what to change first.
+The owner confirmed P6-1 to P6-13 as proposed, asked for the installed runner to be upgraded, the branch pushed and Phase 7 to start. The upgrade is in `docs/workspace/reports/phase-7.md`'s opening (it was done at the start of that turn).
