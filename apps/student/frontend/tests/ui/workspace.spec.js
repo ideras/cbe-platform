@@ -668,6 +668,9 @@ async function inTheMiddleOfABigFile(page) {
   await editor.click();
   await page.keyboard.press('Control+Home');
   for (let i = 0; i < 120; i += 1) await page.keyboard.press('ArrowDown');
+  // Not at the edge of the window: with the cursor on the last line in view, typing a character may scroll the line fully into view, by a line more or
+  // less according to the fonts of the machine (found in CI); ten lines up it is in the middle of what is shown, and nothing needs to move.
+  for (let i = 0; i < 10; i += 1) await page.keyboard.press('ArrowUp');
   await expect(page.getByRole('group', { name: 'Workspace status' })).toContainText('Nothing to save');
   await page.evaluate(() => document.querySelectorAll('.cm-line').forEach(line => { line.__drawn = true; }));
   return editor;

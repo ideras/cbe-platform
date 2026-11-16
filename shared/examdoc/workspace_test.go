@@ -9,6 +9,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"runtime"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -399,7 +400,12 @@ func TestWorkspaceProblemsNameTheirLines(t *testing.T) {
 		"long name":           {pkg(okFront, "[ ] a\n", fstest.MapFS{"project/" + strings.Repeat("a", 256): {Data: []byte("x")}}), "a name in the path is longer than 255 bytes"},
 		"grading too many":    {pkg(okFront, "[ ] a\n", manyFilesIn("grading", 2001), fstest.MapFS{"grading/grade": {Data: []byte("#!/bin/sh\n")}}), "grading/ holds more than 2000 files"},
 	} {
-		t.Run(name, func(t *testing.T) { wantProblem(t, test.files, test.want) })
+		t.Run(name, func(t *testing.T) {
+			if name == "link backslash" && runtime.GOOS == "windows" {
+				t.Skip("Windows writes a link's target with backslashes, and the compiler turns them into slashes (workspace_bundle.go)")
+			}
+			wantProblem(t, test.files, test.want)
+		})
 	}
 }
 

@@ -900,7 +900,12 @@ func TestAClientThatCancelsEndsTheBuildAndABrokenStreamIsAnError(t *testing.T) {
 	}
 
 	// A stream that ends with no result: a runner that died.
-	dir := t.TempDir()
+	// A short folder: the path of a Unix socket is at most 104 bytes on macOS, and t.TempDir has the name of the test in it.
+	dir, err := os.MkdirTemp("", "x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
 	socket := filepath.Join(dir, "x.sock")
 	listener, err := net.Listen("unix", socket)
 	if err != nil {

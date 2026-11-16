@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -191,7 +192,7 @@ func TestSubmissionsAreSavedWhereTheProctorChoosesAndNowhereElse(t *testing.T) {
 	if data, err := os.ReadFile(zipPath); err != nil || string(data) != zipData {
 		t.Errorf("the zip file holds %q, %v", data, err)
 	}
-	if info, _ := os.Stat(zipPath); info.Mode().Perm() != 0o600 {
+	if info, _ := os.Stat(zipPath); runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Errorf("mode = %v", info.Mode())
 	}
 	reportPath, err := s.SaveWorkspaceReport(sessionID)
@@ -264,7 +265,7 @@ func TestTheGradeSheetIsSavedWhereTheProctorChoosesAndNowhereElse(t *testing.T) 
 	if data, err := os.ReadFile(path); err != nil || string(data) != sheet {
 		t.Errorf("the file holds %q, %v", data, err)
 	}
-	if info, _ := os.Stat(path); info.Mode().Perm() != 0o600 {
+	if info, _ := os.Stat(path); runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Errorf("mode = %v", info.Mode())
 	}
 	if len(asked) != 1 || asked[0].Pattern != "*.csv" || strings.ContainsAny(asked[0].Filename, `/\`) {

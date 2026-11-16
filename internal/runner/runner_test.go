@@ -46,7 +46,7 @@ func TestEveryContainerHasTheSameHardening(t *testing.T) {
 			"/tmp is a tmpfs without exec": len(spec.Tmpfs) == 1 && strings.Contains(spec.Tmpfs["/tmp"], "noexec") && strings.Contains(spec.Tmpfs["/tmp"], "nosuid") && strings.Contains(spec.Tmpfs["/tmp"], "size=64m"),
 			"labelled":                     spec.Labels[LabelManaged] == "1" && spec.Labels[LabelExam] == "e1" && spec.Labels[LabelSession] != "",
 			"an approved image":            spec.Image == "localhost/cbe/cpp20:latest",
-			"mounts are this session's":    strings.HasSuffix(spec.Binds[0].Source, "/work/"+spec.Labels[LabelSession]) && strings.HasSuffix(spec.Binds[1].Source, "/run/"+spec.Labels[LabelSession]),
+			"mounts are this session's":    strings.HasSuffix(filepath.ToSlash(spec.Binds[0].Source), "/work/"+spec.Labels[LabelSession]) && strings.HasSuffix(filepath.ToSlash(spec.Binds[1].Source), "/run/"+spec.Labels[LabelSession]),
 		}
 		for what, ok := range checks {
 			if !ok {
