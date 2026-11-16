@@ -2,6 +2,7 @@
 // with its duration; everything else is one row per record. Client-supplied details are untrusted text: they are only
 // ever shown as text, never as markup.
 import { localTime, parseTime } from './dates.js';
+import { vmLabel } from './roster.js';
 
 const labels = {
   login: 'Logged in', app_started: 'Application started', app_closed: 'Application closed', grace_started: 'Grace period started',
@@ -95,8 +96,15 @@ function sessionOffScreenNote(...reports) {
 export function remoteDetail(detail) {
   const active = Array.isArray(detail?.client?.active) ? detail.client.active : [];
   const names = active.filter(item => item && typeof item.name === 'string' && item.name)
-    .map(item => item.kind === 'remote_session' ? (item.detail ? `Remote Desktop session from ${item.detail}` : 'Remote Desktop session') : item.name);
-  return names.length ? `Found on the student's computer: ${names.join(', ')}.` : 'Nothing found any more: no Remote Desktop session and no remote-control software.';
+    .map(item => item.kind === 'virtual_machine' ? `a virtual machine (${vmLabel(item)})` : item.kind === 'remote_session' ? (item.detail ? `Remote Desktop session from ${item.detail}` : 'Remote Desktop session') : item.name);
+  return names.length ? `Found on the student's computer: ${names.join(', ')}.` : 'Nothing found any more: no Remote Desktop session, no remote-control software and no virtual machine.';
+}
+/** The title of a remote_changed row: what was found, as far as the kinds go (a virtual machine is not remote access). */
+export function remoteTitle(detail) {
+  const active = (Array.isArray(detail?.client?.active) ? detail.client.active : []).filter(item => item && typeof item.name === 'string' && item.name);
+  const vm = active.some(item => item.kind === 'virtual_machine');
+  const access = active.some(item => item.kind !== 'virtual_machine');
+  return vm && access ? 'Remote access and virtual machine' : vm ? 'Virtual machine' : 'Remote access';
 }
 
 /** What the lock rows say: the reason of a lock, and the reason and time given back of an unlock. recordedAt is when the server
@@ -202,6 +210,7 @@ export function historyRows(items, finalVersionId) {
       row.expectsImages = event.event_type === 'locked' && (event.detail?.reason === 'network' || event.detail?.reason === 'no_contact');
     } else if (event.event_type === 'remote_changed') {
       row.note = remoteDetail(event.detail);
+      row.title = remoteTitle(event.detail);
     } else if (event.event_type === 'capture_failed') {
       // A screen cannot be captured while another user's session has it: when the application says that was the case, it is why.
       if (event.detail?.client?.session_reason) row.note = 'The student\'s session was not the one on screen, so the screens could not be captured.';

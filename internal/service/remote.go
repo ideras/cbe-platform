@@ -27,7 +27,7 @@ func remoteFindings(detail []byte) []domain.RemoteFinding {
 		return found
 	}
 	for _, finding := range stored.Client.Active {
-		if (finding.Kind != domain.RemoteKindSession && finding.Kind != domain.RemoteKindTool) || finding.Name == "" {
+		if (finding.Kind != domain.RemoteKindSession && finding.Kind != domain.RemoteKindTool && finding.Kind != domain.RemoteKindVirtualMachine) || finding.Name == "" {
 			continue
 		}
 		found = append(found, domain.RemoteFinding{Kind: finding.Kind, Name: cutText(finding.Name, maxRemoteText), Detail: cutText(finding.Detail, maxRemoteText)})

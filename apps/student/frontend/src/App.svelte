@@ -269,8 +269,13 @@
   async function closeWindow() { try { await api.CloseCompletedWindow(); } catch (problem) { fail(problem); } }
   async function retry() { try { if (revision > 0 && view.phase === 'exam' && !view.submitting && !view.advancing) queue.stage(answers, revision); await api.Retry(); await refresh(); } catch (problem) { fail(problem); } }
   // What was found, in the words the student knows: a program by its name, a Remote Desktop session by where it comes from.
-  const remoteNames = found => found.map(item => item.kind === 'remote_session'
+  const remoteNames = found => found.filter(item => item.kind !== 'virtual_machine').map(item => item.kind === 'remote_session'
     ? (item.detail ? `a Remote Desktop session from ${item.detail}` : 'a Remote Desktop session') : item.name).join(', ');
+  // The computer being a virtual machine is told apart from remote access: the window of a virtual machine is on a host the exam program cannot see.
+  const virtualMachine = found => {
+    const vm = found.find(item => item.kind === 'virtual_machine');
+    return !vm ? '' : vm.name && vm.name !== 'unknown' ? `a virtual machine (${vm.name})` : 'a virtual machine';
+  };
   async function testScreenshot() {
     if (capturing || busy || view.phase === 'complete' || view.submitting) return;
     capturing = true; captureTest = { state: 'running' };
@@ -302,7 +307,8 @@
         {#if view.monitoring?.focus === 'unfocused'}<p role="status" class="callout warning">This window is not the active one. Click anywhere in it to continue: the alarm stops when it is active.</p>{/if}
         <!-- What the app found that shows this computer is watched or controlled from elsewhere is told to the instructor, and to the
              student, so that it is no surprise and so that a mistake (a program they did not know was running) is put right. -->
-        {#if view.monitoring?.remote?.length}<p role="status" class="callout warning">Your instructor has been told that this computer is being used remotely or has remote-control software running: {remoteNames(view.monitoring.remote)}. If this is a mistake, close it and tell your instructor.</p>{/if}
+        {#if remoteNames(view.monitoring?.remote ?? [])}<p role="status" class="callout warning">Your instructor has been told that this computer is being used remotely or has remote-control software running: {remoteNames(view.monitoring.remote)}. If this is a mistake, close it and tell your instructor.</p>{/if}
+        {#if virtualMachine(view.monitoring?.remote ?? [])}<p role="status" class="callout warning">Your instructor has been told that this computer is {virtualMachine(view.monitoring.remote)}. If this is a mistake, tell your instructor.</p>{/if}
 {/snippet}
 <main class:wide={workspaceShown}>
   {#if view.phase !== 'login' && view.phase !== 'loading'}
@@ -329,7 +335,7 @@
             <li><strong>While you are away, screenshots of all your screens are taken</strong>, including anything else open on them. Only your instructor sees them, and they are deleted after grading.</li>
             <li><strong>Keep your sound on.</strong> The app turns it up during the exam and restores it afterwards.</li>
             <li>Your instructor sees whether you are connected, your computer's name and when you leave this window.</li>
-            <li>The app tells your instructor if it finds that this computer is being used through Remote Desktop, or that remote-control software (such as TeamViewer or AnyDesk) is running on it. Only the name of the program is sent.</li>
+            <li>The app tells your instructor if it finds that this computer is being used through Remote Desktop, that remote-control software (such as TeamViewer or AnyDesk) is running on it, or that it is a virtual machine. Only the name of the program, or of the virtual machine's maker, is sent.</li>
             <li class="critical"><strong>If you stay away from this window for {lockAway}, or the app cannot reach the server for {lockNoContact}, your exam locks.</strong> Only your instructor can unlock it, and the exam time keeps running. If it locked because the app could not reach the server, the window also stops being full screen so you can reach your network settings, and screenshots of all your screens are taken until your instructor unlocks it.</li>
             {#if networkLocks}<li>If the app cannot reach the server, it warns you and shows how long is left. To change network, you can lock your exam yourself, up to {networkLocks} time{networkLocks === 1 ? '' : 's'}: the alarm stays quiet while it is locked, but screenshots of all your screens are taken. The window stops being full screen so you can reach your network settings, and goes back to full screen when your instructor unlocks the exam. Only your instructor can unlock it, and the exam time keeps running.</li>{/if}
           </ul>

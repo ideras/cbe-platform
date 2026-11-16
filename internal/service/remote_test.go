@@ -175,3 +175,25 @@ func TestOnlyTheKnownEventNamesAreAccepted(t *testing.T) {
 		t.Fatalf("err = %v, want ErrInvalidInput", err)
 	}
 }
+
+// A virtual machine is a finding of its own kind, kept with the others and cut like them; a kind the server does not know is still left out.
+func TestAVirtualMachineIsOnTheRosterAsAFindingOfItsOwnKind(t *testing.T) {
+	f := newFixture(t, 0)
+	login := f.login(t, "0012")
+	heartbeat(t, f, login.Token)
+	long := strings.Repeat("x", 200)
+	if err := remoteReport(t, f, login.Token, `[{"kind":"virtual_machine","name":"VirtualBox","detail":"`+long+`"},{"kind":"remote_tool","name":"AnyDesk.exe"},{"kind":"hypervisor","name":"not a kind"}]`); err != nil {
+		t.Fatal(err)
+	}
+	got := presence(t, f, login.SessionID).Remote
+	if len(got) != 2 || got[0].Kind != domain.RemoteKindVirtualMachine || got[0].Name != "VirtualBox" || len(got[0].Detail) != 64 || got[1].Name != "AnyDesk.exe" {
+		t.Fatalf("remote = %+v", got)
+	}
+	// It is the whole state like the rest: a report with none of it says it is gone.
+	if err := remoteReport(t, f, login.Token, `[]`); err != nil {
+		t.Fatal(err)
+	}
+	if got := presence(t, f, login.SessionID).Remote; len(got) != 0 {
+		t.Fatalf("remote after the report that says it is gone = %+v", got)
+	}
+}

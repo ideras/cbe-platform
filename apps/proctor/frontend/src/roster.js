@@ -16,13 +16,24 @@ export function loginGate(row) {
     released: Boolean(gate.released_at), waiting: gate.refusals > 0 && !gate.released_at };
 }
 // Warnings are independent. A student with several warnings is counted only once.
-export const needsAttention = row => Boolean(row.locked || row.network_warning || row.focus_warning || row.finalization_pending || loginGate(row)?.waiting || remoteFindings(row).length);
+export const needsAttention = row => Boolean(row.locked || row.network_warning || row.focus_warning || row.finalization_pending || loginGate(row)?.waiting || remoteFindings(row).length || virtualMachine(row));
 /** What the student application says it found that shows the computer is watched or controlled from elsewhere, each as the text the
  *  roster shows: a Remote Desktop session by where it comes from, a program by its name. The application's words are shown as text. */
 export function remoteFindings(row) {
-  const found = Array.isArray(row.presence?.remote) ? row.presence.remote : [];
-  return found.filter(item => item && typeof item.name === 'string' && item.name)
+  return findings(row).filter(item => item.kind !== 'virtual_machine')
     .map(item => item.kind === 'remote_session' ? (item.detail ? `Remote Desktop from ${item.detail}` : 'Remote Desktop session') : item.name);
+}
+const findings = row => (Array.isArray(row.presence?.remote) ? row.presence.remote : []).filter(item => item && typeof item.name === 'string' && item.name);
+/** How the student application named the virtual machine it found itself in, as the roster shows it: the hypervisor, with what the firmware called
+ *  it when that says more, or "unknown hypervisor". Nothing (an empty string) when it did not find one. The application's words, shown as text. */
+export function vmLabel(item) {
+  const detail = typeof item.detail === 'string' ? item.detail : '';
+  if (item.name === 'unknown') return detail ? `unknown hypervisor (${detail})` : 'unknown hypervisor';
+  return detail && detail.toLowerCase() !== item.name.toLowerCase() ? `${item.name} (${detail})` : item.name;
+}
+export function virtualMachine(row) {
+  const found = findings(row).find(item => item.kind === 'virtual_machine');
+  return found ? vmLabel(found) : '';
 }
 export const canForce = row => inProgress(row) || Boolean(row.finalization_pending);
 /** The student application's release, as the roster shows it, and whether it differs from the server's: another release, or

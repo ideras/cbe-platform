@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { rosterCounts, filterRoster, sortRoster, needsAttention, inProgress, isSubmitted, canForce, initials, spoken, lockRule, lockLabel, lowTime, networkBadge, focusBadge, lifecycleBadge, sound, examLength, loginGate, remoteFindings, clockDuration, unlockChecks, appRelease } from '../src/roster.js';
+import { rosterCounts, filterRoster, sortRoster, needsAttention, virtualMachine, vmLabel, inProgress, isSubmitted, canForce, initials, spoken, lockRule, lockLabel, lowTime, networkBadge, focusBadge, lifecycleBadge, sound, examLength, loginGate, remoteFindings, clockDuration, unlockChecks, appRelease } from '../src/roster.js';
 
 const row = (name, status = 'active', extra = {}) => ({ student_name: name, account_number: name, status,
   presence: { monitoring: status === 'active', connectivity: 'healthy', focus: { state: 'focused' } }, ...extra });
@@ -177,4 +177,22 @@ test('a student application is compared with the server release only when the se
   assert.deepEqual(appRelease(on('v0.15.0'), ''), { version: 'v0.15.0', differs: false, note: '' });
   assert.equal(appRelease({ presence: { app_version: 7 } }, '').version, '');
   assert.equal(appRelease({}, 'v0.16.0').differs, false);
+});
+
+test('a virtual machine is listed apart from remote access, by its hypervisor, and makes the row need attention', () => {
+  const found = [{ kind: 'virtual_machine', name: 'VirtualBox', detail: 'VirtualBox' }, { kind: 'remote_tool', name: 'AnyDesk.exe' }];
+  const inVm = row('Ada', 'active', { presence: { monitoring: true, connectivity: 'healthy', focus: { state: 'focused' }, remote: found } });
+  assert.equal(virtualMachine(inVm), 'VirtualBox');
+  assert.deepEqual(remoteFindings(inVm), ['AnyDesk.exe'], 'a virtual machine is not remote access');
+  const only = row('Alan', 'active', { presence: { remote: [{ kind: 'virtual_machine', name: 'VMware', detail: 'VMware Virtual Platform' }] } });
+  assert.equal(virtualMachine(only), 'VMware (VMware Virtual Platform)');
+  assert.deepEqual(remoteFindings(only), []);
+  assert.equal(needsAttention(only), true);
+  assert.equal(rosterCounts([only, row('Dennis')]).attention, 1);
+  assert.equal(vmLabel({ kind: 'virtual_machine', name: 'unknown' }), 'unknown hypervisor');
+  assert.equal(vmLabel({ kind: 'virtual_machine', name: 'unknown', detail: 'Acme Cloud' }), 'unknown hypervisor (Acme Cloud)');
+  assert.equal(vmLabel({ kind: 'virtual_machine', name: 'QEMU/KVM', detail: 'qemu/kvm' }), 'QEMU/KVM', 'the detail is left out when it only repeats the name');
+  for (const nothing of [row('Grace'), row('Joan', 'active', { presence: { remote: [{ kind: 'remote_tool', name: 'AnyDesk.exe' }] } }), { presence: { remote: [{ kind: 'virtual_machine' }] } }, {}]) {
+    assert.equal(virtualMachine(nothing), '');
+  }
 });

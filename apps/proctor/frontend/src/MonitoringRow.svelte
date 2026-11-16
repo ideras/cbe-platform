@@ -3,7 +3,7 @@
   import { remainingTime } from '../../../../shared/exam/timing.js';
   import { localTime } from './dates.js';
   import { workspaceBadge, activityText, todoText, todoNote, useText, gradeLine } from './workspace.js';
-  import { inProgress, canForce, needsAttention, duration, sound, networkBadge, focusBadge, lifecycleBadge, lockLabel, lowTime, loginGate, remoteFindings, appRelease } from './roster.js';
+  import { inProgress, canForce, needsAttention, duration, sound, networkBadge, focusBadge, lifecycleBadge, lockLabel, lowTime, loginGate, remoteFindings, virtualMachine, appRelease } from './roster.js';
   // serverVersion is the server's release, which each student's application is compared with.
   // workspace is the student's workspace on a workspace exam, null while they have none, and undefined for an exam that has no workspaces.
   let { row, workspace, serverTime, policy, serverVersion = '', disabled = false, timingBusy = false, unlockBusy = false, actionBusy = false, releaseBusy = false,
@@ -13,6 +13,7 @@
   const life = $derived(lifecycleBadge(row, policy, serverTime));
   const gate = $derived(loginGate(row));
   const remote = $derived(remoteFindings(row));
+  const vm = $derived(virtualMachine(row));
   const release = $derived(appRelease(row, serverVersion));
   const space = $derived(workspace ? workspaceBadge(workspace) : null);
 </script>
@@ -35,6 +36,11 @@
     {#if remote.length}
       <!-- The application found a Remote Desktop session or remote-control software: its own words, shown as text. -->
       <div class="remote"><Icon name="warning" size={13} /><span>Remote access: {remote.join(' · ')}</span></div>
+    {/if}
+    {#if vm}
+      <!-- The application runs inside a virtual machine: what the student does on the host (another window, another program) is not seen by it, so focus
+           loss is not a reliable sign here. The application's own words, shown as text. -->
+      <div class="remote" title="The exam application runs inside a virtual machine, so it cannot see what is done outside it: leaving the window is not reported."><Icon name="warning" size={13} /><span>Virtual machine: {vm}</span></div>
     {/if}
   </td>
   <td>
