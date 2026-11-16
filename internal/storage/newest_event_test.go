@@ -78,6 +78,26 @@ func TestTheNewestEventOfAFewTypesIsASeekOfTheIndexAndTheSameRowAsBefore(t *test
 		plan = append(plan, detail)
 	}
 	text := strings.Join(plan, "\n")
+	// The other two queries that were made the same way, for the proctor's reads.
+	for name, query := range map[string]string{"latest reported focus": latestReportedFocusSQL, "finalization": finalizationEventSQL} {
+		planRows, err := s.db.QueryContext(ctx, "EXPLAIN QUERY PLAN "+strings.Replace(query, "?1", "'s-with-none'", -1))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var details []string
+		for planRows.Next() {
+			var id, parent, unused int
+			var detail string
+			if err := planRows.Scan(&id, &parent, &unused, &detail); err != nil {
+				t.Fatal(err)
+			}
+			details = append(details, detail)
+		}
+		planRows.Close()
+		if joined := strings.Join(details, "\n"); strings.Contains(joined, "sqlite_autoindex") || !strings.Contains(joined, "event_log_session_type_id") {
+			t.Errorf("%s, the plan:\n%s", name, joined)
+		}
+	}
 	if strings.Contains(text, "sqlite_autoindex") || !strings.Contains(text, "event_log_session_type_id") || strings.Count(text, "event_log_session_type_id") < len(focusEventTypes) {
 		t.Errorf("the plan:\n%s", text)
 	}
