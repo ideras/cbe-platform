@@ -213,7 +213,7 @@ func Handler(svc *Service, secret string, logger *slog.Logger) http.Handler {
 				return part, nil
 			}
 		}
-		result, err := svc.Grade(r.Context(), req, &lazyPart{open: next("submission")}, &lazyPart{open: next("grading")})
+		result, err := svc.Grade(r.Context(), req, &lazyPart{open: next("submission")}, &drained{part: &lazyPart{open: next("grading")}, body: r.Body})
 		if err != nil {
 			fail(w, "grading.run", err)
 			return
@@ -247,7 +247,7 @@ func Handler(svc *Service, secret string, logger *slog.Logger) http.Handler {
 		// What the build prints goes to the client as it is printed (below), and the result is the last message.
 		stream := newStreamWriter(w)
 		defer stream.close()
-		result, err := svc.BuildImageLive(r.Context(), req, part, stream)
+		result, err := svc.BuildImageLive(r.Context(), req, &drained{part: part, body: r.Body}, stream)
 		if err != nil {
 			if stream.started() {
 				// The answer has begun, with its status: the failure is the last message of the stream.
@@ -261,6 +261,24 @@ func Handler(svc *Service, secret string, logger *slog.Logger) http.Handler {
 		stream.finish(result)
 	})
 	return authenticate(secret, mux, logger)
+}
+
+// drained is a part of a request that, when it has been read to its end, reads the rest of the request's body to its end (the closing boundary, which is
+// not wanted). Only a body that has been read to its end is watched by the server for a client that goes away, which is what cancels a build or a grading
+// run: without it, one run in eight of a cancelled build went on to its end (found in CI, then reproduced: 11 of 80 runs of the test with -race).
+type drained struct {
+	part io.Reader
+	body io.Reader
+	done bool
+}
+
+func (d *drained) Read(p []byte) (int, error) {
+	n, err := d.part.Read(p)
+	if errors.Is(err, io.EOF) && !d.done {
+		d.done = true
+		_, _ = io.Copy(io.Discard, d.body)
+	}
+	return n, err
 }
 
 // lazyPart reads a part of a multipart request when it is first read, so that the parts are taken in order and none is read before it is

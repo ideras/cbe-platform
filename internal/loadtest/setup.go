@@ -102,7 +102,19 @@ func Setup(ctx context.Context, server, adminToken, packageDir, className, pin s
 	if err := json.Unmarshal(data, &created); err != nil || created.ID == "" {
 		return "", fmt.Errorf("the exam's answer: %v: %.200s", err, data)
 	}
-	if _, err := do("POST", "/admin/exam/"+created.ID+"/publish", "application/json", strings.NewReader(`{"expected_current":""}`), 200); err != nil {
+	// Publishing replaces the exam that is published, and the server wants to be told which one that is (so that two proctors do not replace each other's).
+	data, err = do("GET", "/admin/exams", "", nil, 200)
+	if err != nil {
+		return created.ID, fmt.Errorf("reading the exams: %w", err)
+	}
+	var catalog struct {
+		Current string `json:"current_exam_id"`
+	}
+	if err := json.Unmarshal(data, &catalog); err != nil {
+		return created.ID, fmt.Errorf("the catalog's answer: %w", err)
+	}
+	publish, _ := json.Marshal(map[string]any{"expected_current": catalog.Current, "allow_active": true})
+	if _, err := do("POST", "/admin/exam/"+created.ID+"/publish", "application/json", bytes.NewReader(publish), 200); err != nil {
 		return created.ID, fmt.Errorf("publishing the exam: %w", err)
 	}
 	return created.ID, nil

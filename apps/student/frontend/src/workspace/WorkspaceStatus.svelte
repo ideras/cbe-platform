@@ -19,8 +19,10 @@
   .status { display: flex; flex-wrap: wrap; align-items: center; gap: .15rem .8rem; font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
   .item { white-space: nowrap; }
   /* The save text changes with every edit and every save; it keeps one width (the same padding saved or not, and room for the longest
-     of its three texts in a 12-hour clock with "a. m."), so the time and the connection beside it do not move each time. */
-  .save { box-sizing: border-box; min-width: 20ch; padding: .2rem .5rem; border-radius: 6px; }
+     of its three texts in a 12-hour clock with "a. m."), so the time and the connection beside it do not move each time. The width is in em, not
+     in ch: a ch is the width of a "0" in the element's own font, and the unsaved text is bold, whose "0" is wider in some fonts (DejaVu Sans, which
+     Linux uses when it has nothing better), so 20ch was 17px wider when unsaved (found in CI). */
+  .save { box-sizing: border-box; min-width: 13.5em; padding: .2rem .5rem; border-radius: 6px; }
   .chip { display: inline-flex; align-items: center; gap: .3rem; padding: .2rem .5rem; border-radius: 6px; background: var(--chip-on-dark); color: var(--on-dark); font-weight: 600; white-space: nowrap; }
   .chip.warn { background: var(--warn-fill); color: var(--warn-text); }
   .chip.alarm { background: var(--alert-fill); color: var(--alert-text); }

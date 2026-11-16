@@ -1190,5 +1190,19 @@ Press Ctrl+C here when you are done.
 	defer stop()
 	<-ctx.Done()
 	fmt.Println("\nStopping and removing what the students made...")
+	// The students of every workspace exam on this throwaway server, not only the example's: someone may have made another (cmd/cbe-loadtest does).
+	var catalog struct {
+		Exams []struct {
+			ID   string `json:"exam_id"`
+			Kind string `json:"kind"`
+		} `json:"exams"`
+	}
+	if status, data := r.do("GET", "/admin/exams", "", adminTokn, nil); status == 200 && json.Unmarshal(data, &catalog) == nil {
+		for _, exam := range catalog.Exams {
+			if exam.Kind == "workspace" && exam.ID != examID {
+				r.removeWorkspaces(exam.ID)
+			}
+		}
+	}
 	r.removeWorkspaces(examID)
 }

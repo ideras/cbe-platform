@@ -668,7 +668,14 @@ async function inTheMiddleOfABigFile(page) {
   await editor.click();
   await page.keyboard.press('Control+Home');
   for (let i = 0; i < 120; i += 1) await page.keyboard.press('ArrowDown');
+  // Not at the edge of the window: with the cursor on the last line in view, typing a character may scroll the line fully into view, by a line more or
+  // less according to the fonts of the machine (found in CI); ten lines up it is in the middle of what is shown, and nothing needs to move.
+  for (let i = 0; i < 10; i += 1) await page.keyboard.press('ArrowUp');
   await expect(page.getByRole('group', { name: 'Workspace status' })).toContainText('Nothing to save');
+  // The connection and the server copy are told when the first answers come (a slow machine, as CI is, may not have had them yet): the toolbar is measured
+  // with all it will say, so the time is where it stays.
+  await expect(page.getByRole('group', { name: 'Workspace status' })).toContainText('Connected');
+  await expect(page.getByRole('group', { name: 'Workspace status' })).toContainText('Server copy');
   await page.evaluate(() => document.querySelectorAll('.cm-line').forEach(line => { line.__drawn = true; }));
   return editor;
 }
@@ -680,6 +687,8 @@ const held = page => page.evaluate(() => {
 
 test('an autosave does not draw the editor again, move its scroll, or move what is around it', async ({ page }) => {
   const editor = await inTheMiddleOfABigFile(page);
+  // A wide font for the toolbar, as Linux uses when it has nothing better (DejaVu Sans, CI's): the bold "Unsaved changes" was wider than its place in it.
+  await page.addStyleTag({ content: ':root { --font-sans: "DejaVu Sans" !important; }' });
   const status = page.getByRole('group', { name: 'Workspace status' });
   const place = () => page.evaluate(() => ({ time: Math.round(document.querySelector('header.toolbar [aria-label="Remaining time"]').getBoundingClientRect().left), tab: Math.round(document.querySelector('.tab.front').getBoundingClientRect().width), save: Math.round(document.querySelector('header.toolbar .save').getBoundingClientRect().width) }));
   const before = { ...(await held(page)), ...(await place()) };

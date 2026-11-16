@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -129,6 +130,7 @@ func TestAGradingRunGetsTheSubmissionAndTheBundleAndLeavesNothing(t *testing.T) 
 		_ = filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 			if err == nil && !info.IsDir() {
 				rel, _ := filepath.Rel(root, path)
+				rel = filepath.ToSlash(rel)
 				bundleSeen = append(bundleSeen, rel)
 				modes[rel] = info.Mode().Perm()
 			}
@@ -143,7 +145,7 @@ func TestAGradingRunGetsTheSubmissionAndTheBundleAndLeavesNothing(t *testing.T) 
 		t.Errorf("/work = %v", inWork)
 	}
 	sortStrings(bundleSeen)
-	if strings.Join(bundleSeen, ",") != "grade,tests/cases.txt" || modes["grade"] != 0o755 || modes["tests/cases.txt"] != 0o644 {
+	if strings.Join(bundleSeen, ",") != "grade,tests/cases.txt" || (runtime.GOOS != "windows" && (modes["grade"] != 0o755 || modes["tests/cases.txt"] != 0o644)) {
 		t.Errorf("the bundle on the host = %v %v", bundleSeen, modes)
 	}
 	r.rt.mu.Lock()
