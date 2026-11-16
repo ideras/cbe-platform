@@ -1,7 +1,7 @@
 # Phase 8 report: hardening, load test and release
 
 **Date:** 2026-11-15. **Branch:** `feat/workspace-phase-8-hardening-release` (from `feat/workspace-phase-7-image-customization`, which is pushed). **Plan:** `.agents/WORKSPACE-PLAN.md` v1.1.
-**Status:** built and tested on this host. **All four acceptance items are met on the host**; what remains is the owner's (the router run, which needs a second device on their Wi-Fi). The owner's answers of 2026-11-15 are in: the production limits applied and the 30 minutes rerun, the installed runner upgraded, the Windows smoke test passed on their VM, decisions `P8-1` to `P8-8` confirmed, and two things the teacher guide lacked added (**the download of the grades**, and **a switch for the image warnings**). Decisions `P8-9` to `P8-14` are proposed (`DECISIONS.md`). **The branch is not pushed** (the owner said not yet, until the grade download was reviewed).
+**Status:** built and tested on this host. **All four acceptance items are met on the host**; what remains is the owner's (the router run, which needs a second device on their Wi-Fi). The owner's answers of 2026-11-15 are in: the production limits applied and the 30 minutes rerun, the installed runner upgraded, the Windows smoke test passed on their VM, decisions `P8-1` to `P8-8` confirmed, and two things the teacher guide lacked added (**the download of the grades**, and **a switch for the image warnings**). Decisions `P8-1` to `P8-14` are **all confirmed by the owner** (2026-11-15), the grade sheet's format kept as it is. The branch is pushed and a pull request is open against `feat/workspace-exams` (the owner merges it, then that branch into `main`).
 
 ## What changed
 
@@ -110,6 +110,5 @@ Nothing from the runs: the scripts remove their containers, folders and private 
 ## For the owner
 
 1. **The router run** (`load-test.md`): when the router is on and a laptop is on its Wi-Fi, give it `cbe-loadtest` (or `.exe`) and the `lab-carga` folder from `build/phase8/`; on this machine, `deploy/workspace/test-server.sh --manual 0.0.0.0:8090`. Tell me when it is up and I will start the server side and give you the address and the one command to run on the laptop.
-2. **Confirm or change P8-9 to P8-14** (`DECISIONS.md`): the grade sheet (two columns of points, so that an unconfirmed grade does not go into `points`), `image_warnings`, the CPU figure, the failure reason, the newest-event fix, the profiler.
-3. **Look at the grade sheet**: monitoring window → **Download grades…**, or the download button of the exam in the list. `grading.md` ("The grade sheet") says each column; if you want another layout (one column of points, the TODO texts in the header, names last, Canvas's import format), say so.
-4. **May I push the Phase 8 branch?** And do you want **one pull request** to `main` for the whole workspace work (Phases 0 to 8 are stacked branches, all pushed except this one, and no pull request has been opened)?
+2. ~~Confirm P8-9 to P8-14~~ **Done** (2026-11-15), and the grade sheet's format is kept.
+3. ~~Push~~ **Done**: the pull request against `feat/workspace-exams` is the way in; then that branch into `main`.
