@@ -1,9 +1,9 @@
-// Package remotewatch says whether the exam computer is being watched or controlled from somewhere else: a Remote Desktop
-// session on Windows, and programs on a list (remote-control and screen-sharing software) that are running. It reports what it
-// finds and nothing else: no process list, no window titles, no input.
+// Package remotewatch says whether the exam computer is being watched or controlled from somewhere else, or is not a real computer: a Remote
+// Desktop session on Windows, programs on a list (remote-control and screen-sharing software) that are running, and the firmware or the processor
+// saying that it is a virtual machine. It reports what it finds and nothing else: no process list, no window titles, no input.
 //
-// None of it is proof. A program can be renamed, and a computer can be watched by hardware or by another computer pointed at
-// its screen. It is a deterrent and a record for the instructor.
+// None of it is proof. A program can be renamed, a virtual machine can be made to describe itself as a real computer, and a computer can be watched by
+// hardware or by another computer pointed at its screen. It is a deterrent and a record for the instructor.
 package remotewatch
 
 import (
@@ -19,6 +19,7 @@ const (
 	KindSession = "remote_session"
 	// KindTool is a program of the list running.
 	KindTool = "remote_tool"
+	// KindVirtualMachine (vm.go) is the computer being a virtual machine.
 )
 
 const (
@@ -30,11 +31,11 @@ const (
 
 // Finding is one thing that says the computer is watched or controlled from elsewhere.
 type Finding struct {
-	// Kind is KindSession or KindTool.
+	// Kind is KindSession, KindTool or KindVirtualMachine.
 	Kind string `json:"kind"`
-	// Name is "Remote Desktop" for a session and the name of the program (as the system calls it) for a tool.
+	// Name is "Remote Desktop" for a session, the name of the program (as the system calls it) for a tool, and the hypervisor ("VirtualBox") for a virtual machine.
 	Name string `json:"name"`
-	// Detail says more when the system does: the name of the computer a Remote Desktop session comes from.
+	// Detail says more when the system does: the name of the computer a Remote Desktop session comes from, or what the firmware calls the virtual machine.
 	Detail string `json:"detail,omitempty"`
 }
 
@@ -46,7 +47,13 @@ const interval = 3 * time.Second
 // it is only known after the login. A finding is reported once it has been there for two looks in a row, and withdrawn once it
 // has been gone for two, so a program that starts and stops within a moment says nothing.
 func Watch(ctx context.Context, tools func() []string, report func([]Finding)) {
-	poll(ctx, interval, func() []Finding { return scan(tools()) }, report)
+	poll(ctx, interval, look(tools, virtualMachine()), report)
+}
+
+// look is one look at the computer: the sessions and the programs, and the virtual machine the computer is, if it is one (which is looked at once, by
+// the caller, since it does not change while the program runs).
+func look(tools func() []string, vm []Finding) func() []Finding {
+	return func() []Finding { return append(scan(tools()), vm...) }
 }
 
 // scan is one look at the computer.

@@ -756,3 +756,153 @@ for (const [name, change] of Object.entries(sizeChanges)) {
     for (let expected = 17; expected >= 4; expected -= 1) { await page.keyboard.press('ArrowUp'); expect(await line()).toBe(expected); }
   });
 }
+
+// ----- the terminals' own text size and the splitter between the editor and the terminals (found in a manual test, 2026-11-16) -----
+
+test('the terminals have their own A− and A+, which size the terminal text only, and the size is kept when a terminal is closed and another opened', async ({ page }) => {
+  await start(page);
+  await openSrc(page);
+  await openTerminal(page);
+  await expect(page.getByRole('region', { name: 'Terminal 1 output' })).toContainText('student@workspace');
+  const sizes = () => page.evaluate(() => ({ editor: parseFloat(getComputedStyle(document.querySelector('.cm-content')).fontSize), terminal: parseFloat(getComputedStyle(document.querySelector('.terminal:not([hidden]) .xterm-rows')).fontSize) }));
+  const larger = page.getByRole('button', { name: 'A+ Larger terminal text' });
+  const smaller = page.getByRole('button', { name: 'A− Smaller terminal text' });
+  const before = await sizes();
+  const resizes = () => server(page, 'server.requests.filter(r => r.type === "pty.resize").length');
+  const resizedBefore = await resizes();
+
+  // A click on it keeps the keyboard in the terminal; the terminal text grows, the code does not, and the terminal is told its new size.
+  await larger.click();
+  await expect(page.getByRole('textbox', { name: 'Terminal 1 input' })).toBeFocused();
+  await larger.click();
+  await expect.poll(async () => (await sizes()).terminal).toBeGreaterThan(before.terminal + 2);
+  expect((await sizes()).editor).toBe(before.editor);
+  await expect.poll(resizes).toBeGreaterThan(resizedBefore);
+  const zoomed = (await sizes()).terminal;
+
+  // Closing the last terminal takes the panel away, and the next one opens at the size the student chose.
+  await page.getByRole('button', { name: 'Close Terminal 1' }).first().click();
+  await expect(page.locator('.terminal-box')).toBeHidden();
+  await openTerminal(page);
+  await expect(page.locator('.terminal:not([hidden]) .xterm-rows')).toBeVisible();
+  await expect.poll(async () => (await sizes()).terminal).toBe(zoomed);
+
+  // The ends of the scale disable the button: three more steps up from where it is (the scale has seven), then six down to the smallest.
+  for (let i = 0; i < 3; i += 1) await larger.click();
+  await expect(larger).toBeDisabled();
+  for (let i = 0; i < 6; i += 1) await smaller.click();
+  await expect(smaller).toBeDisabled();
+  await expect.poll(async () => (await sizes()).terminal).toBeLessThan(before.terminal);
+});
+
+test('a splitter resizes the editor and the terminals with the pointer and with the keys, and keeps its place when the terminals are hidden and shown', async ({ page }) => {
+  await start(page, {}, { width: 1280, height: 800 });
+  await openSrc(page);
+  await expect(page.getByRole('separator', { name: 'Resize the terminals' })).toHaveCount(0);
+  await openTerminal(page);
+  const splitter = page.getByRole('separator', { name: 'Resize the terminals' });
+  await expect(splitter).toBeVisible();
+  const heights = async () => ({ editor: (await page.locator('.editor-box').boundingBox()).height, terminal: (await page.locator('.terminal-box').boundingBox()).height });
+  const share = async () => Number(await splitter.getAttribute('aria-valuenow'));
+  // The page draws what the model says on the next frame, so what is read is waited for.
+  const shareIs = value => expect(splitter).toHaveAttribute('aria-valuenow', String(value));
+  const usual = await heights();
+  await shareIs(35);
+
+  // Dragging up gives the terminals room, and the editor loses it.
+  const handle = await splitter.boundingBox();
+  const x = handle.x + handle.width / 2;
+  const y = handle.y + handle.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x, y - 90, { steps: 8 });
+  await page.mouse.up();
+  await expect.poll(async () => (await heights()).terminal).toBeGreaterThan(usual.terminal + 70);
+  expect((await heights()).editor).toBeLessThan(usual.editor - 70);
+  await expect.poll(share).toBeGreaterThan(35);
+  // The terminal is told its new size (the program in it draws for it).
+  await expect.poll(() => server(page, 'server.requests.filter(r => r.type === "pty.resize").length')).toBeGreaterThan(0);
+
+  // Dragging far down stops at the smallest terminal (never less than 6rem, so its tabs and a few lines show).
+  const moved = await splitter.boundingBox();
+  await page.mouse.move(x, moved.y + moved.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(x, 790, { steps: 8 });
+  await page.mouse.up();
+  await shareIs(15);
+  expect((await heights()).terminal).toBeGreaterThanOrEqual(96);
+
+  // The keys: Home and End are the ends, the arrows a step, Enter the usual size.
+  await splitter.focus();
+  await page.keyboard.press('Home');
+  await shareIs(75);
+  await expect.poll(async () => (await heights()).editor).toBeGreaterThan(120);
+  await page.keyboard.press('ArrowDown');
+  await shareIs(70);
+  await page.keyboard.press('ArrowUp');
+  await page.keyboard.press('ArrowUp');
+  await shareIs(75);
+  await page.keyboard.press('End');
+  await shareIs(15);
+  await page.keyboard.press('Enter');
+  await shareIs(35);
+  await expect.poll(async () => Math.abs((await heights()).terminal - usual.terminal)).toBeLessThan(3);
+
+  // Hidden and shown again, the terminals are as the student left them (a double click is the usual size).
+  await page.keyboard.press('PageUp');
+  await shareIs(50);
+  await page.getByRole('button', { name: 'Hide the terminals' }).click();
+  await expect(splitter).toHaveCount(0);
+  await terminalButton(page).click();
+  await expect(splitter).toBeVisible();
+  await shareIs(50);
+  await splitter.dblclick();
+  await shareIs(35);
+});
+
+test('the splitter and the terminal text size touch nothing outside the page, and the terminals still fit in a small window', async ({ page }) => {
+  await start(page, {}, { width: 1000, height: 700 });
+  // The wide font that CI draws with (DejaVu Sans), where the toolbar is taller than in a narrow one.
+  await page.addStyleTag({ content: ':root { --font-sans: "DejaVu Sans" !important; }' });
+  await openSrc(page);
+  await openTerminal(page);
+  const splitter = page.getByRole('separator', { name: 'Resize the terminals' });
+  await splitter.focus();
+  await page.keyboard.press('Home');
+  await page.getByRole('button', { name: 'A+ Larger terminal text' }).click();
+  await page.keyboard.press('End');
+  // Both panes still show, whatever the share: each has room (the page may be a few pixels taller than a small window, as the workspace has a minimum
+  // height, and a wide font makes the toolbar taller: what is asked is that every part is in view).
+  for (const selector of ['.editor-box', '.terminal-box']) expect((await page.locator(selector).boundingBox()).height).toBeGreaterThan(80);
+  for (const target of [page.getByRole('textbox', { name: /Editor for/ }), page.getByRole('region', { name: 'Terminal 1 output' }), splitter]) await expect(target).toBeInViewport();
+  expect(await page.evaluate(() => window.__storage.length)).toBe(0);
+});
+
+test('typing exit in a terminal closes its tab, and the keyboard goes to the next terminal or, with none left, to the editor', async ({ page }) => {
+  await start(page);
+  await openSrc(page);
+  const panel = page.locator('.terminal-box');
+  await openTerminal(page);
+  await expect(page.getByRole('textbox', { name: 'Terminal 1 input' })).toBeFocused();
+  // A second terminal: the panel names both, and the one in front gets the exit.
+  await page.getByRole('button', { name: 'New terminal' }).click();
+  await expect(page.getByRole('tab', { name: /Terminal 2/ })).toBeVisible();
+  await page.getByRole('textbox', { name: 'Terminal 2 input' }).pressSequentially('exit');
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('tab', { name: /Terminal 2/ })).toHaveCount(0);
+  await expect(page.getByRole('status').filter({ hasText: 'ended with code' })).toHaveCount(0);
+  await expect(page.getByRole('tab', { name: /Terminal 1/ })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('textbox', { name: 'Terminal 1 input' })).toBeFocused();
+  expect(await server(page, 'server.requests.filter(r => r.type === "pty.close").length')).toBe(1);
+
+  // The last one: the panel goes away, the keyboard is in the editor, and the button opens a new terminal.
+  await page.keyboard.type('exit');
+  await page.keyboard.press('Enter');
+  await expect(panel).toBeHidden();
+  await expect(page.getByRole('textbox', { name: /Editor for/ })).toBeFocused();
+  await expect(page.getByRole('button', { name: 'Terminal', exact: true })).toBeVisible();
+
+  // What the exam started stays, with how it ended.
+  await page.getByRole('button', { name: 'Check', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: /Check ended with code/ })).toBeVisible();
+});

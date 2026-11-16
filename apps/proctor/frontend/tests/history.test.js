@@ -126,10 +126,23 @@ test('a report of remote access says what was found, and that nothing is any mor
   ]);
   assert.equal(found.title, 'Remote access');
   assert.equal(found.note, 'Found on the student\'s computer: Remote Desktop session from LAPTOP-1, AnyDesk.exe.');
-  assert.equal(gone.note, 'Nothing found any more: no Remote Desktop session and no remote-control software.');
+  assert.equal(gone.note, 'Nothing found any more: no Remote Desktop session, no remote-control software and no virtual machine.');
   assert.equal(odd.note, gone.note);
   assert.equal(remoteDetail({ client: { active: 'x' } }), gone.note);
   assert.equal(remoteDetail({ client: { active: [{ kind: 'remote_tool', name: '<b>x</b>' }] } }), 'Found on the student\'s computer: <b>x</b>.');
+});
+
+test('a virtual machine is a row of its own title, apart from remote access', () => {
+  const [vm, both, gone] = historyRows([
+    event(1, 'remote_changed', { client: { source: 'remote_watch', active: [{ kind: 'virtual_machine', name: 'VirtualBox', detail: 'VirtualBox' }] } }),
+    event(2, 'remote_changed', { client: { source: 'remote_watch', active: [{ kind: 'virtual_machine', name: 'unknown' }, { kind: 'remote_tool', name: 'AnyDesk.exe' }] } }),
+    event(3, 'remote_changed', { client: { source: 'remote_watch', active: [] } }),
+  ]);
+  assert.equal(vm.title, 'Virtual machine');
+  assert.equal(vm.note, 'Found on the student\'s computer: a virtual machine (VirtualBox).');
+  assert.equal(both.title, 'Remote access and virtual machine');
+  assert.equal(both.note, 'Found on the student\'s computer: a virtual machine (unknown hypervisor), AnyDesk.exe.');
+  assert.equal(gone.title, 'Remote access');
 });
 
 test('a workspace\'s events are told in words, with sizes and paths and never the text of a file or a paste', () => {

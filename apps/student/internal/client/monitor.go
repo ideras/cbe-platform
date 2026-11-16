@@ -97,8 +97,9 @@ type MonitoringView struct {
 	Remote []RemoteFinding `json:"remote"`
 }
 
-// RemoteFinding is one thing found that says the computer is watched or controlled from elsewhere: Kind is "remote_session" or
-// "remote_tool", Name the session or the program, and Detail more when there is, such as the computer a session comes from.
+// RemoteFinding is one thing found that says the computer is watched or controlled from elsewhere, or is a virtual machine: Kind is "remote_session",
+// "remote_tool" or "virtual_machine", Name the session, the program or the hypervisor, and Detail more when there is, such as the computer a session
+// comes from.
 type RemoteFinding struct {
 	Kind   string `json:"kind"`
 	Name   string `json:"name"`

@@ -51,8 +51,9 @@ type Presence struct {
 	Remote []RemoteFinding `json:"remote"`
 }
 
-// RemoteFinding is one thing the student application found: Kind is "remote_session" or "remote_tool", Name the session or the
-// program and Detail more when it has it (the computer a session comes from). It is the application's own word: shown as text.
+// RemoteFinding is one thing the student application found: Kind is "remote_session", "remote_tool" or "virtual_machine", Name the session, the
+// program or the hypervisor and Detail more when it has it (the computer a session comes from, or what the firmware calls the virtual machine). It is
+// the application's own word: shown as text.
 type RemoteFinding struct {
 	Kind   string `json:"kind"`
 	Name   string `json:"name"`

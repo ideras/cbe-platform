@@ -2,13 +2,15 @@ package domain
 
 import "slices"
 
-// RemoteKindSession and RemoteKindTool say what a RemoteFinding is: a Remote Desktop session, or a remote-control program running.
+// RemoteKindSession, RemoteKindTool and RemoteKindVirtualMachine say what a RemoteFinding is: a Remote Desktop session, a remote-control program
+// running, or the exam computer being a virtual machine (whose host the student application cannot see). Name is then the hypervisor, or "unknown".
 const (
-	RemoteKindSession = "remote_session"
-	RemoteKindTool    = "remote_tool"
+	RemoteKindSession        = "remote_session"
+	RemoteKindTool           = "remote_tool"
+	RemoteKindVirtualMachine = "virtual_machine"
 )
 
-// RemoteFinding is something the student application found that says the exam computer is watched or controlled from elsewhere:
+// RemoteFinding is something the student application found that says the exam computer is watched or controlled from elsewhere, or is a virtual machine:
 // the kind, the name of the session or program, and more when the application has it (the computer a session comes from). It is
 // what the application says, so it is shown as plain text.
 type RemoteFinding struct {

@@ -41,3 +41,16 @@ test('the history says when nothing is found any more', async ({ page }) => {
   const review = page.getByRole('region', { name: 'Session review' });
   await expect(review.getByRole('table').getByRole('row').filter({ hasText: 'Remote access' })).toContainText('Nothing found any more');
 });
+
+test('a virtual machine shows on the row apart from remote access, and needs attention until it is gone', async ({ page }) => {
+  await connect(page);
+  const before = Number(await attention(page).innerText());
+  await harness(page, 'remoteFound', 5, [{ kind: 'virtual_machine', name: 'VirtualBox', detail: 'innotek GmbH' }]);
+  const row = rows(page).filter({ hasText: 'Student 005' });
+  await expect(row).toContainText('Virtual machine: VirtualBox (innotek GmbH)');
+  await expect(row).not.toContainText('Remote access');
+  await expect(attention(page)).toHaveText(String(before + 1));
+  await harness(page, 'remoteFound', 5, []);
+  await expect(row).not.toContainText('Virtual machine');
+  await expect(attention(page)).toHaveText(String(before));
+});
