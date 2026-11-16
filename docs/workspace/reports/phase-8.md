@@ -1,7 +1,7 @@
 # Phase 8 report: hardening, load test and release
 
 **Date:** 2026-11-15. **Branch:** `feat/workspace-phase-8-hardening-release` (from `feat/workspace-phase-7-image-customization`, which is pushed). **Plan:** `.agents/WORKSPACE-PLAN.md` v1.1.
-**Status:** built and tested on this host. **All four acceptance items are met on the host**; what remains is the owner's (the router run, which needs a second device on their Wi-Fi). The owner's answers of 2026-11-15 are in: the production limits applied and the 30 minutes rerun, the installed runner upgraded, the Windows smoke test passed on their VM, decisions `P8-1` to `P8-8` confirmed, and two things the teacher guide lacked added (**the download of the grades**, and **a switch for the image warnings**). Decisions `P8-1` to `P8-14` are **all confirmed by the owner** (2026-11-15), the grade sheet's format kept as it is. The branch is pushed and a pull request is open against `feat/workspace-exams` (the owner merges it, then that branch into `main`).
+**Status:** built and tested on this host. **All four acceptance items are met, the router run included** (done on 2026-11-15 from the owner's second laptop on their Wi-Fi). The owner's answers of 2026-11-15 are in: the production limits applied and the 30 minutes rerun, the installed runner upgraded, the Windows smoke test passed on their VM, decisions `P8-1` to `P8-8` confirmed, and two things the teacher guide lacked added (**the download of the grades**, and **a switch for the image warnings**). Decisions `P8-1` to `P8-14` are **all confirmed by the owner** (2026-11-15), the grade sheet's format kept as it is. The branch is pushed and a pull request is open against `feat/workspace-exams` (the owner merges it, then that branch into `main`).
 
 ## What changed
 
@@ -67,7 +67,7 @@ Forty students (`LT001` to `LT040`), a throwaway exam server of the tree's build
 
 ## Acceptance (plan, Phase 8)
 
-- [x] **Load test meets the latency target, with the results recorded.** On the host (the loopback): **p95 18 ms, p99 99 ms** for 36,207 autosaves with 40 students, every core busy, and the proctor's application's reads going; results in `reports/phase-8-load-4-final/`, with the three runs before it. **The router** is the one thing not done: the plan's target is for the network the class uses, which for this deployment is the owner's Wi-Fi router (P0-25); `cbe-loadtest`, the package and the steps are ready (`load-test.md`, `build/phase8/`), and the run needs a second device on the Wi-Fi.
+- [x] **Load test meets the latency target, with the results recorded.** On the host (the loopback): **p95 18 ms, p99 99 ms** for 36,207 autosaves with 40 students, every core busy, and the proctor's application's reads going; results in `reports/phase-8-load-4-final/`, with the three runs before it. **And over the owner's Wi-Fi router** (P0-25; the network the class will use), from the owner's second laptop (Linux Mint, on the Wi-Fi, 3.3 ms of round trip to the exam server, which is on the router by cable): **p95 11 ms, p99 24 ms, max 279 ms** for 37,701 autosaves of the same 40 students, 30 minutes, the same two storms (`reports/phase-8-load-5-router/`).
 - [x] **Security checklist complete.** All ten checks have a test that runs and passed (`security-checklist.md`); three of them did not before this phase and now do (the runner's surface, the student application's isolation, the student's disk), and links, mounts, privileges and the file count are now checked in a real container. The half of check 9 about `userns-remap` does not apply to rootless Podman.
 - [x] **Question-exam regression diff is empty** (again after the last change to the queries).
 - [x] **Teacher guide reviewed by the owner.** They read it on 2026-11-15 and found two things missing, both added: the download of the grades, and a switch for the warnings (`image_warnings: off`).
@@ -85,19 +85,18 @@ Not in the plan's four, but in its tasks: **fuzzing** (task 2) done; **Windows b
 7. **The generator had three faults, fixed:** a write in flight when a context is cancelled closes the WebSocket (three students' final saves failed, in the seven-minute run, that way); two goroutines of a student shared a random-number generator (a data race, found by the CI's `-race` after the runs); and the exit status of the load test's script was swallowed in my own invocation. None touches what the server was asked or how long it took.
 8. **Rootless Podman keeps the agent's folder on whatever file system `/data/cbe-platform/run` is on** (btrfs here) and `/work` on the XFS volume: the test reads the mount table and only demands that they are disks, not tmpfs or overlay.
 9. **A container that starts creating files stops at 19,979 of 25,000**: the limit is 20,000 inodes of the project quota, and the agent's own files in `/work` count (a couple).
-10. **A slow creep of the server's CPU is left** (15% to 21% over the half hour in the last run): not identified (it may be the proctor's reads, which cost 70 to 100 ms each and are made every 3 seconds, or the growth of the history table). At two hours it would be about 40% of a core; the profile (`CBE_LOAD_PROFILE=1`, a two-hour run) is how to find it.
+10. **The proctor's reads make the server's CPU creep** (15% to 21% over the half hour in run 4, with the proctor's two reads every 3 seconds). **Without them it does not**: over the router (run 5, no proctor reads) the server used 12.3% of a core in the first five minutes and 13.3% in the last. The reads (`ProctorSessions`, the workspace roster) cost 70 to 100 ms each and some of what they ask of the history still grows with it; at two hours the creep would be about 40% of a core with the proctor's window open. A profile of such a run (`CBE_LOAD_PROFILE=1`) is how to find which; it was not done.
 
 ## Deviations from the plan, and conflicts found (standing rule 1)
 
 - **The plan says "40 simulated students each ... running `make` in a loop"**: it is a loop of stretches of work (an edit, saves, a build, a pause), **with a typist alongside**, because a student who is waiting for a build would otherwise stop saving and the autosave would not be measured when the machine is busiest.
-- **The router test and the "pull the network for 30 seconds" test**: the second passed on the owner's Windows VM (step 9 of its smoke test); the first needs a second device on the owner's Wi-Fi, and the tooling is built (`cmd/cbe-loadtest`).
+- **The "pull the network for 30 seconds" test** passed on the owner's Windows VM (step 9 of its smoke test) with the real application; the router run used simulated students from one laptop, which is one device's share of the air.
 - **Production code changed in this phase beyond the plan**, each with a test: the runner's memory budget and CPU figure, the failure reason on the proctor's screen, the relay's control rate as an option and a warning when a reply takes over half a second, the newest-event queries, and the two features the owner asked for (the grade sheet, `image_warnings`).
 - **The download of grades was not in the plan**: the plan has the proctor "read per-TODO results and confirm grades" and nothing to take them away. P8-9.
 
 ## Not run, and what is unverified
 
-- **The router**: the autosave p95 over the owner's Wi-Fi.
-- **A class of two hours**: the longest run is 30 minutes. The server's CPU creeps (finding 10), and a student's `/work` and the history grow for longer than that.
+- **A class of two hours**: the longest run is 30 minutes. The server's CPU creeps with the proctor's window open (finding 10), and a student's `/work` and the history grow for longer than that.
 - **macOS** (deferred by the owner), **rootful Docker** (not the chosen runtime), **a real reboot during an exam** (Phase 3 simulated it and a real one passed in Phase 0; not repeated with a class).
 - **Heartbeats, screenshots and focus events of the monitoring** are only partly simulated by the load test (the heartbeats are; the screenshots and the focus events are not): a class of 40 on a question exam is the load they were built against, and they come on top of this.
 - **A class whose build is much heavier than `lab-carga`**, and **a student whose program fills the 20,000 files while 39 compile**: the budget and the limits are what is there for them.
@@ -109,6 +108,6 @@ Nothing from the runs: the scripts remove their containers, folders and private 
 
 ## For the owner
 
-1. **The router run** (`load-test.md`): when the router is on and a laptop is on its Wi-Fi, give it `cbe-loadtest` (or `.exe`) and the `lab-carga` folder from `build/phase8/`; on this machine, `deploy/workspace/test-server.sh --manual 0.0.0.0:8090`. Tell me when it is up and I will start the server side and give you the address and the one command to run on the laptop.
+1. ~~The router run~~ **Done** from the owner's second laptop (`reports/phase-8-load-5-router/`).
 2. ~~Confirm P8-9 to P8-14~~ **Done** (2026-11-15), and the grade sheet's format is kept.
 3. ~~Push~~ **Done**: the pull request against `feat/workspace-exams` is the way in; then that branch into `main`.

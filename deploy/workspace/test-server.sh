@@ -23,7 +23,7 @@ cleanup() {
 run() { # phase
   sudo -n -u cbe-server env CBE_RUNNER_SOCKET=/data/cbe-platform/ipc/runner.sock CBE_RUNNER_SECRET_FILE=/data/cbe-platform/ipc/runner.secret \
     CBE_E2E_SERVER_BIN="$work/cbe-portal-server" CBE_E2E_STATE="$state" CBE_E2E_PHASE="$1" CBE_E2E_PACKAGE="$work/pkg" CBE_E2E_STUDENT_TEST="$work/student.test" \
-    CBE_E2E_RUNTIME_SOCKET="/run/user/$RUID/podman/podman.sock" CBE_E2E_BIND="${CBE_E2E_BIND:-}" "$work/e2e.test" -test.run '^TestRealServer$' -test.v -test.timeout "${TEST_TIMEOUT:-15m}"
+    CBE_E2E_RUNTIME_SOCKET="/run/user/$RUID/podman/podman.sock" CBE_E2E_BIND="${CBE_E2E_BIND:-}" CBE_E2E_SNAPSHOT_EVERY="${CBE_E2E_SNAPSHOT_EVERY:-}" "$work/e2e.test" -test.run '^TestRealServer$' -test.v -test.timeout "${TEST_TIMEOUT:-15m}"
 }
 (cd "$repo" && go test -c -o "$work/e2e.test" ./internal/workspace/e2e && CGO_ENABLED=0 go build -trimpath -o "$work/cbe-portal-server" ./cmd/server)
 (cd "$repo/shared/examdoc" && CGO_ENABLED=0 go build -o "$work/examc" ./cmd/examc)

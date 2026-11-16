@@ -54,7 +54,10 @@ there. It exits with status 3 when the 95th percentile of an autosave is over 30
 **After it,** delete the exam in the proctor application; the containers go after the retention time (`-workspace-retention`, 48 hours by default; start the server with a short
 one for the test).
 
-## Running it with the router in the middle (the owner)
+## Running it with the router in the middle (done on 2026-11-15)
+
+*Done once, from the owner's second laptop: `reports/phase-8-load-5-router/`. The steps are what was run.*
+
 
 The plan's 300 ms target is for the lab network, which for this deployment is **the owner's own Wi-Fi router** (decision P0-25). The loopback run measures what the server, the
 runner and the agent take; the router adds its round trip to every request and every echo. The simulated students must **come from another device on the Wi-Fi**: a client that
