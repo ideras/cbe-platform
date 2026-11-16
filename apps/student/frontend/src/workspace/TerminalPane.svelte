@@ -12,6 +12,14 @@
   const active = $derived(terminals.find(item => item.term === activeTerm) ?? null);
   const running = $derived(terminals.filter(item => !item.exited).length);
 
+  // A terminal that closes by itself (the student typed exit) takes the keyboard with it: it goes to the terminal that is in front now. (When it was
+  // the last one the panel goes away and the page puts the keyboard in the editor.)
+  let counted = terminals.length;
+  $effect(() => {
+    const now = terminals.length;
+    if (now > 0 && now < counted) queueMicrotask(() => { if (!document.activeElement || document.activeElement === document.body) refs[activeTerm]?.focus(); });
+    counted = now;
+  });
   const ending = item => item.oom ? 'ran out of memory and was stopped' : item.signal ? `was stopped by ${item.signal}` : `ended with code ${item.exitCode}`;
   const mark = item => !item.exited ? '' : item.exitCode === 0 ? '✓' : '✗';
   // A click on A− or A+ leaves the focus where the student was typing (in the terminal); a key press on the button keeps it on the button.

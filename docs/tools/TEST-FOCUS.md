@@ -77,7 +77,8 @@ Setup, on the container host (the one with the runner and the course image, docs
 3. Press **Terminal** (next to Run and Check; the terminal panel is hidden until one is wanted), click in the terminal, type `ls`, press
    Enter, then press **Ctrl+C** and **Ctrl+D**. Move between the editor, the terminal and the file tree with the mouse and with **F6**.
    Hide the panel with the **⌄** in its tab row and show it again with **Terminal**. Press the terminal's own **A−** and **A+** (in its tab row) and
-   drag the **splitter** between the editor and the panel, or move it with the arrow keys: the window must keep its focus. In the editor, press **A+**, **A−** (in the editor's
+   drag the **splitter** between the editor and the panel, or move it with the arrow keys: the window must keep its focus. Type `exit` in a
+   terminal: its tab closes (P8-17), and the window keeps its focus. In the editor, press **A+**, **A−** (in the editor's
    tab row) and **Ctrl** with **+**, **−** and **0**: the text of the code changes size, and the window must keep its focus.
 4. Create a file and a folder from the file tree, rename one, delete one (confirm the dialog), then press **Ctrl+S**.
 5. Tick a TODO item. Press **Save** (it saves and takes a copy; it does not end the exam).

@@ -464,7 +464,13 @@ export class WorkspaceModel {
       case 'fs.event': this.fileEvent(message); break;
       case 'pty.exit': {
         const item = this.terminal(message.term);
-        if (item) { item.exited = true; item.exitCode = message.exit_code ?? null; item.signal = message.signal ?? ''; item.oom = !!message.oom_killed; this.changed(); }
+        if (!item) break;
+        item.exited = true; item.exitCode = message.exit_code ?? null; item.signal = message.signal ?? ''; item.oom = !!message.oom_killed;
+        // A shell that ended by itself is the student typing exit (or Ctrl+D), whatever status it ended with: exit with no number gives the status of the
+        // last command, so a failed build before it must not keep the terminal open. Its tab closes. One that was stopped by a signal or ran out of memory
+        // stays, saying so, and so does every program the exam started (Run and Check): their result is what the student is there to read.
+        if (item.kind === 'shell' && !item.signal && !item.oom) { this.closeTerminal(item.term); break; }
+        this.changed();
         break;
       }
       case 'ws.agent_restarted':

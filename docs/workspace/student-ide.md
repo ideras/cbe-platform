@@ -30,7 +30,8 @@ are P4-1 to P4-13 in `DECISIONS.md`.
   running with what they printed. Closing the last one takes the panel away. F6 skips a hidden panel. The panel has its own **A−** and **A+** in
   its tab row (the same seven steps as the editor's, for the terminal text only; the size is kept when a terminal is closed and another opened,
   P8-15), and a **splitter** between the editor and the panel (drag it, or the arrow keys when it has the focus; Home and End are the largest and
-  the smallest terminal, Enter or a double click the usual size; P8-16).
+  the smallest terminal, Enter or a double click the usual size; P8-16). Typing `exit` (or Ctrl+D) in a terminal closes its tab; a program that Run
+  or Check started, or a shell that was stopped, stays and says how it ended (P8-17).
 - **Status**: the connection, the last save and the last copy the server took, told in the exam toolbar next to the time chip
   (P5-13), so that it takes no row of the window. A change in the connection also shows as a banner above the panes. The time left is the
   toolbar's chip alone.
@@ -79,8 +80,8 @@ which reads the code for any of those APIs.
 
 | Where | What |
 |---|---|
-| `apps/student/frontend/tests/workspace-*.test.js`, `paste-guard.test.js` | The model (35), paths, the tree's rows, the paste guard, the no-storage check. Run with the others by `npm test`. |
-| `tests/ui/workspace.spec.js` (Playwright, 41) | The whole page against the in-memory stand-in (`tests/fake-workspace-server.js` and the workspace part of `tests/fake-api.js`): editing and autosave, Ctrl+S, Run and Check, terminals, the tree's operations, conflicts, TODO, Save, the drop and the return of the connection (also with a 30-second drop on a fake clock), pastes, keyboard, no terminal, lock and unlock, no storage, accessibility (axe), sizes, text size (the toolbar's and the editor's), the terminal panel's showing and hiding, F6, that an autosave (or a tick, a Run, a file changed elsewhere) does not draw the editor again, move its scroll or move what is around it, and that the arrow keys and a click land on the right line after any change of the text size. Run in Chromium (`npm run test:ui`) and in WebKit. |
+| `apps/student/frontend/tests/workspace-*.test.js`, `paste-guard.test.js` | The model (36), paths, the tree's rows, the paste guard, the no-storage check. Run with the others by `npm test`. |
+| `tests/ui/workspace.spec.js` (Playwright, 42) | The whole page against the in-memory stand-in (`tests/fake-workspace-server.js` and the workspace part of `tests/fake-api.js`): editing and autosave, Ctrl+S, Run and Check, terminals, the tree's operations, conflicts, TODO, Save, the drop and the return of the connection (also with a 30-second drop on a fake clock), pastes, keyboard, no terminal, lock and unlock, no storage, accessibility (axe), sizes, text size (the toolbar's and the editor's), the terminal panel's showing and hiding, F6, that an autosave (or a tick, a Run, a file changed elsewhere) does not draw the editor again, move its scroll or move what is around it, and that the arrow keys and a click land on the right line after any change of the text size. Run in Chromium (`npm run test:ui`) and in WebKit. |
 | `apps/student/internal/client/workspace_test.go` | The connection: token, requests and ids, output batching and order, input frames, a dropped connection and the requests waiting on it, 423, 401, the end of the exam, another window, the exam's lock, and the service's own way of telling a workspace from a question exam. |
 | `apps/student/internal/client/real_workspace_test.go` | A student finishing the example package through the real client, run against the real server and a container by phase D of `deploy/workspace/test-server.sh`. |
 

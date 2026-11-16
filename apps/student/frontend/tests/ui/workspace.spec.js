@@ -878,3 +878,32 @@ test('the splitter and the terminal text size touch nothing outside the page, an
   }
   expect(await page.evaluate(() => window.__storage.length)).toBe(0);
 });
+
+test('typing exit in a terminal closes its tab, and the keyboard goes to the next terminal or, with none left, to the editor', async ({ page }) => {
+  await start(page);
+  await openSrc(page);
+  const panel = page.locator('.terminal-box');
+  await openTerminal(page);
+  await expect(page.getByRole('textbox', { name: 'Terminal 1 input' })).toBeFocused();
+  // A second terminal: the panel names both, and the one in front gets the exit.
+  await page.getByRole('button', { name: 'New terminal' }).click();
+  await expect(page.getByRole('tab', { name: /Terminal 2/ })).toBeVisible();
+  await page.getByRole('textbox', { name: 'Terminal 2 input' }).pressSequentially('exit');
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('tab', { name: /Terminal 2/ })).toHaveCount(0);
+  await expect(page.getByRole('status').filter({ hasText: 'ended with code' })).toHaveCount(0);
+  await expect(page.getByRole('tab', { name: /Terminal 1/ })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('textbox', { name: 'Terminal 1 input' })).toBeFocused();
+  expect(await server(page, 'server.requests.filter(r => r.type === "pty.close").length')).toBe(1);
+
+  // The last one: the panel goes away, the keyboard is in the editor, and the button opens a new terminal.
+  await page.keyboard.type('exit');
+  await page.keyboard.press('Enter');
+  await expect(panel).toBeHidden();
+  await expect(page.getByRole('textbox', { name: /Editor for/ })).toBeFocused();
+  await expect(page.getByRole('button', { name: 'Terminal', exact: true })).toBeVisible();
+
+  // What the exam started stays, with how it ended.
+  await page.getByRole('button', { name: 'Check', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: /Check ended with code/ })).toBeVisible();
+});
