@@ -2,17 +2,20 @@
   import Icon from '../../../../../shared/theme/Icon.svelte';
   import TerminalView from './TerminalView.svelte';
   import { MAX_TERMINALS } from './model.js';
+  import { ZOOMS } from './sizes.js';
 
   // The terminals: a tab for each (up to four), and for each the program's output. Run and Check open a tab of their own, which ends
   // with the program; an exam without a terminal has only those, with no keyboard. The page shows this panel only while there is a
   // terminal in it, and the student can hide it (the terminals go on).
-  let { model, terminals, activeTerm, terminalAllowed, readOnly, onHide } = $props();
+  let { model, terminals, activeTerm, terminalAllowed, readOnly, zoomIndex = 1, onHide } = $props();
   let refs = $state({});
   const active = $derived(terminals.find(item => item.term === activeTerm) ?? null);
   const running = $derived(terminals.filter(item => !item.exited).length);
 
   const ending = item => item.oom ? 'ran out of memory and was stopped' : item.signal ? `was stopped by ${item.signal}` : `ended with code ${item.exitCode}`;
   const mark = item => !item.exited ? '' : item.exitCode === 0 ? '✓' : '✗';
+  // A click on A− or A+ leaves the focus where the student was typing (in the terminal); a key press on the button keeps it on the button.
+  const zoom = (delta, event) => { model.zoomTerminal(delta); if (event.detail > 0 && activeTerm !== null) queueMicrotask(() => refs[activeTerm]?.focus()); };
   function select(term) { model.selectTerminal(term); queueMicrotask(() => refs[term]?.focus()); }
   function tabKeys(event, index) {
     const go = delta => { event.preventDefault(); const next = terminals[(index + delta + terminals.length) % terminals.length]; if (next) { model.selectTerminal(next.term); queueMicrotask(() => document.getElementById(`term-tab-${next.term}`)?.focus()); } };
@@ -35,12 +38,17 @@
       <button type="button" class="tool" disabled={readOnly || running >= MAX_TERMINALS} onclick={() => model.openTerminal()} aria-label="New terminal" title={running >= MAX_TERMINALS ? `${MAX_TERMINALS} terminals are open` : 'New terminal'}><Icon name="plus" size={16} /></button>
     {/if}
     {#if active}<button type="button" class="tool" aria-label="Close {active.title}" title="Close this terminal" onclick={() => model.closeTerminal(active.term)}><Icon name="close" size={16} /></button>{/if}
+    <!-- The names start with what is drawn on the buttons (WCAG's "label in name"), as the editor's do. -->
+    <div class="zoom" role="group" aria-label="Terminal text size">
+      <button type="button" aria-label="A− Smaller terminal text" title="Smaller terminal text" disabled={zoomIndex === 0} onclick={event => zoom(-1, event)}>A−</button>
+      <button type="button" aria-label="A+ Larger terminal text" title="Larger terminal text" disabled={zoomIndex === ZOOMS.length - 1} onclick={event => zoom(1, event)}>A+</button>
+    </div>
     <button type="button" class="tool hide" aria-label="Hide the terminals" title="Hide the terminals: they keep running, and the Terminal button shows them again" onclick={onHide}><Icon name="chevron" size={16} /></button>
   </div>
   <div class="views">
     {#each terminals as item (item.term)}
       <div class="slot" hidden={item.term !== activeTerm}>
-        <TerminalView {model} info={item} active={item.term === activeTerm} {readOnly} keyboard={terminalAllowed && !item.exited} bind:this={refs[item.term]} />
+        <TerminalView {model} info={item} zoom={ZOOMS[zoomIndex]} active={item.term === activeTerm} {readOnly} keyboard={terminalAllowed && !item.exited} bind:this={refs[item.term]} />
       </div>
     {/each}
   </div>
@@ -57,6 +65,10 @@
   .close:hover { color: var(--alert-text); background: var(--hover-fill); }
   .tool { flex: none; margin: 0; padding: .25rem .6rem; border: 0; border-radius: 0; background: var(--transparent); box-shadow: none; color: var(--text-main); }
   .tool:disabled { opacity: .45; }
+  .zoom { display: flex; flex: none; align-items: stretch; }
+  .zoom button { margin: 0; padding: .25rem .5rem; border: 0; border-radius: 0; background: var(--transparent); box-shadow: none; color: var(--text-main); font-size: var(--text-sm); font-weight: 700; }
+  .zoom button:disabled { opacity: .45; }
+  .zoom button:focus-visible { outline: 2px solid var(--action-primary); outline-offset: -2px; }
   .mark { margin-left: .35rem; color: var(--ok-text); }
   .mark.bad { color: var(--alert-text); }
   .hide :global(svg) { transform: rotate(90deg); }

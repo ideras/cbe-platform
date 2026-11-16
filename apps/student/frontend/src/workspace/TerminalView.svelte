@@ -7,7 +7,9 @@
   // One terminal of the student's workspace, drawn with xterm.js. What the program prints arrives through the model (which keeps it
   // until this view exists); what the student types goes back through it. A terminal with no keyboard (an exam without terminals,
   // a program that ended, a connection that is down) shows its output and takes no keys.
-  let { model, info, active, readOnly, keyboard } = $props();
+  // zoom is the student's own text size for the terminals (sizes.js), on top of the exam's: it comes from the model, not from this view, because a
+  // view is made again for each terminal, and the size chosen must not be lost with the one that was closed.
+  let { model, info, active, readOnly, keyboard, zoom = 1 } = $props();
   let host;
   let xterm;
   let fit;
@@ -25,6 +27,14 @@
       colors[`bright${name[0].toUpperCase()}${name.slice(1)}`] = token(`--terminal-bright-${name}`);
     }
     return colors;
+  }
+
+  // The text is 14 px at the exam's usual size, and as much more or less as the application's A− and A+ and the student's own say.
+  function size() {
+    if (!xterm || !host) return;
+    const scale = parseFloat(getComputedStyle(host).getPropertyValue('--exam-scale')) || 1;
+    xterm.options.fontSize = Math.round(14 * scale * zoom);
+    refit();
   }
 
   function refit() {
@@ -48,20 +58,16 @@
     // Fitting changes the size the observer watches: it is done on the next frame, outside the observer's own notification.
     let frame = 0;
     // The application's A− and A+ buttons size the text of the exam, the terminals' too.
-    const resize = () => {
-      const scale = parseFloat(getComputedStyle(host).getPropertyValue('--exam-scale')) || 1;
-      xterm.options.fontSize = Math.round(14 * scale);
-      refit();
-    };
-    window.addEventListener('exam-text-size', resize);
-    resize();
+    window.addEventListener('exam-text-size', size);
+    size();
     const watcher = new ResizeObserver(() => { cancelAnimationFrame(frame); frame = requestAnimationFrame(refit); });
     watcher.observe(host);
     refit();
-    return () => { window.removeEventListener('exam-text-size', resize); cancelAnimationFrame(frame); watcher.disconnect(); model.unregisterSink(info.term, sink); xterm.dispose(); xterm = null; };
+    return () => { window.removeEventListener('exam-text-size', size); cancelAnimationFrame(frame); watcher.disconnect(); model.unregisterSink(info.term, sink); xterm.dispose(); xterm = null; };
   });
 
   $effect(() => { if (xterm) xterm.options.disableStdin = !keyboard || readOnly; });
+  $effect(() => { zoom; size(); });
   $effect(() => { if (active) tick().then(refit); });
 
   export function focus() { xterm?.focus(); }

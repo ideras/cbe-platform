@@ -1,4 +1,5 @@
 import { dirname, basename, join, isInside, moved, sortEntries } from './paths.js';
+import { DEFAULT_ZOOM, DEFAULT_SHARE, stepZoom, clampShare } from './sizes.js';
 
 // The state and the rules of a student's workspace: the files they have open, what is saved and what is not, the terminals, the TODO
 // ticks. It knows nothing of the page; the components show its snapshot and call its methods. Everything it does to the workspace is
@@ -37,6 +38,10 @@ export class WorkspaceModel {
     this.activePath = null;
     this.terminals = [];
     this.activeTerm = null;
+    // How the student has sized the terminals, kept here (not in the views, which come and go with each terminal) for as long as the workspace is open:
+    // the text size is an index of ZOOMS, the share the part of the room the terminals take. Neither is written anywhere.
+    this.terminalZoom = DEFAULT_ZOOM;
+    this.terminalShare = DEFAULT_SHARE;
     this.todo = {};
     this.lastSave = null;
     this.lastSubmit = null;
@@ -67,7 +72,7 @@ export class WorkspaceModel {
       terminalAllowed: this.terminalAllowed, canRun: this.canRun, canCheck: this.canCheck,
       folders: new Map([...this.folders].map(([path, folder]) => [path, { ...folder }])), expanded: new Set(this.expanded),
       tabs: this.tabs.map(tab => ({ ...tab })), activePath: this.activePath,
-      terminals: this.terminals.map(term => ({ ...term })), activeTerm: this.activeTerm,
+      terminals: this.terminals.map(term => ({ ...term })), activeTerm: this.activeTerm, terminalZoom: this.terminalZoom, terminalShare: this.terminalShare,
       todo: { ...this.todo }, lastSave: this.lastSave, lastSubmit: this.lastSubmit,
       unsaved: this.tabs.some(tab => tab.dirty),
     };
@@ -564,6 +569,20 @@ export class WorkspaceModel {
   }
 
   selectTerminal(term) { this.activeTerm = term; this.changed(); }
+  // The text size of every terminal, a step at a time (0 is back to the start).
+  zoomTerminal(delta) {
+    const next = stepZoom(this.terminalZoom, delta);
+    if (next === this.terminalZoom) return;
+    this.terminalZoom = next;
+    this.changed();
+  }
+  // The part of the room under the row of buttons that the terminals take, from 0 to 1 (it is kept between the limits of sizes.js).
+  setTerminalShare(share) {
+    const next = clampShare(share);
+    if (Math.abs(next - this.terminalShare) < 0.0005) return;
+    this.terminalShare = next;
+    this.changed();
+  }
 
   resizeTerminal(term, cols, rows) {
     this.setSize(cols, rows);

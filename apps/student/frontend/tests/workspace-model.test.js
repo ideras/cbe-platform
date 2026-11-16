@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { WorkspaceModel, AUTOSAVE_MS, REFRESH_MS, MAX_TERMINALS } from '../src/workspace/model.js';
+import { ZOOMS, DEFAULT_ZOOM, DEFAULT_SHARE, MIN_SHARE, MAX_SHARE } from '../src/workspace/sizes.js';
 import { FakeWorkspaceServer, versionOf } from './fake-workspace-server.js';
 
 // A clock the test moves, so a second of idle is no real second.
@@ -506,4 +507,52 @@ test('a file that cannot be opened yet is opened when the workspace is ready', a
   await h.time.advance(1000);
   assert.equal(h.model.tab('notes.txt').state, 'ready');
   assert.equal(h.model.tab('notes.txt').savedText, 'hi\n');
+});
+
+test('the size the student gives the terminals is kept by the model, between its steps, whatever terminals are opened and closed', async () => {
+  const h = setup();
+  await h.connect();
+  const start = h.model.snapshot();
+  assert.equal(start.terminalZoom, DEFAULT_ZOOM);
+  assert.equal(start.terminalShare, DEFAULT_SHARE);
+
+  // Steps of the text size stop at the ends of the scale, and 0 is back to the start.
+  h.model.zoomTerminal(1); h.model.zoomTerminal(1);
+  assert.equal(h.model.snapshot().terminalZoom, DEFAULT_ZOOM + 2);
+  for (let i = 0; i < 20; i += 1) h.model.zoomTerminal(1);
+  assert.equal(h.model.snapshot().terminalZoom, ZOOMS.length - 1);
+  for (let i = 0; i < 20; i += 1) h.model.zoomTerminal(-1);
+  assert.equal(h.model.snapshot().terminalZoom, 0);
+  h.model.zoomTerminal(0);
+  assert.equal(h.model.snapshot().terminalZoom, DEFAULT_ZOOM);
+
+  // A terminal opened, closed and opened again does not change it (the views come and go; the model stays).
+  h.model.zoomTerminal(2);
+  await h.model.openTerminal();
+  await settle();
+  const term = h.model.snapshot().activeTerm;
+  assert.notEqual(term, null);
+  h.model.closeTerminal(term);
+  await settle();
+  await h.model.openTerminal();
+  await settle();
+  assert.equal(h.model.snapshot().terminalZoom, DEFAULT_ZOOM + 2);
+
+  // The share of the room is kept between its limits, and a share that is not a number is the usual one.
+  h.model.setTerminalShare(0.5);
+  assert.equal(h.model.snapshot().terminalShare, 0.5);
+  h.model.setTerminalShare(5);
+  assert.equal(h.model.snapshot().terminalShare, MAX_SHARE);
+  h.model.setTerminalShare(-1);
+  assert.equal(h.model.snapshot().terminalShare, MIN_SHARE);
+  h.model.setTerminalShare(NaN);
+  assert.equal(h.model.snapshot().terminalShare, DEFAULT_SHARE);
+
+  // A change that is no change does not say the snapshot changed (a drag sends the same share many times).
+  let changes = 0;
+  const before = h.model.revision;
+  h.model.setTerminalShare(DEFAULT_SHARE);
+  h.model.zoomTerminal(0); h.model.zoomTerminal(0);
+  changes = h.model.revision - before;
+  assert.equal(changes, 1, 'the zoom back to the start was the only change');
 });

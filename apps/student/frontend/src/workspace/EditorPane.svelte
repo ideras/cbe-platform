@@ -10,6 +10,7 @@
   import { highlightColors, editorTheme } from '../editor-theme.js';
   import { loadLanguage } from '../languages.js';
   import { languageOf, basename, dirname } from './paths.js';
+  import { ZOOMS, DEFAULT_ZOOM, stepZoom } from './sizes.js';
 
   // The open files: a tab for each, and one CodeMirror editor that shows the state of the tab in front. Each tab keeps its own editor
   // state, so its undo history, its cursor and its scroll survive a trip to another tab. The editor tells the model when the text
@@ -39,9 +40,8 @@
   // The size of the code text, on top of the application's A− and A+ (which size the whole workspace, files and buttons too): a student
   // who wants bigger code need not make everything else bigger, which would take the room the code needs. Ctrl and + − 0 do it from the
   // keyboard, as in a code editor. It is kept while the application runs and is not written anywhere.
-  const ZOOMS = [0.85, 1, 1.15, 1.3, 1.5, 1.75, 2];
-  let zoomIndex = $state(1);
-  const zoom = delta => { zoomIndex = delta === 0 ? 1 : Math.max(0, Math.min(ZOOMS.length - 1, zoomIndex + delta)); };
+  let zoomIndex = $state(DEFAULT_ZOOM);
+  const zoom = delta => { zoomIndex = stepZoom(zoomIndex, delta); };
   $effect(() => { zoomIndex; if (view) tick().then(resize); });
   // A click leaves the focus where the student was working (the editor); a key press on the button keeps it on the button.
   const zoomClick = (delta, event) => { zoom(delta); if (event.detail > 0) view?.focus(); };

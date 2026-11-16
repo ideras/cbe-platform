@@ -11,6 +11,7 @@
   import { PasteGuard, guardWindow } from './paste-guard.js';
   import { makeTransport, decodeOutput } from './transport.js';
   import { basename, dirname } from './paths.js';
+  import { MIN_SHARE, MAX_SHARE, DEFAULT_SHARE, SHARE_STEP } from './sizes.js';
 
   // The student's workspace: instructions and TODO list, the files, the editor, the terminals, and what the connection is doing. The
   // application's Go side holds the connection; this page shows what the model (model.js) makes of it and tells it what the student
@@ -68,6 +69,34 @@
     if (wasVisible && !visible) queueMicrotask(() => { if (!document.activeElement || document.activeElement === document.body) editor?.focus(); });
     wasVisible = visible;
   });
+  // The splitter between the editor and the terminals: dragged with the pointer, or moved with the arrow keys when it has the focus. The share it
+  // sets is of the room from the top of the editor to the bottom of the terminals, kept in the model so that hiding the terminals and showing them
+  // again leaves it where it was.
+  let editorBox;
+  let terminalBox;
+  let dragging = $state(false);
+  function startDrag(event) {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dragging = true;
+  }
+  function drag(event) {
+    if (!dragging || !editorBox || !terminalBox) return;
+    const top = editorBox.getBoundingClientRect().top;
+    const bottom = terminalBox.getBoundingClientRect().bottom;
+    if (bottom > top) model.setTerminalShare((bottom - event.clientY) / (bottom - top));
+  }
+  function endDrag() { dragging = false; }
+  function splitterKeys(event) {
+    const moves = { ArrowUp: SHARE_STEP, ArrowDown: -SHARE_STEP, PageUp: 3 * SHARE_STEP, PageDown: -3 * SHARE_STEP };
+    if (event.key in moves) model.setTerminalShare(snap.terminalShare + moves[event.key]);
+    else if (event.key === 'Home') model.setTerminalShare(MAX_SHARE);
+    else if (event.key === 'End') model.setTerminalShare(MIN_SHARE);
+    else if (event.key === 'Enter') model.setTerminalShare(DEFAULT_SHARE);
+    else return;
+    event.preventDefault();
+  }
   function hideTerminal() { terminalWanted = false; editor?.focus(); }
   async function toggleTerminal() {
     if (terminalVisible) { hideTerminal(); return; }
@@ -194,7 +223,7 @@
           onNew={(kind, folder) => { naming = { kind, folder }; }} onRename={path => { naming = { kind: 'rename', path, folder: dirname(path) }; }} onDelete={path => { deleting = path; }} />
       </div>
     </aside>
-    <div class="main" class:with-terminal={terminalVisible}>
+    <div class="main" class:with-terminal={terminalVisible} style:--editor-share="{Math.round((1 - snap.terminalShare) * 1000)}fr" style:--terminal-share="{Math.round(snap.terminalShare * 1000)}fr">
       <div class="actions" role="toolbar" aria-label="Run, check and save">
         {#if snap.canRun}<button type="button" onclick={() => run('run')} disabled={disabled}><Icon name="arrowRight" size={16} />Run</button>{/if}
         {#if snap.canCheck}<button type="button" onclick={() => run('check')} disabled={disabled}><Icon name="check" size={16} />Check</button>{/if}
@@ -210,11 +239,20 @@
         <button type="button" class="primary" onclick={submit} disabled={disabled || submitting}><Icon name="fileCheck" size={16} />Save</button>
         <button type="button" onclick={() => { confirmingFinish = true; }} disabled={disabled}><Icon name="done" size={16} />Finish exam…</button>
       </div>
-      <div class="editor-box" data-pane="editor">
+      <div class="editor-box" data-pane="editor" bind:this={editorBox}>
         <EditorPane bind:this={editor} {model} tabs={snap.tabs} activePath={snap.activePath} readOnly={disabled} onClose={path => model.closeTab(path)} />
       </div>
-      <div class="terminal-box" id="terminal-panel" data-pane="terminal" hidden={!terminalVisible}>
-        <TerminalPane {model} terminals={snap.terminals} activeTerm={snap.activeTerm} terminalAllowed={snap.terminalAllowed} readOnly={disabled} onHide={hideTerminal} />
+      {#if terminalVisible}
+        <!-- A separator that can be focused is a control (the ARIA pattern of a window splitter): the arrows move it, Home and End go to the largest and the smallest
+             terminal, and Enter or a double click go back to the usual size. -->
+        <div class="splitter" class:dragging role="separator" aria-orientation="horizontal" aria-label="Resize the terminals" aria-controls="terminal-panel" tabindex="0"
+          aria-valuemin={Math.round(MIN_SHARE * 100)} aria-valuemax={Math.round(MAX_SHARE * 100)} aria-valuenow={Math.round(snap.terminalShare * 100)}
+          aria-valuetext="The terminals take {Math.round(snap.terminalShare * 100)} percent of the height" title="Drag to resize the terminals, or use the up and down arrows. Double click: usual size"
+          onpointerdown={startDrag} onpointermove={drag} onpointerup={endDrag} onpointercancel={endDrag} onlostpointercapture={endDrag} onkeydown={splitterKeys}
+          ondblclick={() => model.setTerminalShare(DEFAULT_SHARE)}></div>
+      {/if}
+      <div class="terminal-box" id="terminal-panel" data-pane="terminal" hidden={!terminalVisible} bind:this={terminalBox}>
+        <TerminalPane {model} terminals={snap.terminals} activeTerm={snap.activeTerm} terminalAllowed={snap.terminalAllowed} readOnly={disabled} zoomIndex={snap.terminalZoom} onHide={hideTerminal} />
       </div>
     </div>
   </div>
@@ -262,7 +300,15 @@
   .tree-box { min-height: 0; display: grid; }
   /* The editor has all the room until a terminal is wanted, and then about two thirds of it. */
   .main { display: grid; grid-template-rows: auto minmax(0, 1fr); gap: var(--space-2); min-height: 0; min-width: 0; }
-  .main.with-terminal { grid-template-rows: auto minmax(0, 13fr) minmax(8rem, 7fr); }
+  .main.with-terminal { grid-template-rows: auto minmax(0, var(--editor-share, 650fr)) 0 minmax(6rem, var(--terminal-share, 350fr)); }
+  /* The splitter is the strip of the gap between the editor and the terminals: it has no row of its own (a row of 0, whose margin lifts it into the gap
+     above), and the terminals are lifted by one gap so that the space between the two is what it was before the splitter. */
+  .splitter { z-index: 1; height: var(--space-2); margin-top: calc(var(--space-2) * -1); cursor: row-resize; touch-action: none; border-radius: 4px; display: grid; place-items: center; }
+  .splitter::before { content: ''; width: 3rem; height: 3px; border-radius: 2px; background: var(--text-muted); opacity: .5; }
+  .splitter:hover::before, .splitter.dragging::before { background: var(--action-primary); opacity: 1; }
+  .splitter:focus-visible { outline: 2px solid var(--action-primary); outline-offset: -1px; }
+  .splitter:focus-visible::before { background: var(--action-primary); opacity: 1; }
+  .with-terminal .terminal-box { margin-top: calc(var(--space-2) * -1); }
   .editor-box, .terminal-box { min-height: 0; display: grid; }
   .terminal-box[hidden] { display: none; }
   .actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
