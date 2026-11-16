@@ -27,6 +27,10 @@ const (
 	EventGradingUnconfirmed = "grading.unconfirmed"
 )
 
+// ActivityEvents are the events that say the student did something in the workspace: the roster's "last activity" is the newest of them.
+var ActivityEvents = []string{EventOpened, EventDisconnected, EventFileSaved, EventFileCreated, EventFileRenamed, EventFileDeleted, EventPTYOpened, EventPTYClosed,
+	EventRunStarted, EventTodoSet, EventPasteBlocked, EventSubmitted, EventAgentRestarted}
+
 // event records one in a session's history. A history that cannot be written to is logged and goes on: nothing a student does waits
 // for it.
 func (m *Manager) event(session, kind string, detail any) {

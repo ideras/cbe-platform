@@ -57,4 +57,7 @@ user_systemctl restart cbe-runner.service
 sleep 1
 user_systemctl is-active cbe-runner.service
 systemctl is-active cbe-quota-helper.service
+
+echo "== the limits of the containers' control group (replaces the spike's backstop)"
+"$HERE/limits.sh"
 echo "done"

@@ -395,7 +395,7 @@ func TestStatsAndImages(t *testing.T) {
 	if _, err := r.svc.Start(ctx, "s1"); err != nil {
 		t.Fatal(err)
 	}
-	if st, err := r.svc.Stats(ctx, "s1"); err != nil || st.CPUPercent != 12.5 || st.Pids != 3 {
+	if st, err := r.svc.Stats(ctx, "s1"); err != nil || st.CPUKnown || st.Pids != 3 {
 		t.Errorf("stats = %+v, %v", st, err)
 	}
 	if all, err := r.svc.ExamStats(ctx, "exam1"); err != nil || len(all) != 1 || all[0].Session != "s1" {
@@ -710,5 +710,112 @@ func TestTheAPIEndToEnd(t *testing.T) {
 	}
 	if err := client.Remove(ctx, "s1"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// Phase 8: forty containers may each use their whole limit at once, so what their limits add up to is kept under a budget of the host's memory.
+func TestTheRunnerKeepsTheMemoryOfItsContainersUnderTheHostsBudget(t *testing.T) {
+	r := newRig(t)
+	r.svc.budgetMB = 1300 // the rig's requests are 512 MiB each: two fit, a third does not
+	ctx := context.Background()
+	for _, session := range []string{"s1", "s2"} {
+		if _, err := r.svc.Create(ctx, r.request(session)); err != nil {
+			t.Fatalf("%s: %v", session, err)
+		}
+	}
+	_, err := r.svc.Create(ctx, r.request("s3"))
+	if !errors.Is(err, ErrCapacity) || !strings.Contains(err.Error(), "1300") {
+		t.Fatalf("a third container over the budget: %v", err)
+	}
+	if len(r.rt.specs) != 2 || len(r.quota.folders) != 2 {
+		t.Errorf("a refused container left something behind: %d containers, %d folders", len(r.rt.specs), len(r.quota.folders))
+	}
+	// Asking again for a container that is there is not a new one; a smaller one fits; the API says 503 and the client says ErrCapacity.
+	if _, err := r.svc.Create(ctx, r.request("s1")); err != nil {
+		t.Errorf("asking again for a container that exists: %v", err)
+	}
+	small := r.request("s4")
+	small.Resources.MemoryMB = 256
+	if _, err := r.svc.Create(ctx, small); err != nil {
+		t.Errorf("a small container that fits: %v", err)
+	}
+	client := r.api(t)
+	if _, err := client.Create(ctx, r.request("s5")); !errors.Is(err, ErrCapacity) {
+		t.Errorf("through the API: %v", err)
+	}
+	var api *APIError
+	if _, err := client.Create(ctx, r.request("s5")); !errors.As(err, &api) || api.Status != http.StatusServiceUnavailable {
+		t.Errorf("the status of a refusal for room: %v", err)
+	}
+	// A container that is gone gives its memory back.
+	if err := r.svc.Remove(ctx, "s2"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.svc.Create(ctx, r.request("s5")); err != nil {
+		t.Errorf("after one was removed: %v", err)
+	}
+}
+
+func TestTheHostBudgetDefaultsToMostOfTheMachinesMemory(t *testing.T) {
+	r := newRig(t)
+	if total := machineMemoryMB(); total > 0 && r.svc.MemoryBudgetMB() != total*7/10 {
+		t.Errorf("budget = %d MiB of a machine of %d MiB", r.svc.MemoryBudgetMB(), total)
+	}
+	cfg := DefaultConfig()
+	cfg.HostMemoryMB = 100 // under the most one container may have: no container of the maximum could ever be made
+	if cfg.Validate() == nil {
+		t.Error("a budget under the most one container may have was accepted")
+	}
+	cfg.HostMemoryMB = -1
+	if cfg.Validate() == nil {
+		t.Error("a negative budget was accepted")
+	}
+}
+
+// Phase 8 (found by the load test): rootless Podman gives no previous sample, so its own percentage of a container using a whole core is 0.03%. The
+// runner makes the percentage from its own two samples.
+func TestTheRunnerMakesTheCPUPercentageFromItsOwnSamples(t *testing.T) {
+	r := newRig(t)
+	ctx := context.Background()
+	if _, err := r.svc.Create(ctx, r.request("s1")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.svc.Seed(ctx, "s1", tarOf(t, nil, nil)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.svc.Start(ctx, "s1"); err != nil {
+		t.Fatal(err)
+	}
+	clock := time.Unix(1000, 0)
+	r.svc.now = func() time.Time { return clock }
+	ask := func(nanos uint64, after time.Duration) Stats {
+		r.rt.mu.Lock()
+		r.rt.cpuNanos = nanos
+		r.rt.mu.Unlock()
+		clock = clock.Add(after)
+		st, err := r.svc.Stats(ctx, "s1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return st
+	}
+	if st := ask(5_000_000_000, 0); st.CPUKnown {
+		t.Errorf("the first answer has nothing to compare with: %+v", st)
+	}
+	if st := ask(15_000_000_000, 10*time.Second); !st.CPUKnown || st.CPUPercent < 99.9 || st.CPUPercent > 100.1 {
+		t.Errorf("a whole core for 10 seconds: %+v", st)
+	}
+	if st := ask(15_500_000_000, 200*time.Millisecond); st.CPUKnown {
+		t.Errorf("a second asking within a second is not a measurement: %+v", st)
+	}
+	// The 200 ms did not move the last sample: this is 10.2 s after it, with 25 s of processor time.
+	if st := ask(40_000_000_000, 10*time.Second); !st.CPUKnown || st.CPUPercent < 240 || st.CPUPercent > 250 {
+		t.Errorf("two and a half cores: %+v", st)
+	}
+	if st := ask(1_000, 10*time.Second); st.CPUKnown {
+		t.Errorf("a counter that went back (the container started again) is not a measurement: %+v", st)
+	}
+	if st := ask(2_000_000_000+1_000, 10*time.Second); !st.CPUKnown || st.CPUPercent < 19 || st.CPUPercent > 21 {
+		t.Errorf("a fifth of a core: %+v", st)
 	}
 }

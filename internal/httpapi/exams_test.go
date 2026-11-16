@@ -45,7 +45,7 @@ func fullFixture(t *testing.T) (*apiFixture, string) {
 	return f, created.ID
 }
 
-func decoded[T any](t *testing.T, body []byte) T {
+func decoded[T any](t testing.TB, body []byte) T {
 	t.Helper()
 	var result T
 	if err := json.Unmarshal(body, &result); err != nil {

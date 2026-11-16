@@ -12,6 +12,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -53,6 +54,19 @@ type Service struct {
 	gradeSlots chan struct{}
 	// buildSlot holds the token of the image build going: one at a time (Phase 7).
 	buildSlot chan struct{}
+	// createMu makes the check of the memory budget and the making of the container one step, so that two creations cannot both pass the
+	// check; budgetMB is the budget (0: none, because the machine's memory could not be read).
+	createMu sync.Mutex
+	budgetMB int
+	// cpuLast is the last sample of each container's processor time, for the percentage; now is the clock (a test sets it).
+	cpuMu   sync.Mutex
+	cpuLast map[string]cpuSample
+	now     func() time.Time
+}
+
+type cpuSample struct {
+	nanos uint64
+	at    time.Time
 }
 
 // NewService makes the runner's service. It makes the run and state folders, and adopts the containers that are already there
@@ -66,7 +80,15 @@ func NewService(cfg Config, rt Runtime, q Quota, logger *slog.Logger) (*Service,
 			return nil, err
 		}
 	}
-	s := &Service{cfg: cfg, rt: rt, quota: q, logger: logger, locks: map[string]*sync.Mutex{}, links: map[string]*agentLink{}, gradeSlots: make(chan struct{}, cfg.GradeParallel), buildSlot: make(chan struct{}, 1)}
+	s := &Service{cfg: cfg, rt: rt, quota: q, logger: logger, locks: map[string]*sync.Mutex{}, links: map[string]*agentLink{}, gradeSlots: make(chan struct{}, cfg.GradeParallel), buildSlot: make(chan struct{}, 1), cpuLast: map[string]cpuSample{}, now: time.Now}
+	s.budgetMB = cfg.HostMemoryMB
+	if s.budgetMB == 0 {
+		if total := machineMemoryMB(); total > 0 {
+			s.budgetMB = total * 7 / 10
+		} else {
+			logger.Warn("the machine's memory could not be read, so there is no budget for the containers' memory; set host_memory_mb")
+		}
+	}
 	return s, nil
 }
 
@@ -194,6 +216,11 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (Status, error)
 		return s.statusLocked(ctx, m)
 	}
 	if err := s.checkImage(ctx, req.Exam, req.Build, reference); err != nil {
+		return Status{}, err
+	}
+	s.createMu.Lock()
+	defer s.createMu.Unlock()
+	if err := s.checkBudget(ctx, resources.MemoryMB); err != nil {
 		return Status{}, err
 	}
 	if _, err := s.quota.Create(req.Session, resources.DiskMB, s.cfg.Inodes); err != nil {
@@ -354,6 +381,9 @@ func (s *Service) Remove(ctx context.Context, session string) error {
 		if err := s.rt.Remove(ctx, m.Name); err != nil && !errors.Is(err, ErrNotFound) {
 			return err
 		}
+		s.cpuMu.Lock()
+		delete(s.cpuLast, m.Name)
+		s.cpuMu.Unlock()
 	}
 	if err := s.quota.Remove(session); err != nil {
 		return fmt.Errorf("the /work folder: %w", err)
@@ -420,7 +450,19 @@ func (s *Service) statsOf(ctx context.Context, m meta) (Stats, error) {
 	if err != nil {
 		return Stats{}, err
 	}
-	return Stats{Session: m.Session, CPUPercent: raw.CPUPercent, MemoryBytes: raw.MemoryBytes, MemoryLimit: raw.MemoryLimit, Pids: raw.Pids}, nil
+	out := Stats{Session: m.Session, MemoryBytes: raw.MemoryBytes, MemoryLimit: raw.MemoryLimit, Pids: raw.Pids}
+	now := s.now()
+	s.cpuMu.Lock()
+	defer s.cpuMu.Unlock()
+	if last, seen := s.cpuLast[m.Name]; !seen {
+		s.cpuLast[m.Name] = cpuSample{nanos: raw.CPUNanos, at: now}
+	} else if elapsed := now.Sub(last.at); elapsed >= time.Second {
+		if raw.CPUNanos >= last.nanos {
+			out.CPUPercent, out.CPUKnown = float64(raw.CPUNanos-last.nanos)/float64(elapsed.Nanoseconds())*100, true
+		}
+		s.cpuLast[m.Name] = cpuSample{nanos: raw.CPUNanos, at: now}
+	}
+	return out, nil
 }
 
 // ExamStats is container.stats for every running container of an exam.
@@ -528,4 +570,63 @@ func (s *Service) ImageInspect(ctx context.Context, name string) (ImageStatus, e
 	}
 	status.Present, status.ID = true, info.ID
 	return status, nil
+}
+
+// MemoryBudgetMB is the most memory the limits of the containers may add up to; 0 means there is no budget.
+func (s *Service) MemoryBudgetMB() int { return s.budgetMB }
+
+// committedMB adds up the memory limits of the containers the runner has that hold memory: the ones made and not started (their limit is
+// reserved), the running ones and the frozen ones (a frozen container keeps what it had).
+func (s *Service) committedMB(ctx context.Context) (int, error) {
+	list, err := s.rt.List(ctx, LabelManaged, "1")
+	if err != nil {
+		return 0, err
+	}
+	total := 0
+	for _, c := range list {
+		if c.State != StateCreated && c.State != StateRunning && c.State != StatePaused {
+			continue
+		}
+		m, err := s.readMeta(c.Labels[LabelSession])
+		if err != nil {
+			total += s.cfg.Max.MemoryMB // a container with no note of ours is counted at the most it could have
+			continue
+		}
+		total += m.Resources.MemoryMB
+	}
+	return total, nil
+}
+
+// checkBudget refuses a container whose memory would take the total over the budget. The caller holds createMu.
+func (s *Service) checkBudget(ctx context.Context, memoryMB int) error {
+	if s.budgetMB <= 0 {
+		return nil
+	}
+	committed, err := s.committedMB(ctx)
+	if err != nil {
+		return fmt.Errorf("counting the containers' memory: %w", err)
+	}
+	if committed+memoryMB > s.budgetMB {
+		s.logger.Warn("a container was refused: the memory budget is used", "committed_mb", committed, "asked_mb", memoryMB, "budget_mb", s.budgetMB)
+		return fmt.Errorf("%w: the %d MiB of this workspace and the %d MiB of the ones there are go over the %d MiB the host keeps for them", ErrCapacity, memoryMB, committed, s.budgetMB)
+	}
+	return nil
+}
+
+// machineMemoryMB is the memory of the machine (MiB), or 0 when it cannot be read.
+func machineMemoryMB() int {
+	data, err := os.ReadFile("/proc/meminfo")
+	if err != nil {
+		return 0
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if rest, found := strings.CutPrefix(line, "MemTotal:"); found {
+			fields := strings.Fields(rest)
+			if len(fields) > 0 {
+				kb, _ := strconv.Atoi(fields[0])
+				return kb / 1024
+			}
+		}
+	}
+	return 0
 }

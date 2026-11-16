@@ -1,0 +1,3 @@
+{"time":"2026-11-15T17:45:10.511647159-06:00","level":"WARN","msg":"no classes yet: add a class with its roster from the proctor dashboard before importing an exam"}
+{"time":"2026-11-15T18:11:16.5755254-06:00","level":"WARN","msg":"workspace: a reply was slow","session":"8f0acbd2-ccf1-4135-85cf-9b6a39949175","type":"fs.write","recording_ms":521,"waiting_for_the_output_limit_ms":0,"sending_ms":0}
+{"time":"2026-11-15T18:15:40.63370026-06:00","level":"ERROR","msg":"API request failed","operation":"heartbeat","error":"begin transaction: context canceled"}

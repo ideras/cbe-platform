@@ -72,8 +72,15 @@ func scanEvent(row scanner) (domain.Event, error) {
 	event.OccurredAt, err = time.Parse(time.RFC3339Nano, occurred)
 	return event, err
 }
+
+// The newest event of a few types, by a seek of the index for each type (newestEventID says why the plain query is not used).
+var (
+	latestReportedFocusSQL = `SELECT id,session_id,event_type,occurred_at,detail FROM event_log WHERE id = ` + newestEventID("?1", []string{"focus_lost", "focus_regained"})
+	finalizationEventSQL   = `SELECT id,session_id,event_type,occurred_at,detail FROM event_log WHERE id = ` + newestEventID("?1", []string{"submitted", "force_submitted"})
+)
+
 func (t *sessionTransaction) LatestReportedFocus(ctx context.Context, id string) (domain.Event, error) {
-	return scanEvent(t.tx.QueryRowContext(ctx, `SELECT id,session_id,event_type,occurred_at,detail FROM event_log WHERE session_id=? AND event_type IN ('focus_lost','focus_regained') ORDER BY id DESC LIMIT 1`, id))
+	return scanEvent(t.tx.QueryRowContext(ctx, latestReportedFocusSQL, id))
 }
 func (t *sessionTransaction) FocusInterrupted(ctx context.Context, id string, after int64) (bool, error) {
 	var interrupted bool
@@ -82,7 +89,7 @@ func (t *sessionTransaction) FocusInterrupted(ctx context.Context, id string, af
 }
 
 func (t *sessionTransaction) FinalizationEvent(ctx context.Context, id string) (domain.Event, error) {
-	return scanEvent(t.tx.QueryRowContext(ctx, `SELECT id,session_id,event_type,occurred_at,detail FROM event_log WHERE session_id=? AND event_type IN ('submitted','force_submitted') ORDER BY id DESC LIMIT 1`, id))
+	return scanEvent(t.tx.QueryRowContext(ctx, finalizationEventSQL, id))
 }
 func (t *sessionTransaction) HistoryWatermark(ctx context.Context, id string) (domain.TimelineWatermark, error) {
 	var mark domain.TimelineWatermark

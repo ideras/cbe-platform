@@ -49,6 +49,10 @@ type Config struct {
 	// may use together (Phase 7). One build runs at a time.
 	BuildMaxSeconds int `json:"build_max_seconds"`
 	BuildMemoryMB   int `json:"build_memory_mb"`
+	// HostMemoryMB is the most memory (MiB) that the limits of the student containers (created, running or frozen) may add up to: the runner
+	// refuses to make one that would go over it (Phase 8). Every container may use its whole limit at once, so this is what keeps forty of them
+	// from taking the machine, which also runs the exam server and whatever else its owner does. 0 means 70% of the machine's memory (a class of forty students at the default 1 GiB fits in a machine of 64 GiB).
+	HostMemoryMB int `json:"host_memory_mb"`
 }
 
 // DefaultConfig is the configuration of the plan: the limits of its Appendix A, and the maximums of the Phase 0 sizing.
@@ -118,6 +122,7 @@ func LoadConfig(path string) (Config, error) {
 	set("grade_output_bytes", func() { merged.GradeOutputBytes = overlay.GradeOutputBytes })
 	set("build_max_seconds", func() { merged.BuildMaxSeconds = overlay.BuildMaxSeconds })
 	set("build_memory_mb", func() { merged.BuildMemoryMB = overlay.BuildMemoryMB })
+	set("host_memory_mb", func() { merged.HostMemoryMB = overlay.HostMemoryMB })
 	return merged, merged.Validate()
 }
 
@@ -150,6 +155,9 @@ func (c Config) Validate() error {
 	}
 	if c.GradeParallel < 1 || c.GradeParallel > 32 || c.GradeMaxSeconds < 10 || c.GradeOutputBytes < 1<<10 || c.GradeOutputBytes > 4<<20 {
 		return errors.New("runner config: grade_parallel is 1 to 32, grade_max_seconds at least 10 and grade_output_bytes 1 KiB to 4 MiB")
+	}
+	if c.HostMemoryMB < 0 || (c.HostMemoryMB > 0 && c.HostMemoryMB < c.Max.MemoryMB) {
+		return errors.New("runner config: host_memory_mb is 0 (70% of the machine's memory) or at least the most one container may have")
 	}
 	if c.BuildMaxSeconds < 10 || c.BuildMemoryMB < 256 {
 		return errors.New("runner config: build_max_seconds is at least 10 and build_memory_mb at least 256")

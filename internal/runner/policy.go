@@ -11,6 +11,8 @@ var (
 	ErrBadRequest  = errors.New("bad request")
 	ErrNotApproved = errors.New("the image is not on the approved list")
 	ErrConflict    = errors.New("conflict")
+	// ErrCapacity says the limits of the containers the runner already has leave no room for the one asked for (Phase 8, host_memory_mb).
+	ErrCapacity = errors.New("the host has no room for another workspace")
 )
 
 func badRequest(format string, args ...any) error {

@@ -7,7 +7,7 @@
   import ExtendGraceDialog from './ExtendGraceDialog.svelte';
   import EndTimeDialog from './EndTimeDialog.svelte';
   import MonitoringRow from './MonitoringRow.svelte';
-  import { todoNote, gradingSummary } from './workspace.js';
+  import { todoNote, gradingSummary, gradeSheetNote } from './workspace.js';
   import GradeDialog from './GradeDialog.svelte';
   import Icon from '../../../../shared/theme/Icon.svelte';
   import { localTime } from './dates.js';
@@ -52,6 +52,17 @@
       gradeModal = false; await onRefresh();
     } catch (err) { gradeError = String(err); }
     finally { gradeBusy = false; }
+  }
+  let sheetBusy = $state(false);
+  // The grade sheet: a CSV with a line for every student of the class (docs/workspace/TEACHER-GUIDE.md). The server makes it; this asks where to keep it.
+  async function downloadGrades() {
+    if (sheetBusy) return;
+    sheetBusy = true; reviewError = ''; outcome = '';
+    try {
+      const path = await api.SaveWorkspaceGrades(view.exam_id);
+      if (path) outcome = gradeSheetNote(path, grading);
+    } catch (err) { reviewError = String(err); }
+    finally { sheetBusy = false; }
   }
   const policy = $derived(view.roster?.policy ?? {});
   // The server's release, and the students still working whose application is another one.
@@ -174,6 +185,7 @@
             <span class="note-inline">A grade is advisory until you confirm it.</span>
             <div class="settings-actions">
               <button class="outline" disabled={disabled || view.busy || gradeBusy || !grading.gradable} onclick={() => { gradeModal = true; gradeError = ''; }}><Icon name="done" size={15} />Grade submissions…</button>
+              <button class="outline" disabled={disabled || view.busy || sheetBusy || !grading.done} title={grading.done ? 'Save the grades of the class as a spreadsheet file (CSV): the confirmed ones and the advisory ones in separate columns' : 'Nobody has a grade yet'} onclick={downloadGrades}><Icon name="download" size={15} />Download grades…</button>
             </div>
           </div>
         {/if}

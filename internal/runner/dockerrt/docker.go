@@ -174,20 +174,7 @@ func (d *Docker) Stats(ctx context.Context, name string) (runner.RawStats, error
 	if err := json.NewDecoder(reply.Body).Decode(&sample); err != nil {
 		return runner.RawStats{}, err
 	}
-	out := runner.RawStats{MemoryBytes: sample.MemoryStats.Usage, MemoryLimit: sample.MemoryStats.Limit, Pids: sample.PidsStats.Current}
-	cpuDelta := float64(sample.CPUStats.CPUUsage.TotalUsage) - float64(sample.PreCPUStats.CPUUsage.TotalUsage)
-	systemDelta := float64(sample.CPUStats.SystemUsage) - float64(sample.PreCPUStats.SystemUsage)
-	if cpuDelta > 0 && systemDelta > 0 {
-		cpus := float64(sample.CPUStats.OnlineCPUs)
-		if cpus == 0 {
-			cpus = float64(len(sample.CPUStats.CPUUsage.PercpuUsage))
-		}
-		if cpus == 0 {
-			cpus = 1
-		}
-		out.CPUPercent = cpuDelta / systemDelta * cpus * 100
-	}
-	return out, nil
+	return runner.RawStats{CPUNanos: sample.CPUStats.CPUUsage.TotalUsage, MemoryBytes: sample.MemoryStats.Usage, MemoryLimit: sample.MemoryStats.Limit, Pids: sample.PidsStats.Current}, nil
 }
 
 func (d *Docker) CopyTo(ctx context.Context, name, folder string, archive io.Reader) error {

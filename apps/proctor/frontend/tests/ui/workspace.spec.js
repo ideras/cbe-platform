@@ -111,6 +111,17 @@ test('the review window shows a student\'s workspace: its state, what they ticke
   await expect(panel).toContainText('2 · latest is the final one');
 });
 
+test('a workspace that failed says why, as text and not as markup (Phase 8)', async ({ page }) => {
+  const extra = data();
+  extra.session.state = 'failed';
+  extra.session.failure = 'creating the container: the host has no room for another workspace <b>x</b>';
+  await review(page, extra);
+  const panel = page.getByRole('region', { name: 'Session review' });
+  await expect(panel).toContainText('failed');
+  await expect(panel.locator('.workspace-failure')).toHaveText(' · creating the container: the host has no room for another workspace <b>x</b>');
+  await expect(panel.locator('.workspace-failure b')).toHaveCount(0);
+});
+
 test('a workspace exam\'s review is in tabs, the history first, and the tabs go by keyboard', async ({ page }) => {
   await review(page);
   const tabs = page.getByRole('tablist', { name: 'Parts of the session review' });
@@ -446,6 +457,37 @@ test('the class is graded from the roster after the proctor is told what will ha
   await button.click();
   await page.getByRole('dialog', { name: 'Grade the class' }).getByRole('button', { name: 'Grade 1 submission' }).click();
   await expect(page.getByRole('alert').filter({ hasText: 'no grading folder' })).toBeVisible();
+});
+
+test('the grades are downloaded as a file the proctor chooses, and the proctor is told how many are confirmed (Phase 8)', async ({ page }) => {
+  await page.setViewportSize({ width: 1500, height: 800 });
+  const students2 = [row(0, 'Ada Lovelace', '001234'), row(1, 'Alan Turing', '002468'), row(2, 'Grace Hopper', '003579')];
+  await page.goto('/#/monitoring');
+  await page.getByRole('table', { name: /All sessions/ }).waitFor();
+  const roster = { students: [{ ...workspaceStudent(0), grade: { grading: 1, state: 'done', points: 28, max_points: 40, confirmed: true, at: observed } },
+    { ...workspaceStudent(1), account_number: '002468', grade: { grading: 2, state: 'done', points: 31, max_points: 40, confirmed: false, at: observed } },
+    { ...workspaceStudent(2), account_number: '003579', submissions: 0 }] };
+  await page.evaluate(({ sessions, roster, observed }) => { window.ProctorHarness.workspace(roster); window.ProctorHarness.monitoringRoster(sessions, [], observed); }, { sessions: students2, roster, observed });
+  const button = page.getByRole('button', { name: 'Download grades…' });
+  await expect(button).toBeEnabled();
+  await button.click();
+  await expect(page.getByRole('status').filter({ hasText: 'Grades saved to ' })).toContainText('1 grade confirmed, 1 not confirmed yet (in the advisory_points column, not in points)');
+  expect((await page.evaluate(() => window.ProctorHarness.calls.workspace)).filter(call => call.call === 'SaveWorkspaceGrades')).toEqual([{ call: 'SaveWorkspaceGrades', examId: expect.any(String) }]);
+  // Cancelling the file dialog says nothing, and a failure is shown in words.
+  await page.evaluate(() => window.ProctorHarness.saveCancelled(true));
+  await button.click();
+  await expect(page.getByRole('status').filter({ hasText: 'Grades saved to ' })).toHaveCount(0);
+  await page.evaluate(() => { window.ProctorHarness.saveCancelled(false); window.ProctorHarness.gradeFails('The file could not be written there.'); });
+  await button.click();
+  await expect(page.getByRole('alert').filter({ hasText: 'The file could not be written there.' })).toBeVisible();
+});
+
+test('with nobody graded there are no grades to download', async ({ page }) => {
+  await page.setViewportSize({ width: 1500, height: 800 });
+  await monitor(page, { students: [workspaceStudent(0, { submissions: 1 }), workspaceStudent(1, { submissions: 1, grade: { grading: 1, state: 'running', at: observed } })] });
+  await expect(page.getByRole('button', { name: 'Download grades…' })).toBeDisabled();
+  await page.evaluate(() => window.ProctorHarness.workspaceRoster(null));
+  await expect(page.getByRole('button', { name: 'Download grades…' })).toHaveCount(0, { timeout: 8000 });
 });
 
 test('nobody to grade, no button to press; a question exam has no grading at all', async ({ page }) => {

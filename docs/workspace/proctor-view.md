@@ -27,7 +27,7 @@ On a workspace exam the table has one more column, **Workspace**, headed "TODO i
 | the badge | Starting, Running, Paused, Frozen, Failed or Removed: the container's state | `workspace_sessions.state` |
 | Student | connected or not connected | whether the student's application holds the workspace's connection now |
 | Last activity | "12 s ago", or "no activity yet" | the time of the last event the workspace wrote (a save, a terminal, a tick) |
-| Container | "12.5% CPU · 180 MB", or "not measured" | the runtime's statistics, sampled by the server every 10 s |
+| Container | "12.5% CPU · 180 MB", or "not measured" | the runtime's statistics, sampled by the server every 10 s. **The CPU is made by the runner from two of its own samples** (Phase 8: rootless Podman gives no previous sample, and its own percentage of a container using a whole core was 0.03%), so the first reading of a container shows its memory alone |
 | TODO | "2 of 3 done (self-reported)" | the ticks the student made; **nothing checks them** |
 | submissions | "2 submissions · last 4:20 PM · final made" | `workspace_submissions` |
 | restarts | "Workspace restarted 2 times" | how often the agent's container restarted |
@@ -35,6 +35,8 @@ On a workspace exam the table has one more column, **Workspace**, headed "TODO i
 
 A student who has no workspace yet reads "No workspace yet". On an exam that is not a workspace exam the column is not there: the application asks
 `GET /admin/workspace/exam/{id}/roster`, the server answers 404 for a question exam, and the application remembers that and does not ask again.
+
+**Download grades…**, beside it, saves the class's grades as a spreadsheet file the proctor chooses (enabled once somebody has a grade), and tells how many of the grades in it are confirmed. The exam list's download button of a workspace exam does the same (a question exam's opens the dialog of its students' answers, as before).
 
 Above the table, a **Grading** line counts the class ("2 graded (1 confirmed) · 1 waiting or being graded · 1 failed · 3 submitted, not graded") and has
 **Grade submissions…**: it asks first (how many submissions will be graded, that students already being graded or with nothing submitted are left out, that
@@ -46,7 +48,7 @@ Each student's review window (Review) is the session's summary and, for a worksp
 **Terminals** (with the number of terminals) and **Grading** (with the number of runs). A session that is not a workspace's has no tabs, only the history. The tabs go by arrow keys, Home and End;
 every tab stays in the page, so a file that was chosen or a replay that was started is still there when its tab is chosen again.
 
-- **The summary** (above the tabs) adds to the session's own rows the container's state and restarts, the ticks (as the student's word), and the
+- **The summary** (above the tabs) adds to the session's own rows the container's state and restarts (and, for a workspace that **failed**, **why**, as text: the exam's image not built, the host's memory budget used, the runtime away; Phase 8), the ticks (as the student's word), and the
   submissions.
 - **Downloads** (under the summary): *Download submitted files (zip)…* and *Download report (Markdown)…*, both of the latest submission, saved where the proctor
   chooses. Both are disabled until something has been submitted.
@@ -77,6 +79,7 @@ All need the admin token. `{id}` is a session, snapshot, submission or terminal 
 | Route | Answers |
 |-------|---------|
 | `GET /admin/workspace/exam/{exam}/roster` | the table's column; 404 for a question exam |
+| `GET /admin/workspace/exam/{exam}/grades.csv` | **the grade sheet** (Phase 8): a CSV, UTF-8 with a byte order mark and CR LF line ends, a line for every student of the class (`grading.md`, "The grade sheet"); 404 for a question exam |
 | `POST /admin/class/{class}/workspace-exam` (multipart: `document`, `starter`, and `grading`, `image` when the package has them) | import a package (the proctor application sends it); 400 lists every problem, and the PIN is in the document |
 | `GET /admin/exams` | the exam list; a workspace exam carries `kind: "workspace"`, `todos` and `image` (its state, from the database alone: it does not ask the runner), and a question exam none of the three |
 | `POST /admin/workspace/exam/{exam}/image/build` (`{"rebuild": true}` optional) | queue a build of the exam's own image: `202` with the image's state; 409 when the exam has no image folder or one is already being built |

@@ -178,7 +178,7 @@ func (b *ImageBuilder) runOne(ctx context.Context, id int64) {
 	defer bundle.Close()
 	runCtx, cancel := context.WithTimeout(ctx, buildWait)
 	defer cancel()
-	result, err := b.m.opts.Runner.BuildImage(runCtx, runner.BuildRequest{Exam: record.ExamID, Image: exam.Document.Workspace.Image, Rebuild: record.Rebuild}, bundle,
+	result, err := b.m.opts.Runner.BuildImage(runCtx, runner.BuildRequest{Exam: record.ExamID, Image: exam.Document.Workspace.Image, Rebuild: record.Rebuild, NoWarnings: !exam.Document.Workspace.WarnAboutImage()}, bundle,
 		func(text string) { lv.add(text, b.m.opts.Now().UTC()) })
 	if err != nil {
 		if ctx.Err() != nil {

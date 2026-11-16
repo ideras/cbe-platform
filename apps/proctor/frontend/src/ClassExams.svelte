@@ -132,6 +132,20 @@
   const monitorable = entry => entry.published || entry.total_sessions > 0;
   const monitor = exam => run(() => monitorExam(view, exam.exam_id, onSelected));
 
+  // A workspace exam's download is its grade sheet (a CSV): the question exams' dialog downloads students' answers, which it has none of. The files of
+  // a student are in the review window.
+  function download(entry) {
+    if (entry.kind !== 'workspace') { downloadExam = entry; return; }
+    return run(async () => {
+      const path = await api.SaveWorkspaceGrades(entry.exam_id);
+      if (path) {
+        status = `Grades of “${entry.title}” saved to ${path}. Grades that are not confirmed are in the advisory_points column, not in points.`;
+        // Asked from the delete dialog, it is told there too, where the proctor is deciding whether what was kept is enough.
+        if (deleteExam?.exam_id === entry.exam_id) deleteDownload = status;
+      }
+    });
+  }
+
   // A download finished: show what was written and keep the folder for the Open folder button. Files that could not be
   // written are named so the proctor can retry just those.
   function downloaded(result) {
@@ -233,7 +247,7 @@
         <ExamCard {entry} monitored={entry.exam_id === view.exam_id} {locked} deemphasized={!!examPreview?.valid}
           monitorable={monitorable(entry)} calculator={calculatorText(entry.tools?.calculator)} logins={span(entry)} admission={admission(entry)}
           onMonitor={monitor} onPreview={entry => previewExamID = entry.exam_id} onPublish={entry => ask('publish', entry)} onUnpublish={entry => ask('unpublish', entry)}
-          onImage={entry => imageExam = entry} onDownload={entry => downloadExam = entry} onPurge={entry => purgeExam = entry} onDelete={entry => { deleteDownload = ''; deleteExam = entry; }} />
+          onImage={entry => imageExam = entry} onDownload={download} onPurge={entry => purgeExam = entry} onDelete={entry => { deleteDownload = ''; deleteExam = entry; }} />
       {/each}</div>
     {/if}
   {/if}
@@ -244,7 +258,7 @@
 {:else if modal}<CloseAdmissionDialog details={modal} working={workingNow} busy={modalBusy} error={modalError} onCancel={() => modal = null} onConfirm={confirm} />{/if}
 {#if downloadExam}<DownloadDialog exam={downloadExam} onClose={() => downloadExam = null} onDownloaded={downloaded} />{/if}
 {#if purgeExam}<PurgeDialog exam={purgeExam} onClose={() => purgeExam = null} onPurged={purged} onFailed={() => onRefresh().catch(() => {})} />{/if}
-{#if deleteExam}<DeleteExamDialog exam={deleteExam} live={deleting} className={klass.name} downloadNote={deleteDownload} onDownload={entry => downloadExam = entry} onClose={() => deleteExam = null} onDeleted={deleted} onFailed={() => onRefresh().catch(() => {})} />{/if}
+{#if deleteExam}<DeleteExamDialog exam={deleteExam} live={deleting} className={klass.name} downloadNote={deleteDownload} onDownload={download} onClose={() => deleteExam = null} onDeleted={deleted} onFailed={() => onRefresh().catch(() => {})} />{/if}
 {#if imageExam}<ImageBuildDialog entry={imageExam} {locked} onClose={() => imageExam = null} onChanged={() => onRefresh().catch(() => {})} />{/if}
 {#if previewExamID}<PreviewDialog examID={previewExamID} onClose={() => previewExamID = null} />{/if}
 

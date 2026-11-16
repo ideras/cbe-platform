@@ -1,0 +1,2 @@
+{"time":"2026-11-15T16:25:44.689216015-06:00","level":"WARN","msg":"no classes yet: add a class with its roster from the proctor dashboard before importing an exam"}
+{"time":"2026-11-15T16:36:27.94712544-06:00","level":"WARN","msg":"workspace: a reply was slow","session":"804d2d58-0978-4a52-a5b9-8d0f04bf7480","type":"fs.write","recording_ms":541,"waiting_for_the_output_limit_ms":0,"sending_ms":0}

@@ -73,3 +73,20 @@ The history of the student has `grading.finished`, `grading.confirmed` and `grad
 - A server stop interrupts the runs that were going (marked failed, run again); a runner stop does the same, and the runner removes what a stopped run left
   when it starts.
 - Phase 6 does not grade at the end of the exam by itself: the proctor asks.
+
+## The grade sheet (Phase 8)
+
+What a teacher takes away of the grades: **Download grades…** in the monitoring window (and the download button of a workspace exam in the exam list) saves `GET /admin/workspace/exam/{exam}/grades.csv`
+where the proctor chooses. The server makes it from the database; the application only keeps it (written beside its name first, so a failed download leaves no half file).
+
+- **A line for every student of the exam's class**, sorted by name, also one who never logged in (`not logged in`) and one with nothing submitted (`no submission`).
+- **The columns:** `account_number, name, email, status, points, advisory_points, max_points`, one column for each TODO (`t1 (10)`: its ID and what it is worth), `todos_ticked_by_student, submitted,
+  final_submission, last_submission_at, graded_at`. Times are UTC, RFC 3339.
+- **A grade you have not confirmed does not go in `points`.** The sheet keeps the two apart (P8-9): `points` is the confirmed run's, `advisory_points` the latest run's points of a student whose grade is
+  not confirmed, and `status` says which. The TODO columns have the points of that same run. A run that failed or is going has no points.
+- **UTF-8 with a byte order mark and CR LF line ends**, which Excel, LibreOffice and Google Sheets read without being told. A cell that begins with `=`, `+`, `-` or `@` (a name or an e-mail address from the
+  roster) is written with a `'` in front, so that a spreadsheet does not take it for a formula.
+- The student's own files and reports are not in it: they are in the review window (a zip and a Markdown report for each student).
+
+Tests: `TestTheGradeSheetHasEveryStudentAndKeepsAdvisoryGradesApart` (the server, through its route and the real database), `TestTheGradeSheetIsSavedWhereTheProctorChoosesAndNowhereElse` (the application),
+and the Playwright tests of the button.

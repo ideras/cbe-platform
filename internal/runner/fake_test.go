@@ -28,6 +28,8 @@ type fakeRuntime struct {
 	specs      []ContainerSpec
 	calls      []string
 	failCreate error
+	// cpuNanos is the processor time every container says it has used.
+	cpuNanos uint64
 	// run is what a grading container does between its start and its end; the default exits 0 with nothing printed. active counts the
 	// grading containers that have started and not ended, and peak the most there were at once.
 	run          func(ctx context.Context, c *fakeContainer) (exit int, out Output)
@@ -249,7 +251,7 @@ func (f *fakeRuntime) Stats(_ context.Context, name string) (RawStats, error) {
 	if _, err := f.get(name); err != nil {
 		return RawStats{}, err
 	}
-	return RawStats{CPUPercent: 12.5, MemoryBytes: 1 << 20, MemoryLimit: 64 << 20, Pids: 3}, nil
+	return RawStats{CPUNanos: f.cpuNanos, MemoryBytes: 1 << 20, MemoryLimit: 64 << 20, Pids: 3}, nil
 }
 
 func (f *fakeRuntime) CopyTo(_ context.Context, name, folder string, archive io.Reader) error {

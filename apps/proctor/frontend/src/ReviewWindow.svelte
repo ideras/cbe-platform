@@ -99,7 +99,7 @@
           {:else}None yet{/if}</dd>
         <dt>Computer</dt><dd>{session.presence.hostname || 'not reported'} · {session.presence.remote_addr || 'IP not reported'}</dd>
         {#if workspace}
-          <dt>Container</dt><dd><strong>{workspace.state}</strong>{#if workspace.agent_restarts}{' · restarted '}{workspace.agent_restarts} time{workspace.agent_restarts === 1 ? '' : 's'}{/if}</dd>
+          <dt>Container</dt><dd><strong>{workspace.state}</strong>{#if workspace.agent_restarts}{' · restarted '}{workspace.agent_restarts} time{workspace.agent_restarts === 1 ? '' : 's'}{/if}{#if workspace.state === 'failed' && workspace.failure}<span class="warning workspace-failure">{' · '}{workspace.failure}</span>{/if}</dd>
           <dt>TODO ({todoNote})</dt><dd>{#if ticked.length}{ticked.join(', ')} ticked by the student{:else}nothing ticked{/if}. Nothing checked these ticks.</dd>
           {#if standing}{@const line = gradeLine(standing)}<dt>Grade</dt><dd><strong>{line.text}</strong>{#if line.note}{' '}<span class="muted">({line.note})</span>{/if}</dd>{/if}
           <dt>Submissions</dt><dd>{#if latestSubmission}{workspace.submissions.length} · latest {latestSubmission.final ? 'is the final one' : 'was made by the student pressing Save'}, {localDateTime(latestSubmission.submitted_at)}{:else}none yet{/if}</dd>

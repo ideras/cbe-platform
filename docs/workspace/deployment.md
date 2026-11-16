@@ -82,7 +82,18 @@ The unit runs the server with `NoNewPrivileges`, a read-only system, only its ow
 | `pids`, `inodes`, `tmp_mb`, `stop_seconds` | 256, 20000, 64, 5 | Fixed for every container. |
 | `grade_root` | `/data/cbe-platform/grading` | Where a grading run's copy of the hidden bundle is for as long as the run lasts. Private to the runner (`install.sh` makes it, mode 0700). |
 | `build_max_seconds`, `build_memory_mb` | 900, 2048 | **Phase 7** (`images.md`): the longest an image build may last (a request may ask for less, from 10 s), and the memory the steps of a build may use together (enforced: a step over it is killed). One build runs at a time. |
+| `host_memory_mb` | 0 | **Phase 8**: the most memory (MiB) the **limits** of the student containers (made, running or frozen) may add up to. The runner refuses to make a container that would go over it (503, and the student's workspace fails with the reason, which the proctor sees). Every container may use its whole limit at once, so this is what keeps forty of them from taking a machine that also runs the exam server and its owner's desktop. **0 is 70% of the machine's memory** (44,838 MiB on a machine of 64 GiB, which holds forty students at the default 1 GiB). `limits.sh` sizes the control group's ceiling from it. |
 | `grade_parallel`, `grade_max_seconds`, `grade_output_bytes` | 2, 1800, 262144 | How many gradings run at once (1 to 32), the longest a run may be asked to last, and the most of each of a run's two output streams that is kept. |
+
+**The control group's limits (Phase 8, `limits.sh`).** Every container, the runner, the runtime and the image builds run in one control group, the `cbe-runner` user's slice. `install.sh` runs `deploy/workspace/limits.sh` (run it again alone after changing `host_memory_mb`), which **replaces the spike's backstop** (a hard cap of 400% CPU, 16 GiB and 6,000 tasks, `P0-11`; kept as `/etc/cbe-platform/spike-backstop.conf.removed`) with `/etc/systemd/system/user-<uid>.slice.d/cbe-limits.conf`:
+
+| Setting | Value | Why |
+|---|---|---|
+| `CPUWeight` | 50 | Under contention the exam server, the proctor's application and the desktop of the machine's owner (weight 100) win two to one; an idle machine still gives the students every core. The spike's hard cap made a class wait for cores the machine was not using. |
+| `MemoryMax` | the budget + 9,216 MiB | The budget, and room for two grading runs, one image build and the runtime. Over it the out-of-memory killer acts inside the slice, not on the machine. |
+| `MemorySwapMax`, `TasksMax` | 0, 12,000 | No swap for the students; forty containers at their 256 processes each, and the runtime. |
+
+**Upgrading a host that has Phase 7 (to Phase 8):** replace `/usr/local/bin/cbe-runner`, run `deploy/workspace/limits.sh` (it removes the backstop and sets the limits above) and restart the runner's unit; nothing else changes. `runner.json` needs nothing (`host_memory_mb` defaults to 70% of the machine's memory; set it if the machine is shared with more than a desktop).
 
 **Upgrading a host that has Phase 6 (to Phase 7):** only `cbe-runner` changes (the quota helper, the agent and the unit file do not). Replace `/usr/local/bin/cbe-runner`, restart the runner's unit; `runner.json` needs nothing (the two `build_*` keys have defaults). The new server binary adds a migration (023) on its first start. Then **build the image of every exam that has one** from the proctor application before publishing it.
 
@@ -139,5 +150,10 @@ A session's workspace as the proctor would see it: `GET /admin/workspace/session
 | `deploy/workspace/test-grading.sh` | Phase 6 (`grading.md`): grading with nothing replaced. It starts a **private** runner (its own socket, secret and folders; the same runtime and quota helper), so the installed runner and anyone's containers are not touched and no service is restarted. Grades the example package's three students in real containers, holds misbehaving grade programs (no network, a read-only `/grading` and root, a run that does not end, runs out of memory or floods) and runs forty at once, two at a time. About two minutes; reports whatever it finds left (nothing, so far). |
 
 | `deploy/workspace/test-image.sh` | Phase 7 (`images.md`): an exam's own image with nothing replaced, against a **private** runner as `test-grading.sh` does. Real image builds from the course image and real containers: publishing refused until built; the log records the course image's digest; cache hit and rebuild; the exam's student compiles against a library the course image does not have, with no network, and is graded there; another exam has no such library and cannot be given the image; a `FROM` that is not the exam's image, and a changed user, entrypoint, command, working folder or agent, all fail with their reasons; a build is stopped at its time and at its memory limit and builds run one at a time; reports what it left (nothing). `CBE_E2E_APT=1` also builds a library from the Ubuntu snapshot over HTTPS (needs the network; about six minutes in all instead of two). It removes the images it built. |
+
+| `deploy/workspace/test-load.sh` | Phase 8 (`load-test.md`): forty simulated students take a workspace exam on a throwaway exam server for half an hour (`CBE_LOAD_STUDENTS`, `CBE_LOAD_DURATION`), with the machine read every ten seconds; keeps `load-report.md`, `load-summary.json` and `load-machine.csv`. |
+| `deploy/workspace/fuzz.sh [duration]` | Phase 8: every decoder a student or an agent can reach, five minutes each by default (`security-checklist.md`). Needs no host: only Go. |
+
+`internal/runner/integration_test.go` (through `test-runner.sh`) also holds the Phase 8 security subtest: links that lead out of `/work`, mounts, privileges and the limit on files, in a real container.
 
 All of them use `sudo` without a password.

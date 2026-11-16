@@ -19,7 +19,7 @@ import (
 // Client is a student's application as far as the WebSocket goes: it sends requests, keeps what the server says (text messages) and
 // the terminals' output (binary frames: four bytes of terminal number, then the bytes).
 type Client struct {
-	t      *testing.T
+	t      testing.TB
 	conn   *websocket.Conn
 	mu     sync.Mutex
 	texts  []map[string]any
@@ -32,7 +32,7 @@ type Client struct {
 }
 
 // Dial opens the WebSocket of the server at baseURL (http://host:port) with a student's token.
-func Dial(t *testing.T, baseURL, token string) *Client {
+func Dial(t testing.TB, baseURL, token string) *Client {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -180,7 +180,7 @@ func (c *Client) WaitExit(term uint32) float64 {
 }
 
 // Eventually polls until ok is true.
-func Eventually(t *testing.T, within time.Duration, what string, ok func() bool) {
+func Eventually(t testing.TB, within time.Duration, what string, ok func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(within)
 	for time.Now().Before(deadline) {

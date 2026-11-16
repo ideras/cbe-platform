@@ -46,6 +46,7 @@ func New(clock clock.Clock, sessions SessionAPI, logger *slog.Logger, options ..
 		admin.Handle("GET /admin/workspace/session/{id}", workspaceAdminHandler(cfg.Workspace, logger))
 		admin.Handle("GET /admin/workspace/snapshot/{id}/tar", workspaceSnapshotHandler(cfg.Workspace, logger))
 		admin.Handle("GET /admin/workspace/exam/{id}/roster", workspaceRosterHandler(cfg.Workspace, logger))
+		admin.Handle("GET /admin/workspace/exam/{id}/grades.csv", workspaceGradesHandler(cfg.Workspace, logger))
 		admin.Handle("GET /admin/workspace/snapshot/{id}/tree", workspaceTreeHandler(cfg.Workspace, logger, false))
 		admin.Handle("GET /admin/workspace/snapshot/{id}/file", workspaceFileHandler(cfg.Workspace, logger, false))
 		admin.Handle("GET /admin/workspace/submission/{id}/tree", workspaceTreeHandler(cfg.Workspace, logger, true))
