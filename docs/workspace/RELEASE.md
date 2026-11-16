@@ -15,6 +15,8 @@ for each choice are in [`DECISIONS.md`](DECISIONS.md) and the results of each ph
 | Proctor | The Workspace column, the review window (history, files, terminals and their replay, grading), grading and confirmation, importing a package and building its image | [proctor-view.md](proctor-view.md), [grading.md](grading.md), [images.md](images.md) |
 | Checks | Eight fuzz targets, the security checklist, the load test, the question-exam regression | [security-checklist.md](security-checklist.md), [load-test.md](load-test.md) |
 
+After the manual test of 2026-11-16 (P8-15 to P8-18, confirmed): the terminals have their own A− and A+ and a splitter, typing `exit` closes a terminal's tab, and the student application reports (report only) that it runs inside a virtual machine, which the owner tried on their Windows virtual machine (VirtualBox). **What the release archives hold:** the exam server, and the student and proctor applications, for each platform. The container host's parts (`cbe-runner`, `cbe-agent`, the quota helper, `examc` and the course image) are not in them: they are built from the tagged source with `deploy/workspace/install.sh` and `images/build.sh` ([deployment.md](deployment.md)).
+
 Question exams are unchanged: the regression (`scripts/regression/qexam-diff.sh`) gives the same record on the server before the workspace work and on this one.
 
 ## What the host needs
