@@ -1,0 +1,42 @@
+== phase A
+=== RUN   TestRealServer
+=== RUN   TestRealServer/the_student_works_in_their_workspace
+=== RUN   TestRealServer/a_connection_that_idles_and_one_that_is_dropped
+=== RUN   TestRealServer/a_student_who_abuses_their_container_hurts_nobody_else
+=== RUN   TestRealServer/a_student_who_ends_their_container_finds_the_files_when_it_is_back
+=== RUN   TestRealServer/a_restarted_exam_server_takes_over_where_it_was
+--- PASS: TestRealServer (58.69s)
+    --- PASS: TestRealServer/the_student_works_in_their_workspace (0.79s)
+    --- PASS: TestRealServer/a_connection_that_idles_and_one_that_is_dropped (40.09s)
+    --- PASS: TestRealServer/a_student_who_abuses_their_container_hurts_nobody_else (15.51s)
+    --- PASS: TestRealServer/a_student_who_ends_their_container_finds_the_files_when_it_is_back (1.67s)
+    --- PASS: TestRealServer/a_restarted_exam_server_takes_over_where_it_was (0.14s)
+PASS
+== restarting the runner (its containers go on)
+== phase B
+=== RUN   TestRealServer
+=== RUN   TestRealServer/after_the_runner_and_the_server_were_restarted_the_containers_are_the_same
+--- PASS: TestRealServer (0.18s)
+    --- PASS: TestRealServer/after_the_runner_and_the_server_were_restarted_the_containers_are_the_same (0.15s)
+PASS
+== the runtime's user manager restarts, as at a boot: every container goes down with it, and the runner comes back by itself
+== phase C
+=== RUN   TestRealServer
+=== RUN   TestRealServer/at_the_deadline_the_work_is_snapshotted_and_the_container_frozen
+--- PASS: TestRealServer (32.07s)
+    --- PASS: TestRealServer/at_the_deadline_the_work_is_snapshotted_and_the_container_frozen (31.68s)
+PASS
+== phase D: a student finishes the example package through the student application's client
+=== RUN   TestRealServer
+    e2e_test.go:890: the student's client:
+        === RUN   TestRealWorkspaceFinishTheExamplePackage
+            real_workspace_test.go:213: a file made in the terminal was told to the page after 103ms
+            real_workspace_test.go:253: submitted as snapshot 2
+        --- PASS: TestRealWorkspaceFinishTheExamplePackage (2.11s)
+        PASS
+--- PASS: TestRealServer (4.28s)
+PASS
+=== RUN   TestRealServer
+--- PASS: TestRealServer (0.38s)
+PASS
+exit=0

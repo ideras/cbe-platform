@@ -1,0 +1,62 @@
+##### go version  [09:02:09]
+##### RESULT go version rc=0 seconds=0
+##### git commit  [09:02:09]
+##### RESULT git commit rc=0 seconds=0
+##### build server (scratch)  [09:02:09]
+##### RESULT build server (scratch) rc=0 seconds=10
+##### build student frontend  [09:02:19]
+##### RESULT build student frontend rc=0 seconds=1
+##### build proctor frontend  [09:02:20]
+##### RESULT build proctor frontend rc=0 seconds=1
+##### ci test.py --race (vet + tests, 7 modules)  [09:02:21]
++ .: go vet ./...
++ .: go test -timeout 20m -race ./...
+ok  	exam-platform/internal/config	1.016s
+ok  	exam-platform/internal/domain	1.015s
+ok  	exam-platform/internal/httpapi	62.801s
+ok  	exam-platform/internal/roster	1.013s
+ok  	exam-platform/internal/server	7.776s
+ok  	exam-platform/internal/service	155.848s
+ok  	exam-platform/internal/storage	29.192s
++ shared/calc: go vet ./...
++ shared/calc: go test -timeout 20m -race ./...
+ok  	exam-platform/shared/calc	5.036s
++ shared/clientwire: go vet ./...
++ shared/clientwire: go test -timeout 20m -race ./...
+ok  	exam-platform/shared/clientwire	1.015s
++ shared/examdoc: go vet ./...
++ shared/examdoc: go test -timeout 20m -race ./...
+ok  	exam-platform/shared/examdoc	1.559s
+ok  	exam-platform/shared/examdoc/cmd/examc	1.027s
++ shared/examimage: go vet ./...
++ shared/examimage: go test -timeout 20m -race ./...
+ok  	exam-platform/shared/examimage	1.293s
++ apps/student: go vet ./...
++ apps/student: go test -timeout 20m -race ./...
+ok  	exam-platform/apps/student	1.067s
+ok  	exam-platform/apps/student/internal/client	39.300s
+ok  	exam-platform/apps/student/internal/remotewatch	1.144s
+ok  	exam-platform/apps/student/internal/sessionwatch	1.325s
+ok  	exam-platform/apps/student/internal/spike	2.191s
++ apps/proctor: go vet ./...
++ apps/proctor: go test -timeout 20m -race ./...
+ok  	exam-platform/apps/proctor	1.027s
+ok  	exam-platform/apps/proctor/internal/dashboard	6.590s
+##### RESULT ci test.py --race (vet + tests, 7 modules) rc=0 seconds=353
+##### student npm test  [09:08:14]
+ℹ tests 45
+ℹ pass 45
+ℹ fail 0
+##### RESULT student npm test rc=0 seconds=0
+##### proctor npm test  [09:08:14]
+ℹ tests 74
+ℹ pass 74
+ℹ fail 0
+##### RESULT proctor npm test rc=0 seconds=0
+##### student playwright  [09:08:14]
+  131 passed (2.7m)
+##### RESULT student playwright rc=0 seconds=160
+##### proctor playwright  [09:10:54]
+  294 passed (4.3m)
+##### RESULT proctor playwright rc=0 seconds=259
+##### ALL DONE [09:15:13]

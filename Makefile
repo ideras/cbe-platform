@@ -7,17 +7,19 @@ WAILS := go run github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.29
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -X main.version=$(VERSION)
 
-.PHONY: test vet server examc student student-windows proctor desktop desktop-test script-test student-client-test student-ui-test proctor-client-test proctor-ui-test demo-setup demo-server demo-student demo-proctor
+.PHONY: test vet server examc agent student student-windows proctor desktop desktop-test script-test student-client-test student-ui-test proctor-client-test proctor-ui-test demo-setup demo-server demo-student demo-proctor
 
 test:
 	go test -race ./...
 	cd shared/clientwire && go test -race ./...
+	cd shared/containerfile && go test -race ./...
 	cd shared/examdoc && go test -race ./...
 	cd shared/examimage && go test -race ./...
 
 vet:
 	go vet ./...
 	cd shared/clientwire && go vet ./...
+	cd shared/containerfile && go vet ./...
 	cd shared/examdoc && go vet ./...
 	cd shared/examimage && go vet ./...
 
@@ -32,10 +34,18 @@ server:
 	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o build/cbe-portal-server ./cmd/server
 
 # examc checks an exam written in Markdown: build/examc exam.md (or -json to print what the proctor would import, or
-# -fill answers.json to print the exam with those answers filled in).
+# -fill answers.json to print the exam with those answers filled in). Given a folder that holds workspace.md it checks a
+# workspace package instead: build/examc lab/ (see docs/workspace-format.md; -bundles dir writes its two archives).
 examc:
 	mkdir -p build
 	cd shared/examdoc && CGO_ENABLED=0 go build -trimpath -o ../../build/examc ./cmd/examc
+
+# cbe-agent is the first process of a student's container and cbe-agent-cli drives it without the exam server (workspace exams,
+# docs/workspace/agent-protocol.md). Both are Linux programs. The course images are built with images/build.sh.
+agent:
+	mkdir -p build
+	CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags "$(LDFLAGS)" -o build/cbe-agent ./cmd/cbe-agent
+	CGO_ENABLED=0 GOOS=linux go build -trimpath -o build/cbe-agent-cli ./cmd/cbe-agent-cli
 
 student:
 	cd apps/student && $(WAILS) build

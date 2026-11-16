@@ -1,0 +1,163 @@
+[
+  {
+    "name": "api",
+    "pass": true,
+    "detail": "moby client v0.6.3 talks to the compatible API (version 1.41); image inspect and label-filtered list work",
+    "data": {
+      "api_version": "1.41",
+      "image_id": "sha256:bf8527eb54c3680e728d5b4b383a8ba730d72dae7236fbc8dff97ed6b224a731",
+      "labelled_containers": 1
+    }
+  },
+  {
+    "name": "delegation",
+    "pass": true,
+    "detail": "the container sees cpu, cpuset, io, memory and pids, and a cpuset of 0-1 is applied",
+    "data": {
+      "controllers": "cpuset cpu io memory pids 0-1"
+    }
+  },
+  {
+    "name": "pids",
+    "pass": true,
+    "detail": "fork bomb stopped at the limit: pids.peak=64 of 64, fork refused (pids.events: max 34), killed and removed in 393ms",
+    "data": {
+      "api_peak": 64,
+      "cgroup_peak": "64",
+      "cleanup_ms": 393,
+      "limit": 64,
+      "pids_events": "max 34"
+    }
+  },
+  {
+    "name": "memory",
+    "pass": true,
+    "detail": "memory hog killed at the 128 MiB limit (last allocation 120 MiB, memory.events oom_kill=1, exit 137, swap off); API OOMKilled flag=false",
+    "data": {
+      "api_oom_killed_flag": false,
+      "last_alloc_mb": 120,
+      "limit_mb": 128,
+      "limits": "134217728 swap.max=0",
+      "oom_kill_events": 1,
+      "workload_exit": "137"
+    }
+  },
+  {
+    "name": "cpu",
+    "pass": true,
+    "detail": "4 busy threads held to 1.00 cores of a 1-core limit (throttled in 61 periods)",
+    "data": {
+      "cores": 1.0013155634832247,
+      "cpu_max": "100000 100000",
+      "nr_throttled": 61,
+      "spinners": 4,
+      "wall_s": 6.072683828
+    }
+  },
+  {
+    "name": "disk",
+    "pass": true,
+    "detail": "filling /work stopped at the 50 MiB project quota after 50.0 MiB with \"open /work/fill/f0005: no space left on device\" (ENOSPC=true EDQUOT=false); statfs inside reports 50 MiB total",
+    "data": {
+      "bytes": 52428800,
+      "edquot": false,
+      "enospc": true,
+      "err": "open /work/fill/f0005: no space left on device",
+      "statfs_total": 52428800
+    }
+  },
+  {
+    "name": "inodes",
+    "pass": true,
+    "detail": "creating empty files stopped at the 2000-inode project quota after 1998 files with \"open /work/ino/f001998: no space left on device\"",
+    "data": {
+      "created": 1998,
+      "edquot": false,
+      "err": "open /work/ino/f001998: no space left on device"
+    }
+  },
+  {
+    "name": "pause",
+    "pass": true,
+    "detail": "paused in 34ms (cgroup.freeze=1), counter frozen at 15 for 2.5s, resumed to 31 after unpause (39ms)",
+    "data": {
+      "after_2_5s": 15,
+      "before": 15,
+      "cgroup.freeze": "1",
+      "frozen_at": 15,
+      "pause_ms": 34,
+      "resumed": 31,
+      "state": "paused",
+      "unpause_ms": 39
+    }
+  },
+  {
+    "name": "stats",
+    "pass": true,
+    "detail": "streamed 5 frames: 1.00 cores, 82 MiB of a 256 MiB limit, 6 pids; a one-shot sample works too",
+    "data": {
+      "cores": 0.998659183893628,
+      "frames": 5,
+      "memory_limit_mb": 256,
+      "memory_mb": 82,
+      "one_shot_error": "\u003cnil\u003e",
+      "one_shot_memory_mb": 82,
+      "pids": 6
+    }
+  },
+  {
+    "name": "archive",
+    "pass": true,
+    "detail": "tar of /work/. from a running and a paused container are identical (12 entries); content hash and modes survive; symlinks, a hard link and a FIFO come through as entries, never followed. GOTCHA: path /work names entries [work work/READY] when running but [/ /READY] when paused",
+    "data": {
+      "entries": 12,
+      "names": [
+        "READY",
+        "a b",
+        "a b/ñ.txt",
+        "empty",
+        "hard",
+        "link",
+        "pipe",
+        "run.sh",
+        "src",
+        "src/main.cpp",
+        "src/util.h",
+        "up"
+      ],
+      "path_/work_paused_names": [
+        "/",
+        "/READY",
+        "/a b",
+        "/a b/ñ.txt"
+      ],
+      "path_/work_running_names": [
+        "work",
+        "work/READY",
+        "work/a b",
+        "work/a b/ñ.txt"
+      ],
+      "via_symlink_error": "Error response from daemon: no such file or directory",
+      "via_symlink_names": null
+    }
+  },
+  {
+    "name": "socket",
+    "pass": true,
+    "detail": "the host (cbe-runner) talks to a Unix socket made by the container's uid 1000 through a bind-mounted folder; reply \"pong:ping\"",
+    "data": {
+      "dir_mode": "0777",
+      "reply": "pong:ping",
+      "socket_mode": "Srw-rw-rw-"
+    }
+  },
+  {
+    "name": "isolation",
+    "pass": true,
+    "detail": "a neighbour kept running through the abuse: 49 of ~50 one-second ticks, not OOM-killed",
+    "data": {
+      "seconds": 49.510841885,
+      "ticks": 49
+    }
+  }
+]

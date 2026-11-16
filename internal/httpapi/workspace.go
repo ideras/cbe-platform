@@ -1,0 +1,436 @@
+package httpapi
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"log/slog"
+	"mime"
+	"mime/multipart"
+	"net/http"
+	"os"
+	"strconv"
+	"time"
+
+	"exam-platform/internal/domain"
+	"exam-platform/internal/workspace"
+)
+
+// WorkspaceAPI is what the routes of workspace exams need; internal/workspace's Service is it.
+type WorkspaceAPI interface {
+	OnLogin(session string)
+	Serve(w http.ResponseWriter, r *http.Request, session string)
+	Import(ctx context.Context, classID string, document, starter, grading, image []byte) (string, error)
+	Student(ctx context.Context, session string) (workspace.StudentView, error)
+	Admin(ctx context.Context, session string) (workspace.AdminSession, error)
+	SnapshotTar(ctx context.Context, id int64, w io.Writer) error
+	Roster(ctx context.Context, examID string) ([]workspace.RosterEntry, error)
+	SnapshotTree(ctx context.Context, id int64) ([]workspace.TreeEntry, error)
+	SnapshotFile(ctx context.Context, id int64, path string) (workspace.FileContent, error)
+	SubmissionTree(ctx context.Context, id int64) ([]workspace.TreeEntry, error)
+	SubmissionFile(ctx context.Context, id int64, path string) (workspace.FileContent, error)
+	SubmissionZip(ctx context.Context, id int64, w io.Writer) error
+	Report(ctx context.Context, session string) (string, error)
+	GradesCSV(ctx context.Context, examID string) ([]byte, error)
+	OpenCast(ctx context.Context, id int64) (*os.File, workspace.TerminalRecord, error)
+	// Grading (Phase 6): a proctor starts gradings, reads their results and confirms a grade.
+	GradeExam(ctx context.Context, examID string, sessions []string) (workspace.Started, error)
+	GradeSession(ctx context.Context, session string, submission int64) (int64, error)
+	Gradings(ctx context.Context, session string) (workspace.AdminGradings, error)
+	Grading(ctx context.Context, id int64) (workspace.AdminGrading, error)
+	ConfirmGrading(ctx context.Context, id int64) error
+	UnconfirmGrading(ctx context.Context, id int64) error
+	// Images (Phase 7): a proctor builds an exam's own image before publishing, and reads the build and its log.
+	StartImageBuild(ctx context.Context, examID string, rebuild bool) (workspace.ImageView, error)
+	ImageView(ctx context.Context, examID string, withLog bool, logFrom int64) (workspace.ImageView, error)
+	ImageBuildLog(ctx context.Context, examID string, id int64) (workspace.ImageBuildView, error)
+	ImageStates(ctx context.Context) (map[string]workspace.ExamImage, error)
+}
+
+// maxImportBytes is the most a package import may be: the document and the three bundles.
+const maxImportBytes = workspace.MaxDocumentBytes + 3*workspace.MaxBundleBytes + 1<<20
+
+func workspaceError(w http.ResponseWriter, logger *slog.Logger, operation string, err error) {
+	var invalid *workspace.ValidationError
+	switch {
+	case errors.As(err, &invalid):
+		writeJSON(w, http.StatusBadRequest, problemResponse{Error: "invalid workspace exam", Problems: invalid.Problems})
+	case errors.Is(err, workspace.ErrNotFound), errors.Is(err, domain.ErrNotFound):
+		writeError(w, http.StatusNotFound, "not found")
+	case errors.Is(err, workspace.ErrNoGrading):
+		writeError(w, http.StatusConflict, "this exam has no grading folder, so there is nothing to grade it with")
+	case errors.Is(err, workspace.ErrNoImage):
+		writeError(w, http.StatusConflict, "this exam has no image folder: it runs in its course image, so there is nothing to build")
+	case errors.Is(err, workspace.ErrBuildBusy):
+		writeError(w, http.StatusConflict, "this exam's image is already waiting to be built or being built")
+	case errors.Is(err, workspace.ErrImageNotBuilt):
+		writeError(w, http.StatusConflict, "this exam's own image has not been built")
+	case errors.Is(err, workspace.ErrNoSubmission):
+		writeError(w, http.StatusConflict, "this student has not submitted anything")
+	case errors.Is(err, workspace.ErrBusy):
+		writeError(w, http.StatusConflict, "this student is already waiting to be graded or being graded")
+	case errors.Is(err, workspace.ErrNotGraded):
+		writeError(w, http.StatusConflict, "only a run that is done can be confirmed")
+	case errors.Is(err, workspace.ErrOver):
+		writeError(w, http.StatusGone, "the exam is over")
+	case errors.Is(err, workspace.ErrLocked):
+		writeError(w, http.StatusLocked, "the exam is locked")
+	default:
+		logger.Error("workspace", "operation", operation, "error", err)
+		writeError(w, http.StatusInternalServerError, "internal server error")
+	}
+}
+
+// importWorkspaceHandler takes a workspace package: multipart form data with the compiled document (document), the starter bundle
+// (starter) and, when the package has them, the grading bundle (grading) and the build context of the exam's own image (image).
+func importWorkspaceHandler(api WorkspaceAPI, logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// A package can be 40 MiB, which the server's usual limits of seconds for a request are too short for on a slow link.
+		controller := http.NewResponseController(w)
+		_ = controller.SetReadDeadline(time.Now().Add(5 * time.Minute))
+		_ = controller.SetWriteDeadline(time.Now().Add(5 * time.Minute))
+		mediaType, params, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+		if err != nil || mediaType != "multipart/form-data" || params["boundary"] == "" {
+			writeError(w, http.StatusUnsupportedMediaType, "Content-Type must be multipart/form-data")
+			return
+		}
+		reader := multipart.NewReader(http.MaxBytesReader(w, r.Body, maxImportBytes), params["boundary"])
+		parts := map[string][]byte{}
+		limits := map[string]int64{"document": workspace.MaxDocumentBytes, "starter": workspace.MaxBundleBytes, "grading": workspace.MaxBundleBytes, "image": workspace.MaxBundleBytes}
+		for {
+			part, err := reader.NextPart()
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			if err != nil {
+				writeError(w, http.StatusBadRequest, "the form could not be read")
+				return
+			}
+			limit, known := limits[part.FormName()]
+			if !known {
+				writeError(w, http.StatusBadRequest, "unknown part "+strconv.Quote(part.FormName())+"; the parts are document, starter, grading and image")
+				return
+			}
+			if _, again := parts[part.FormName()]; again {
+				writeError(w, http.StatusBadRequest, "the part "+part.FormName()+" is there twice")
+				return
+			}
+			data, err := io.ReadAll(io.LimitReader(part, limit+1))
+			if err != nil || int64(len(data)) > limit {
+				writeError(w, http.StatusRequestEntityTooLarge, "the part "+part.FormName()+" is too large")
+				return
+			}
+			parts[part.FormName()] = data
+		}
+		id, err := api.Import(r.Context(), r.PathValue("id"), parts["document"], parts["starter"], parts["grading"], parts["image"])
+		if err != nil {
+			workspaceError(w, logger, "import", err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, struct {
+			ID string `json:"exam_id"`
+		}{id})
+	}
+}
+
+func workspaceViewHandler(api WorkspaceAPI, logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		principal, ok := PrincipalFromContext(r.Context())
+		if !ok {
+			writeError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		view, err := api.Student(r.Context(), principal.Session.ID)
+		if err != nil {
+			workspaceError(w, logger, "view", err)
+			return
+		}
+		writeJSON(w, http.StatusOK, view)
+	}
+}
+
+func workspaceSocketHandler(api WorkspaceAPI, logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		principal, ok := PrincipalFromContext(r.Context())
+		if !ok {
+			writeError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		api.Serve(w, r, principal.Session.ID)
+	}
+}
+
+func workspaceAdminHandler(api WorkspaceAPI, logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		view, err := api.Admin(r.Context(), r.PathValue("id"))
+		if err != nil {
+			workspaceError(w, logger, "admin", err)
+			return
+		}
+		writeJSON(w, http.StatusOK, view)
+	}
+}
+
+func workspaceSnapshotHandler(api WorkspaceAPI, logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+		if err != nil || id <= 0 {
+			writeError(w, http.StatusBadRequest, "invalid snapshot")
+			return
+		}
+		_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(5 * time.Minute))
+		w.Header().Set("Content-Type", "application/x-tar")
+		w.Header().Set("Cache-Control", "no-store")
+		if err := api.SnapshotTar(r.Context(), id, w); err != nil {
+			if errors.Is(err, workspace.ErrNotFound) {
+				w.Header().Del("Content-Type")
+				writeError(w, http.StatusNotFound, "not found")
+				return
+			}
+			logger.Error("workspace snapshot download", "error", err)
+		}
+	}
+}
+
+func idOf(w http.ResponseWriter, r *http.Request, what string) (int64, bool) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil || id <= 0 {
+		writeError(w, http.StatusBadRequest, "invalid "+what)
+		return 0, false
+	}
+	return id, true
+}
+
+// workspaceRosterHandler lists the workspaces of an exam's students (404 when the exam is not a workspace exam).
+func workspaceRosterHandler(api WorkspaceAPI, logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		roster, err := api.Roster(r.Context(), r.PathValue("id"))
+		if err != nil {
+			workspaceError(w, logger, "roster", err)
+			return
+		}
+		writeJSON(w, http.StatusOK, struct {
+			Students []workspace.RosterEntry `json:"students"`
+		}{roster})
+	}
+}
+
+// workspaceTreeHandler lists the files of a snapshot or a submission.
+func workspaceTreeHandler(api WorkspaceAPI, logger *slog.Logger, submission bool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, ok := idOf(w, r, "id")
+		if !ok {
+			return
+		}
+		var entries []workspace.TreeEntry
+		var err error
+		if submission {
+			entries, err = api.SubmissionTree(r.Context(), id)
+		} else {
+			entries, err = api.SnapshotTree(r.Context(), id)
+		}
+		if err != nil {
+			workspaceError(w, logger, "tree", err)
+			return
+		}
+		writeJSON(w, http.StatusOK, struct {
+			Entries []workspace.TreeEntry `json:"entries"`
+		}{entries})
+	}
+}
+
+// workspaceFileHandler reads one file of a snapshot or a submission, as text for the viewer.
+func workspaceFileHandler(api WorkspaceAPI, logger *slog.Logger, submission bool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, ok := idOf(w, r, "id")
+		if !ok {
+			return
+		}
+		query, ok := proctorQuery(w, r, "path")
+		if !ok {
+			return
+		}
+		var file workspace.FileContent
+		var err error
+		if submission {
+			file, err = api.SubmissionFile(r.Context(), id, query.Get("path"))
+		} else {
+			file, err = api.SnapshotFile(r.Context(), id, query.Get("path"))
+		}
+		if err != nil {
+			workspaceError(w, logger, "file", err)
+			return
+		}
+		writeJSON(w, http.StatusOK, file)
+	}
+}
+
+// workspaceZipHandler downloads a submission's files as a zip.
+func workspaceZipHandler(api WorkspaceAPI, logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, ok := idOf(w, r, "submission")
+		if !ok {
+			return
+		}
+		_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(5 * time.Minute))
+		w.Header().Set("Content-Type", "application/zip")
+		w.Header().Set("Cache-Control", "no-store")
+		if err := api.SubmissionZip(r.Context(), id, w); err != nil {
+			if errors.Is(err, workspace.ErrNotFound) {
+				w.Header().Del("Content-Type")
+				writeError(w, http.StatusNotFound, "not found")
+				return
+			}
+			logger.Error("workspace submission download", "error", err)
+		}
+	}
+}
+
+// workspaceReportHandler downloads the Markdown report of a student's latest submission.
+func workspaceReportHandler(api WorkspaceAPI, logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		report, err := api.Report(r.Context(), r.PathValue("id"))
+		if err != nil {
+			workspaceError(w, logger, "report", err)
+			return
+		}
+		w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		_, _ = io.WriteString(w, report)
+	}
+}
+
+// workspaceGradesHandler downloads the exam's grade sheet, a CSV (Phase 8).
+func workspaceGradesHandler(api WorkspaceAPI, logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		sheet, err := api.GradesCSV(r.Context(), r.PathValue("id"))
+		if err != nil {
+			workspaceError(w, logger, "grades", err)
+			return
+		}
+		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+		w.Header().Set("Content-Disposition", `attachment; filename="grades.csv"`)
+		w.Header().Set("Cache-Control", "no-store")
+		_, _ = w.Write(sheet)
+	}
+}
+
+// workspaceCastHandler downloads a terminal's transcript, an asciinema v2 file.
+func workspaceCastHandler(api WorkspaceAPI, logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, ok := idOf(w, r, "terminal")
+		if !ok {
+			return
+		}
+		file, _, err := api.OpenCast(r.Context(), id)
+		if err != nil {
+			workspaceError(w, logger, "transcript", err)
+			return
+		}
+		defer file.Close()
+		w.Header().Set("Content-Type", "application/x-asciicast")
+		w.Header().Set("Cache-Control", "no-store")
+		_, _ = io.Copy(w, file)
+	}
+}
+
+// gradeBody is what the two grading requests may carry: for the exam, the students to grade (none means all of them); for a student, the
+// submission (none means the latest).
+type gradeBody struct {
+	Sessions   []string `json:"sessions"`
+	Submission int64    `json:"submission"`
+}
+
+func readGradeBody(w http.ResponseWriter, r *http.Request) (gradeBody, bool) {
+	var body gradeBody
+	if r.ContentLength == 0 {
+		return body, true
+	}
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256<<10))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+		writeError(w, http.StatusBadRequest, "the body is JSON with sessions or submission")
+		return body, false
+	}
+	return body, true
+}
+
+// workspaceGradeExamHandler queues the latest submission of the exam's students, or of the students named.
+func workspaceGradeExamHandler(api WorkspaceAPI, logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		body, ok := readGradeBody(w, r)
+		if !ok {
+			return
+		}
+		started, err := api.GradeExam(r.Context(), r.PathValue("id"), body.Sessions)
+		if err != nil {
+			workspaceError(w, logger, "grade exam", err)
+			return
+		}
+		writeJSON(w, http.StatusAccepted, started)
+	}
+}
+
+// workspaceGradeSessionHandler queues one student's submission, the one named or the latest.
+func workspaceGradeSessionHandler(api WorkspaceAPI, logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		body, ok := readGradeBody(w, r)
+		if !ok {
+			return
+		}
+		id, err := api.GradeSession(r.Context(), r.PathValue("id"), body.Submission)
+		if err != nil {
+			workspaceError(w, logger, "grade session", err)
+			return
+		}
+		writeJSON(w, http.StatusAccepted, map[string]int64{"grading": id})
+	}
+}
+
+func workspaceGradingsHandler(api WorkspaceAPI, logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		view, err := api.Gradings(r.Context(), r.PathValue("id"))
+		if err != nil {
+			workspaceError(w, logger, "gradings", err)
+			return
+		}
+		writeJSON(w, http.StatusOK, view)
+	}
+}
+
+func workspaceGradingHandler(api WorkspaceAPI, logger *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, ok := idOf(w, r, "grading")
+		if !ok {
+			return
+		}
+		view, err := api.Grading(r.Context(), id)
+		if err != nil {
+			workspaceError(w, logger, "grading", err)
+			return
+		}
+		writeJSON(w, http.StatusOK, view)
+	}
+}
+
+// workspaceConfirmHandler confirms a finished grading as the student's grade, or (undo) takes the confirmation back.
+func workspaceConfirmHandler(api WorkspaceAPI, logger *slog.Logger, undo bool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, ok := idOf(w, r, "grading")
+		if !ok {
+			return
+		}
+		var err error
+		if undo {
+			err = api.UnconfirmGrading(r.Context(), id)
+		} else {
+			err = api.ConfirmGrading(r.Context(), id)
+		}
+		if err != nil {
+			workspaceError(w, logger, "confirm grading", err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]bool{"confirmed": !undo})
+	}
+}

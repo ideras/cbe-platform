@@ -96,6 +96,8 @@ type View struct {
 	Error       string     `json:"error"`
 	LastSuccess *time.Time `json:"last_success"`
 	Roster      Roster     `json:"roster"`
+	// Workspace is the roster of the monitored exam's workspaces, when the exam is a workspace exam; nil otherwise.
+	Workspace *WorkspaceRoster `json:"workspace"`
 	// Catalog is every exam the server stores; CatalogLoaded is false until the first answer.
 	Catalog       Catalog `json:"catalog"`
 	CatalogLoaded bool    `json:"catalog_loaded"`
@@ -137,10 +139,15 @@ type Service struct {
 	autoSelect bool
 	// picking is set while a native file dialog is open; pendingExam and pendingClass hold what a preview showed. The exam was
 	// previewed for the class pendingExamClass, which is the one it is imported into.
-	picking          bool
+	picking bool
+	// notWorkspace remembers the exams the server said are not workspace exams, so their roster is not asked for again.
+	notWorkspace     map[string]bool
 	pendingExam      *examdoc.Exam
 	pendingExamClass string
-	pendingClass     *pendingFile
+	// pendingWorkspace is the workspace package a preview showed, for the class pendingWorkspaceClass (Phase 7).
+	pendingWorkspace      *pendingWorkspace
+	pendingWorkspaceClass string
+	pendingClass          *pendingFile
 	// pendingRoster is the file previewed as the new roster of the existing class pendingRosterClass.
 	pendingRoster      *pendingFile
 	pendingRosterClass string
@@ -171,7 +178,7 @@ func New(opts Options) (*Service, error) {
 		return nil, errors.New("Exam ID must be a canonical UUID.")
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	s := &Service{opts: opts, client: clientwire.NewHTTPClient(opts.Timeout), ctx: ctx, cancel: cancel, wake: make(chan struct{}, 1), images: make(chan struct{}, 2)}
+	s := &Service{opts: opts, client: clientwire.NewHTTPClient(opts.Timeout), ctx: ctx, cancel: cancel, wake: make(chan struct{}, 1), images: make(chan struct{}, 2), notWorkspace: map[string]bool{}}
 	s.view = View{Server: server, ExamID: opts.ExamID, CredentialAvailable: opts.Token != "", Stale: true}
 	s.loadRemembered()
 	s.wg.Add(1)
@@ -199,6 +206,7 @@ func (s *Service) ServiceShutdown() {
 	s.token, s.credentialFile, s.pendingCredential = "", "", nil
 	s.opts.Token = ""
 	s.pendingExam, s.pendingExamClass, s.pendingClass, s.pendingRoster, s.pendingRosterClass = nil, "", nil, nil, ""
+	s.pendingWorkspace, s.pendingWorkspaceClass = nil, ""
 	s.pendingExamSource, s.downloadParent, s.downloadFolder = nil, "", ""
 	s.downloadProgress = DownloadProgress{}
 	s.view.Connected = false
@@ -418,6 +426,7 @@ func (s *Service) selectLocked(examID string) {
 	s.autoSelect = false
 	s.view.ExamID = examID
 	s.view.Roster = Roster{}
+	s.view.Workspace = nil
 	s.view.Loaded, s.view.Loading, s.view.Stale = false, true, true
 }
 func (s *Service) Refresh() { s.signal() }
@@ -471,6 +480,8 @@ func (s *Service) refresh() {
 	}
 	var roster Roster
 	rosterLoaded := false
+	var workspaces *WorkspaceRoster
+	workspacesLoaded := false
 	if id != "" && (catalogErr != nil || selectedKnown) {
 		err := getJSON(ctx, s.client, base, token, http.MethodGet, "/admin/sessions?exam_id="+id, nil, &roster)
 		if err == nil {
@@ -478,6 +489,15 @@ func (s *Service) refresh() {
 		}
 		rosterLoaded = err == nil
 		failures = append(failures, err)
+		// A workspace exam's students also have workspaces; whether the exam is one is the server's answer, asked once.
+		if rosterLoaded {
+			var isWorkspace bool
+			workspaces, isWorkspace, err = s.workspaceRoster(ctx, base, token, id)
+			workspacesLoaded = err == nil
+			if isWorkspace {
+				failures = append(failures, err)
+			}
+		}
 	}
 	failure := joinDistinct(failures...)
 	s.mu.Lock()
@@ -502,6 +522,9 @@ func (s *Service) refresh() {
 	}
 	if rosterLoaded {
 		s.view.Roster, s.view.Loaded = roster, true
+	}
+	if workspacesLoaded {
+		s.view.Workspace = workspaces
 	}
 	if failure != nil {
 		s.view.Stale = true
@@ -584,6 +607,10 @@ func validateCatalog(catalog Catalog) error {
 			return errors.New("Invalid exam catalog entry; previous observations retained.")
 		}
 		seen[exam.ID] = true
+		// A workspace exam says so, with its TODO items and the state of its own image; a question exam says none of it (Phase 7).
+		if exam.Kind != "" && exam.Kind != "workspace" || exam.Kind == "" && (exam.Todos != nil || exam.Image != nil) || exam.Kind == "workspace" && (exam.Todos == nil || *exam.Todos < 0 || exam.Image == nil) || !validImage(exam.Image) {
+			return errors.New("Invalid exam catalog entry; previous observations retained.")
+		}
 		if exam.Published {
 			published++
 			if exam.ClassID != catalog.CurrentClassID || exam.ClassName != catalog.CurrentClassName {

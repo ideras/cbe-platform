@@ -60,6 +60,10 @@ type fixture struct {
 	remoteTools     []string // the program names the login reply asks the application to look for; none like an older server
 	navigation      string
 	examTools       *calc.Tools // the exam's tools configuration the /exam reply carries; nil like an exam without the key
+	// workspace answers /workspace and /workspace/ws; emptyExam makes /exam answer an exam with no exercises, which is what a workspace
+	// exam is to the question-exam routes.
+	workspace http.Handler
+	emptyExam bool
 }
 
 // sampleContent has two exercises: q1, a text answer whose body carries markup to keep inert, and q2, a code answer.
@@ -112,9 +116,21 @@ func (f *fixture) handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch r.URL.Path {
+	case "/workspace", "/workspace/ws":
+		handler := f.workspace
+		f.mu.Unlock()
+		if handler == nil {
+			http.Error(w, "no such route", http.StatusNotFound)
+			return
+		}
+		handler.ServeHTTP(w, r)
 	case "/exam":
 		code := f.examCode
-		reply := examReply{Exam: Exam{ID: "exam", Title: "Sample", Navigation: f.navigation, Content: sampleContent, Tools: f.examTools}, CurrentExercise: f.status.CurrentExercise, Answers: maps.Clone(f.answers), Latest: f.saved}
+		content := sampleContent
+		if f.emptyExam {
+			content = Content{Exercises: []Exercise{}}
+		}
+		reply := examReply{Exam: Exam{ID: "exam", Title: "Sample", Navigation: f.navigation, Content: content, Tools: f.examTools}, CurrentExercise: f.status.CurrentExercise, Answers: maps.Clone(f.answers), Latest: f.saved}
 		f.mu.Unlock()
 		if code != 0 {
 			http.Error(w, "exam failed", code)

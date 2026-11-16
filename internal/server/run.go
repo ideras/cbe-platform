@@ -7,13 +7,18 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"exam-platform/internal/clock"
 	"exam-platform/internal/config"
 	"exam-platform/internal/httpapi"
+	"exam-platform/internal/runner"
 	"exam-platform/internal/service"
 	"exam-platform/internal/storage"
+	"exam-platform/internal/workspace"
 )
 
 func Run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
@@ -71,8 +76,45 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		return fmt.Errorf("startup reconciliation: %w", err)
 	}
 	logger.Info("server ready", "release", cfg.Version, "bind", listener.Addr().String(), "classes", len(known.Classes), "sqlite", version)
+	options := httpapi.Options{AdminToken: cfg.AdminToken, Exams: exams, Publisher: publisher, Classes: classes, Proctor: sessions, Screenshots: images, Rules: sessions, MaxJSONBytes: cfg.MaxJSONBytes, Version: cfg.Version}
+	var workspaces *workspace.Manager
+	var grader *workspace.Grader
+	var imageBuilder *workspace.ImageBuilder
+	if cfg.RunnerSocket != "" {
+		secret, err := os.ReadFile(cfg.RunnerSecretFile)
+		if err != nil {
+			return fmt.Errorf("the runner's secret: %w", err)
+		}
+		blobs, err := workspace.NewBlobs(cfg.WorkspaceDir)
+		if err != nil {
+			return fmt.Errorf("the workspace folder: %w", err)
+		}
+		repo := store.Workspaces()
+		runnerClient := runner.NewClient(cfg.RunnerSocket, strings.TrimSpace(string(secret)))
+		workspaces = workspace.NewManager(workspace.Options{Repo: repo, Runner: runnerClient, Blobs: blobs, Logger: logger, Now: timekeeper.Now,
+			SnapshotEvery: cfg.WorkspaceSnapshotEvery, Retention: cfg.WorkspaceRetention, TranscriptDir: filepath.Join(cfg.WorkspaceDir, "transcripts")})
+		grader = workspace.NewGrader(workspaces, workspace.GraderOptions{Parallel: cfg.WorkspaceGradeParallel, DefaultTimeout: cfg.WorkspaceGradeTimeout})
+		imageBuilder = workspace.NewImageBuilder(workspaces)
+		options.Workspace = &workspace.Service{Manager: workspaces, Repo: repo, Grader: grader, Images: imageBuilder, Importer: &workspace.Importer{Repo: repo, Runner: runnerClient, Blobs: blobs, Now: timekeeper.Now,
+			Max: workspace.Resources{CPU: cfg.WorkspaceMaxCPU, MemoryMB: cfg.WorkspaceMaxMemoryMB, DiskMB: cfg.WorkspaceMaxDiskMB}, DefaultGrace: sessions.DefaultGraceSeconds}}
+		if err := runnerClient.Ping(ctx); err != nil {
+			logger.Warn("workspace exams are enabled but the runner does not answer yet; containers are made when it does", "socket", cfg.RunnerSocket, "error", err)
+		}
+		// The grading runs and the image builds a stop interrupted are over: they are marked failed before any request can ask about them.
+		grader.Recover(ctx)
+		imageBuilder.Recover(ctx)
+		// An exam with its own image is published only once the image is built (decision P7-11).
+		publisher.Gate = func(ctx context.Context, examID string) error {
+			err := imageBuilder.CheckPublishable(ctx, examID)
+			var blocked *workspace.PublishBlocked
+			if errors.As(err, &blocked) {
+				return &service.PublishBlockedError{Reason: blocked.Reason}
+			}
+			return err
+		}
+	}
 	httpServer := &http.Server{
-		Handler: httpapi.New(timekeeper, sessions, logger, httpapi.Options{AdminToken: cfg.AdminToken, Exams: exams, Publisher: publisher, Classes: classes, Proctor: sessions, Screenshots: images, Rules: sessions, MaxJSONBytes: cfg.MaxJSONBytes, Version: cfg.Version}), ReadHeaderTimeout: 5 * time.Second,
+		Handler: httpapi.New(timekeeper, sessions, logger, options), ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout: 10 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second,
 		MaxHeaderBytes: 16 << 10,
 	}
@@ -107,7 +149,38 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 			logger.Error("screenshot cleanup incomplete; will retry, instructor action required", "error", err)
 		})
 	}()
-	defer func() { cancelWorker(); <-workerDone; <-imageWorkerDone }()
+	workspaceDone := make(chan struct{})
+	go func() {
+		defer close(workspaceDone)
+		if workspaces != nil {
+			workspaces.Supervise(workerCtx)
+		}
+	}()
+	gradingDone := make(chan struct{})
+	go func() {
+		defer close(gradingDone)
+		if grader != nil {
+			grader.Run(workerCtx)
+		}
+	}()
+	buildingDone := make(chan struct{})
+	go func() {
+		defer close(buildingDone)
+		if imageBuilder != nil {
+			imageBuilder.Run(workerCtx)
+		}
+	}()
+	defer func() {
+		cancelWorker()
+		<-workerDone
+		<-imageWorkerDone
+		<-workspaceDone
+		<-gradingDone
+		<-buildingDone
+		if workspaces != nil {
+			workspaces.Close()
+		}
+	}()
 	stopped := make(chan error, 1)
 	go func() { stopped <- httpServer.Serve(listener) }()
 	var runErr error

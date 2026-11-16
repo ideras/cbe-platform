@@ -1,0 +1,282 @@
+//go:build linux
+
+package httpapi
+
+import (
+	"archive/tar"
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"mime/multipart"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"strings"
+	"testing"
+	"time"
+
+	"exam-platform/internal/service"
+	"exam-platform/internal/workspace"
+	"exam-platform/internal/workspace/workspacetest"
+)
+
+// tarOf makes a bundle: name to content, and a trailing / for a folder.
+func tarOf(t testing.TB, files map[string]string, headers ...tar.Header) []byte {
+	t.Helper()
+	var buffer bytes.Buffer
+	writer := tar.NewWriter(&buffer)
+	names := make([]string, 0, len(files))
+	for name := range files {
+		names = append(names, name)
+	}
+	for i := 1; i < len(names); i++ {
+		for j := i; j > 0 && names[j] < names[j-1]; j-- {
+			names[j], names[j-1] = names[j-1], names[j]
+		}
+	}
+	for _, name := range names {
+		header := &tar.Header{Name: name, Typeflag: tar.TypeReg, Mode: 0o644, Size: int64(len(files[name]))}
+		if strings.HasSuffix(name, "/") {
+			header.Typeflag, header.Size, header.Mode = tar.TypeDir, 0, 0o755
+		}
+		if strings.HasSuffix(name, ".sh") || name == "grade" {
+			header.Mode = 0o755
+		}
+		if err := writer.WriteHeader(header); err != nil {
+			t.Fatal(err)
+		}
+		_, _ = writer.Write([]byte(files[name]))
+	}
+	for _, header := range headers {
+		header := header
+		if err := writer.WriteHeader(&header); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_ = writer.Close()
+	return buffer.Bytes()
+}
+
+func hashOf(data []byte) string {
+	sum := sha256.Sum256(data)
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+var starterFiles = map[string]string{
+	"Makefile":     "all:\n\techo built\n",
+	"src/":         "",
+	"src/main.c":   "int main(void) { return 0; }\n",
+	"notes.txt":    "first line\nsecond line\n",
+	"scripts/":     "",
+	"scripts/x.sh": "#!/bin/sh\necho x\n",
+}
+
+// document is a compiled workspace exam for the package of starterFiles.
+func document(starter, grading []byte) workspace.Document {
+	three := int64(120)
+	doc := workspace.Document{
+		Kind: "workspace", Title: "Lab 1", PIN: "exam-secret", DurationSeconds: 3600, GraceSeconds: &three,
+		Workspace: workspace.Settings{Image: "cbe/cpp20", Terminal: true, Run: "echo running; exit 0", Check: "echo checking; exit 3", Ignore: []string{"build/**"},
+			Resources: workspace.Resources{CPU: 1, MemoryMB: 256, DiskMB: 50}},
+		Content:       workspace.Content{Instructions: "<p>Build it.</p>", Todos: []workspace.Todo{{ID: "t1", TextHTML: "Do <code>one</code>"}, {ID: "t2", TextHTML: "Do two"}}},
+		StarterBundle: hashOf(starter),
+	}
+	if grading != nil {
+		doc.GradingBundle = hashOf(grading)
+	}
+	return doc
+}
+
+var gradingFiles = map[string]string{"grade": "#!/bin/sh\necho '{}'\n", "tests/hidden.txt": "HIDDEN-GRADING-MARKER\n"}
+
+// importBody makes the multipart form of an import.
+func importBody(t testing.TB, doc workspace.Document, starter, grading []byte, extra map[string][]byte) (string, string) {
+	t.Helper()
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	put := func(name string, data []byte) {
+		part, err := writer.CreateFormField(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = part.Write(data)
+	}
+	encoded, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	put("document", encoded)
+	put("starter", starter)
+	if grading != nil {
+		put("grading", grading)
+	}
+	for name, data := range extra {
+		put(name, data)
+	}
+	_ = writer.Close()
+	return body.String(), writer.FormDataContentType()
+}
+
+type workspaceFixture struct {
+	*apiFixture
+	runner  *workspacetest.Runner
+	manager *workspace.Manager
+	grader  *workspace.Grader
+	builder *workspace.ImageBuilder
+	// publisher is the one the routes use: it has the gate of an exam's own image, as the server's has.
+	publisher *service.Publisher
+	image     []byte
+	service   *workspace.Service
+	blobs     workspace.Blobs
+	repo      workspace.Repository
+	server    *httptest.Server
+	examID    string
+	options   Options
+	starter   []byte
+	grading   []byte
+	dir       string
+}
+
+// fixtureOptions are what a fixture adds to the default: an image bundle to import with the package, and whether to leave the exam unpublished.
+type fixtureOptions struct {
+	image       map[string]string
+	unpublished bool
+	// noImport leaves the stack with its class and no exam, for a test that imports its own package.
+	noImport bool
+	// controlRate raises the relay's limit on control messages (a fuzz target tests the decoder, not the limit).
+	controlRate float64
+	// starter replaces the example project of starterFiles.
+	starter map[string]string
+}
+
+// newWorkspaceFixture has a class, a published workspace exam made by importing a package through the admin route, and a server on a
+// real socket.
+func newWorkspaceFixture(t testing.TB, change func(*workspace.Document)) *workspaceFixture {
+	t.Helper()
+	return newWorkspaceFixtureWith(t, change, fixtureOptions{})
+}
+
+func newWorkspaceFixtureWith(t testing.TB, change func(*workspace.Document), opts fixtureOptions) *workspaceFixture {
+	t.Helper()
+	f := &workspaceFixture{apiFixture: newUnpublishedAPIFixture(t)}
+	f.dir = t.TempDir()
+	f.runner = workspacetest.New(f.dir)
+	f.runner.Now = f.clock.Now
+	t.Cleanup(f.runner.Close)
+	var err error
+	if f.blobs, err = workspace.NewBlobs(f.dir + "/blobs"); err != nil {
+		t.Fatal(err)
+	}
+	f.repo = f.store.Workspaces()
+	f.manager = workspace.NewManager(workspace.Options{Repo: f.repo, Runner: f.runner, Blobs: f.blobs, Logger: f.logger, Now: f.clock.Now, SnapshotEvery: 60 * time.Second,
+		HeartbeatTimeout: 5 * time.Second, ReadyTimeout: 10 * time.Second, Retention: time.Hour, TranscriptDir: f.dir + "/transcripts", ControlRate: opts.controlRate, ControlBurst: opts.controlRate * 2})
+	t.Cleanup(f.manager.Close)
+	f.grader = workspace.NewGrader(f.manager, workspace.GraderOptions{Parallel: 2, DefaultTimeout: 5 * time.Minute})
+	graderCtx, stopGrader := context.WithCancel(context.Background())
+	graderDone := make(chan struct{})
+	go func() { f.grader.Run(graderCtx); close(graderDone) }()
+	t.Cleanup(func() { stopGrader(); <-graderDone })
+	f.builder = workspace.NewImageBuilder(f.manager)
+	builderCtx, stopBuilder := context.WithCancel(context.Background())
+	builderDone := make(chan struct{})
+	go func() { f.builder.Run(builderCtx); close(builderDone) }()
+	t.Cleanup(func() { stopBuilder(); <-builderDone })
+	f.publisher = service.NewPublisher(f.store, f.clock)
+	f.publisher.Gate = func(ctx context.Context, examID string) error {
+		err := f.builder.CheckPublishable(ctx, examID)
+		var blocked *workspace.PublishBlocked
+		if errors.As(err, &blocked) {
+			return &service.PublishBlockedError{Reason: blocked.Reason}
+		}
+		return err
+	}
+	f.service = &workspace.Service{Manager: f.manager, Repo: f.repo, Grader: f.grader, Images: f.builder, Importer: &workspace.Importer{Repo: f.repo, Runner: f.runner, Blobs: f.blobs, Now: f.clock.Now,
+		Max: workspace.Resources{CPU: 2, MemoryMB: 2048, DiskMB: 500}, DefaultGrace: f.sessions.DefaultGraceSeconds}}
+	f.options = Options{AdminToken: testAdminToken, Workspace: f.service, Proctor: f.sessions, Rules: f.sessions, Publisher: f.publisher}
+	f.router = New(f.clock, f.sessions, f.logger, f.options)
+	f.server = httptest.NewServer(f.router)
+	t.Cleanup(f.server.Close)
+	project := starterFiles
+	if opts.starter != nil {
+		project = opts.starter
+	}
+	f.starter, f.grading = tarOf(t, project), tarOf(t, gradingFiles)
+	doc := document(f.starter, f.grading)
+	if change != nil {
+		change(&doc)
+	}
+	grading := f.grading
+	if doc.GradingBundle == "" {
+		// An exam whose document names no grading bundle is imported without one.
+		grading, f.grading = nil, nil
+	}
+	if opts.noImport {
+		return f
+	}
+	var extra map[string][]byte
+	if opts.image != nil {
+		f.image = tarOf(t, opts.image)
+		doc.ImageBundle = hashOf(f.image)
+		extra = map[string][]byte{"image": f.image}
+	}
+	body, contentType := importBody(t, doc, f.starter, grading, extra)
+	w := requestWithType(f.router, "POST", "/admin/class/"+apiClassID+"/workspace-exam", body, contentType, "Bearer "+testAdminToken)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("import = %d %s", w.Code, w.Body.String())
+	}
+	f.examID = decoded[struct {
+		ID string `json:"exam_id"`
+	}](t, w.Body.Bytes()).ID
+	if !opts.unpublished {
+		f.publish(t, f.examID)
+	}
+	return f
+}
+
+func requestWithType(handler http.Handler, method, path, body, contentType, authorization string) *httptest.ResponseRecorder {
+	r := httptest.NewRequest(method, path, strings.NewReader(body))
+	r.Header.Set("Content-Type", contentType)
+	if authorization != "" {
+		r.Header.Set("Authorization", authorization)
+	}
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, r)
+	return w
+}
+
+// loginReady logs a student in and waits for their workspace to be ready.
+func (f *workspaceFixture) loginReady(t testing.TB, account string) loginResponse {
+	t.Helper()
+	login := f.login(t, account)
+	eventually(t, "the workspace of "+account, func() bool {
+		info, err := f.repo.Session(context.Background(), login.SessionID)
+		return err == nil && info.State == workspace.StateReady
+	})
+	return login
+}
+
+func (f *workspaceFixture) dial(t testing.TB, token string) *workspacetest.Client {
+	t.Helper()
+	return workspacetest.Dial(t, f.server.URL, token)
+}
+
+func eventually(t testing.TB, what string, ok func() bool) {
+	t.Helper()
+	workspacetest.Eventually(t, 20*time.Second, what, ok)
+}
+
+func ok(m map[string]any) bool { return workspacetest.OK(m) }
+
+func code(m map[string]any) string { return workspacetest.Code(m) }
+
+func readFile(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}

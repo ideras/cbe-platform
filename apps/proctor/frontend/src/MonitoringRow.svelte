@@ -2,9 +2,11 @@
   import Icon from '../../../../shared/theme/Icon.svelte';
   import { remainingTime } from '../../../../shared/exam/timing.js';
   import { localTime } from './dates.js';
+  import { workspaceBadge, activityText, todoText, todoNote, useText, gradeLine } from './workspace.js';
   import { inProgress, canForce, needsAttention, duration, sound, networkBadge, focusBadge, lifecycleBadge, lockLabel, lowTime, loginGate, remoteFindings, appRelease } from './roster.js';
   // serverVersion is the server's release, which each student's application is compared with.
-  let { row, serverTime, policy, serverVersion = '', disabled = false, timingBusy = false, unlockBusy = false, actionBusy = false, releaseBusy = false,
+  // workspace is the student's workspace on a workspace exam, null while they have none, and undefined for an exam that has no workspaces.
+  let { row, workspace, serverTime, policy, serverVersion = '', disabled = false, timingBusy = false, unlockBusy = false, actionBusy = false, releaseBusy = false,
     onReview, onExtend, onUnlock, onForce, onRelease } = $props();
   const network = $derived(networkBadge(row));
   const focus = $derived(focusBadge(row));
@@ -12,6 +14,7 @@
   const gate = $derived(loginGate(row));
   const remote = $derived(remoteFindings(row));
   const release = $derived(appRelease(row, serverVersion));
+  const space = $derived(workspace ? workspaceBadge(workspace) : null);
 </script>
 <tr data-session-id={row.session_id} class:network-row={row.network_warning} class:focus-row={row.focus_warning} class:locked-row={!!row.locked} class:attention-row={needsAttention(row)}>
   <td>
@@ -57,6 +60,26 @@
     </div>
     <small>Last known capped loss: {duration(row.last_known_unfocused_duration_ms)}</small>
   </td>
+  {#if workspace !== undefined}
+    <td class="workspace">
+      {#if workspace}
+        <span class="badge {space.tone}">{space.text}</span>
+        <div class="kv">
+          <div><span class="key">Student:{' '}</span><span class="value">{workspace.connected ? 'connected' : 'not connected'}</span></div>
+          <div><span class="key">Last activity:{' '}</span><span class="value">{activityText(workspace.last_activity, serverTime)}</span></div>
+          <div><span class="key">Container:{' '}</span><span class="value">{useText(workspace)}</span></div>
+          <div class="todo"><span class="key">TODO:{' '}</span><span class="value">{todoText(workspace)}</span> <em>({todoNote})</em></div>
+        </div>
+        {#if workspace.submissions}<small>{workspace.submissions} submission{workspace.submissions === 1 ? '' : 's'}{#if workspace.last_submission_at}{' · last '}{localTime(workspace.last_submission_at, '')}{/if}{#if workspace.submitted_final}{' · '}<strong>final made</strong>{/if}</small>{:else}<small>Nothing submitted yet</small>{/if}
+        {#if gradeLine(workspace.grade)}{@const grade = gradeLine(workspace.grade)}
+          <div class="grade tone-{grade.tone}"><span class="key">Grade:{' '}</span><span class="value">{grade.text}</span>{#if grade.note}{' '}<em>({grade.note})</em>{/if}</div>
+        {/if}
+        {#if workspace.agent_restarts}<small>Workspace restarted {workspace.agent_restarts} time{workspace.agent_restarts === 1 ? '' : 's'}</small>{/if}
+      {:else}
+        <small>No workspace yet</small>
+      {/if}
+    </td>
+  {/if}
   <td>
     <span class="badge {life.tone}">{life.text}</span>
     <div class="remaining" class:low={lowTime(row, serverTime)}><span class="key">{row.status === 'grace' ? 'Grace remaining' : 'Remaining'}:{' '}</span><strong>{remainingTime(row, serverTime)}</strong></div>
@@ -102,6 +125,11 @@
   .network { background: var(--warn-fill); color: var(--warn-text); }
   .focus, .lock { background: var(--alert-fill); color: var(--alert-text); }
   .neutral { background: var(--bg-secondary); color: var(--text-main); }
+  .todo em { color: var(--text-muted); font-size: .76rem; font-style: normal; }
+  .grade em { color: var(--text-muted); font-size: .76rem; font-style: normal; }
+  .tone-ok .value { color: var(--ok-text); font-weight: 700; }
+  .tone-lock .value { color: var(--alert-text); font-weight: 600; }
+  .tone-active .value { color: var(--action-hover); }
   .remaining { margin-top: .1rem; font-family: var(--font-mono); font-size: 1rem; }
   .remaining .key { font-size: .76rem; }
   .remaining strong { color: inherit; font-weight: 700; }

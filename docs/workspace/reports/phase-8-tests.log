@@ -1,0 +1,204 @@
+# Phase 8 test logs, 2026-11-15 (this file keeps what each run said; the load test's own files are in phase-8-load/, the fuzz run's in phase-8-fuzz.log)
+
+## deploy/workspace/test-security.sh (a real container, a private runner)
+== the runner's real-runtime tests, against the private runner (pid 1511913)
+    integration_test.go:369: a loop on the container's one core: 100% (the runner's figure from its own two samples)
+    integration_test.go:398: 9 reads through links and a missing hard link were refused (the hard link was not made: "hard=1")
+    integration_test.go:432: the archive of the links has 7 symbolic links and the content of nothing outside /work
+    integration_test.go:471: mounts (point and file system):
+        /work xfs
+        /run/cbe btrfs
+        /etc/hosts tmpfs
+        /dev/shm tmpfs
+        /run/.containerenv tmpfs
+        /etc/hostname tmpfs
+        / overlay
+        /dev tmpfs
+        /run tmpfs
+        /sys sysfs
+        /tmp tmpfs
+        /proc proc
+        /dev/mqueue mqueue
+        /dev/pts devpts
+        /var/tmp tmpfs
+        /sys/fs/cgroup cgroup2
+        /dev/null devtmpfs
+        /dev/zero devtmpfs
+        /dev/full devtmpfs
+        /dev/tty devtmpfs
+        /dev/random devtmpfs
+        /dev/urandom devtmpfs
+        /proc/acpi tmpfs
+        /proc/kcore devtmpfs
+        /proc/keys devtmpfs
+        /proc/latency_stats devtmpfs
+        /proc/timer_list devtmpfs
+        /proc/scsi tmpfs
+        /sys/firmware tmpfs
+        /sys/dev/block tmpfs
+        /sys/devices/virtual/powercap tmpfs
+        /proc/asound proc
+        /proc/bus proc
+        /proc/fs proc
+        /proc/irq proc
+        /proc/sys proc
+        /proc/sysrq-trigger proc
+    integration_test.go:479: privileges of a student's program: hard=1
+    integration_test.go:486: a student asked for 25,000 files and got 19979 (the limit is 20000)
+    integration_test.go:497: the container after all this: {Session:sa-91be797d1589 Exam:exam-1732015fc59f State:running ExitCode:<nil> StartedAt:2026-11-15 17:50:37.917593385 +0000 UTC Seeded:true Resources:{CPU:1 MemoryMB:256 DiskMB:20} Agent:{Connected:true LastSeen:2026-11-15 17:50:47.928283148 +0000 UTC Version:v0.16.0-34-g351c823 UptimeMS:10002 OpenTerminals:1 OOMKills:0 SlowPaths:false}} (<nil>)
+    integration_test.go:553: CBE_IT_KEEP is not set
+--- PASS: TestRealRunner (15.62s)
+    --- PASS: TestRealRunner/images (0.01s)
+    --- PASS: TestRealRunner/create,_seed_and_start (0.56s)
+    --- PASS: TestRealRunner/the_files_round-trip_through_the_agent,_owned_by_the_student (0.15s)
+    --- PASS: TestRealRunner/snapshots_read_/work_through_the_archive,_running_and_paused,_byte_for_byte (0.13s)
+    --- PASS: TestRealRunner/the_abuse_of_one_student_does_not_reach_the_other (4.04s)
+    --- PASS: TestRealRunner/the_processor_use_of_a_busy_container_is_the_runner's_own_figure (2.01s)
+    --- PASS: TestRealRunner/nothing_leads_out_of_/work,_and_the_container_sees_only_what_it_was_given (7.84s)
+    --- PASS: TestRealRunner/the_exam_server's_account_cannot_reach_the_runtime_or_a_student's_files (0.00s)
+    --- PASS: TestRealRunner/losing_the_agent:_the_container_comes_back_on_the_same_volume_with_its_files (0.58s)
+    --- SKIP: TestRealRunner/a_session_is_left_for_the_restart_test (0.00s)
+PASS
+== the security checks passed
+
+## images/test.sh, test-grading.sh, test-image.sh (the first lines of that run are test-security's earlier failure, fixed: a test of mine used a fork bomb for a CPU figure)
+== images/test.sh 11:47:54
+== the image
+  PASS  the agent in it is labelled with its hash
+  PASS  the user is student, 1000:1000
+  PASS  root and student have no password
+  PASS  there is no sudo
+  PASS  no file is setuid or setgid
+  PASS  /work belongs to the student
+== starting the container as the runner will
+== the agent, from outside
+  PASS  the agent answers on the socket in the runner's folder
+  PASS  it is PID 1
+  PASS  openat2 works under the default seccomp profile (no slow paths)
+  PASS  a heartbeat arrives
+  PASS  PID 1 is the agent, and it runs as uid 1000
+  PASS  the root file system is read-only
+  PASS  there is no network
+  PASS  there is no way to become root
+== files, from outside
+  PASS  create, read, write, move, delete
+  PASS  files are uid 1000 inside, and cannot be read from the host
+  PASS  a link to /etc made in the terminal leads nowhere
+== terminals, from outside
+  PASS  make builds the project, streams its output and returns the exit code
+  PASS  the toolchain: C++20 with ranges and format, cmake, gdb, flex, bison, nano
+  PASS  cmake configures and builds
+  PASS  flex and bison generate code that compiles
+  PASS  gdb runs a program
+  PASS  a terminal resizes
+  PASS  files created from a terminal produce events
+  PASS  orphaned processes are reaped (no zombies)
+== limits, from outside
+  PASS  a full disk is QUOTA, for a create and for a write, and frees up again
+  PASS  the memory limit kills the program, not the container, and the agent says so
+  PASS  a fork storm hits the process limit and the agent still answers
+== stopping
+  PASS  podman stop ends the agent on SIGTERM without waiting for the kill (.121573830 s)
+  PASS  the socket is gone after a clean stop
+  PASS  the agent exited by itself, with code 0
+
+31 passed, 0 failed
+image test exit=0
+== test-grading 11:48:14
+    grading_e2e_test.go:204: 0001: 40 of 40 in 1005 ms
+    grading_e2e_test.go:204: 0002: 16 of 40 in 1049 ms
+    grading_e2e_test.go:204: 0003: 0 of 40 in 1020 ms
+    grading_e2e_test.go:330: probe 0:
+        uid=1000 gid=1000 home=/work pwd=/work grading=1
+        work=only-0.txt 
+        grading_writable=no
+        grading_removable=no
+        rootfs_writable=no
+        tmp_exec=no
+        network=no
+        interfaces=lo 
+        outside=ls: cannot access '/data': No such file or directory /home: student 
+        CapEff: 0000000000000000 NoNewPrivs: 1 
+        work_writable=yes
+    grading_e2e_test.go:330: probe 1:
+        uid=1000 gid=1000 home=/work pwd=/work grading=1
+        work=only-1.txt 
+        grading_writable=no
+        grading_removable=no
+        rootfs_writable=no
+        tmp_exec=no
+        network=no
+        interfaces=lo 
+        outside=ls: cannot access '/data': No such file or directory /home: student 
+        CapEff: 0000000000000000 NoNewPrivs: 1 
+        work_writable=yes
+    grading_e2e_test.go:496: forty runs of one second: 32s in all, at most 2 at once; host memory available 49349 MiB before, 49342 MiB lowest (7 MiB less), 49496 MiB after; load 5.11 21.86 20.78 3/3170 1504190 before, 3.24 19.80 20.13 2/3159 1506109 after
+--- PASS: TestRealServer (58.90s)
+    --- PASS: TestRealServer/the_example_package's_grade_script,_in_real_containers (5.01s)
+    --- PASS: TestRealServer/what_a_grading_container_is_and_is_not_allowed (0.58s)
+    --- PASS: TestRealServer/a_run_that_does_not_end,_runs_out_of_memory,_floods_or_fails (20.70s)
+    --- PASS: TestRealServer/forty_runs_at_once (32.11s)
+PASS
+== what the runs left
+nothing left behind
+grading exit=0
+== test-image 11:49:17
+the course image's digest: sha256:baac8cde6b9011521f80a878fc8fc475f9cf173da0ee274c2c0d316a9715cbb9
+    image_e2e_test.go:135: built in 2.004s
+    image_e2e_test.go:346: the memory limit stopped the build: building at STEP "RUN sh -c 'x=$(head -c 600000000 /dev/zero | tr "\0" a); echo ${#x}'": while running runtime: exit status 137
+    image_e2e_test.go:369: two builds of five seconds each took 12.339s: one at a time
+    image_e2e_test.go:523: 27 looks in 13.106s: 8 with new text while building (the first at 502ms), 25 with progress; the build took 12666 ms
+--- PASS: TestRealServer (51.36s)
+    --- PASS: TestRealServer/an_exam_whose_image_is_not_built_cannot_be_published (0.00s)
+    --- PASS: TestRealServer/the_build,_its_log_and_the_base's_digest (5.69s)
+    --- PASS: TestRealServer/published,_its_student_compiles_against_the_library,_with_no_network_and_the_contract_of_any_container (1.82s)
+    --- PASS: TestRealServer/the_library_is_in_that_exam_only (0.39s)
+    --- PASS: TestRealServer/a_FROM_that_is_not_the_exam's_course_image_fails_with_a_clear_message (1.10s)
+    --- PASS: TestRealServer/a_Containerfile_that_changes_the_user,_the_entrypoint_or_the_agent_fails_verification (4.58s)
+    --- PASS: TestRealServer/the_limits_of_a_build:_its_time,_its_memory,_and_one_at_a_time (24.26s)
+    --- PASS: TestRealServer/the_log_of_a_build_is_read_while_it_goes,_in_pieces,_with_its_progress (13.15s)
+PASS
+== what the runs left (before they are cleaned up)
+nothing left behind (the images the run built are removed next)
+image build exit=0
+== done 11:50:14
+
+## scripts/regression/qexam-diff.sh
+== the earlier build: 3861680 Merge pull request #22 from ideras/app-version-roster
+Preparing worktree (detached HEAD 3861680)
+== this tree: 727c6b9 test(workspace): the Phase 8 security checks in a real container, the student application's isolation, and a private runner for the load test (with uncommitted changes)
+== 30 steps, 1449 lines of record
+== the two event logs are identical
+
+## scripts/ci/test.py --race (exit 0)
+== ci 12:02:03
+?   	exam-platform/cmd/cbe-agent	[no test files]
+?   	exam-platform/cmd/cbe-loadtest	[no test files]
+?   	exam-platform/cmd/cbe-quota-helper	[no test files]
+?   	exam-platform/cmd/cbe-runner	[no test files]
+?   	exam-platform/cmd/server	[no test files]
+?   	exam-platform/internal/clock	[no test files]
+ok  	exam-platform/internal/httpapi	140.935s
+?   	exam-platform/internal/loadtest	[no test files]
+ok  	exam-platform/internal/workspace/e2e	1.014s
+?   	exam-platform/internal/workspace/workspacetest	[no test files]
+?   	exam-platform/scripts/regression	[no test files]
+?   	exam-platform/apps/student/cmd/student	[no test files]
+?   	exam-platform/apps/student/internal/sysvolume	[no test files]
+?   	exam-platform/apps/proctor/cmd/proctor	[no test files]
+ci exit=0
+== done 12:04:26
+
+## proctor: go test -race ./internal/..., npm test (91), Playwright (332 passed)
+== proctor go 11:51:21
+ok  	exam-platform/apps/proctor/internal/dashboard	5.923s
+proctor go exit=0
+== proctor unit
+ℹ pass 91
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 188.503266
+== proctor playwright 11:51:30
+30:  332 passed (5.3m)

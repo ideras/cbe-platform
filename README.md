@@ -56,6 +56,7 @@ shared/calc/         Calculator engine
 shared/clientwire/   Shared desktop HTTP transport and wire contracts
 shared/examdoc/      Markdown exam compiler and examc command
 shared/examimage/    Checks and writes the pictures embedded in exams
+shared/containerfile/ Reads and checks the Containerfile of a workspace exam's image/ folder (the compiler, the server and the runner share it)
 shared/exam/         Shared exam rendering helpers
 shared/theme/        Shared styles and Svelte components
 docs/                Deployment, exam format, exam timing and submission download documentation
@@ -170,7 +171,7 @@ make test
 make vet
 ```
 
-These targets cover the server, `shared/clientwire`, `shared/examdoc` and `shared/examimage`. Desktop modules and the calculator module have separate checks:
+These targets cover the server, `shared/clientwire`, `shared/containerfile`, `shared/examdoc` and `shared/examimage`. Desktop modules and the calculator module have separate checks:
 
 ```sh
 make desktop-test

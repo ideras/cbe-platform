@@ -87,7 +87,7 @@ func newAPIFixture(t *testing.T) *apiFixture {
 }
 
 // publish admits the students of the exam's class to it through the service the proctor dashboard uses.
-func (f *apiFixture) publish(t *testing.T, id string) {
+func (f *apiFixture) publish(t testing.TB, id string) {
 	t.Helper()
 	publisher := service.NewPublisher(f.store, f.clock)
 	catalog, err := publisher.Catalog(t.Context())
@@ -100,7 +100,7 @@ func (f *apiFixture) publish(t *testing.T, id string) {
 }
 
 // newUnpublishedAPIFixture stores the test exam but admits nobody.
-func newUnpublishedAPIFixture(t *testing.T) *apiFixture {
+func newUnpublishedAPIFixture(t testing.TB) *apiFixture {
 	t.Helper()
 	f := &apiFixture{clock: &apiClock{now: fixedClock{}.Now()}, logs: &bytes.Buffer{}}
 	f.logger = slog.New(slog.NewJSONHandler(f.logs, nil))
@@ -134,7 +134,7 @@ func request(handler http.Handler, method, path, body, authorization string) *ht
 	return w
 }
 
-func (f *apiFixture) login(t *testing.T, account string) loginResponse {
+func (f *apiFixture) login(t testing.TB, account string) loginResponse {
 	t.Helper()
 	body, err := json.Marshal(loginRequest{AccountNumber: account, ExamPIN: "exam-secret"})
 	if err != nil {

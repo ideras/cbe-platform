@@ -1,0 +1,61 @@
+# Course image cbe/cpp20: a C++20 toolchain, and the agent as its first process. See images/README.md for the contract every
+# course image keeps, and images/build.sh, which builds this file with the agent and checks that a rebuild gives the same image.
+
+# The base is pinned by digest (the manifest list of ubuntu:24.04 on 2026-11-13), and every package comes from a dated snapshot of
+# the Ubuntu archive, so a rebuild next year gives the same toolchain. To update either, change it here and rebuild.
+FROM docker.io/library/ubuntu:24.04@sha256:2198e4c65076e9cb0b3d695219df667c0e3b0072da64ca3c2648aca17dcecaf5
+
+ARG APT_SNAPSHOT=20261105T000000Z
+# The build date every file and every account record is stamped with (the default is 2000-01-01); build.sh passes it as well.
+ARG SOURCE_DATE_EPOCH=946684800
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# 1. The toolchain. The base image has no CA certificates to reach the snapshot over HTTPS, so build.sh lends its own bundle for this
+#    one step, as a bind mount that leaves nothing in the image.
+RUN --mount=type=bind,source=ca.crt,target=/run/host-ca.crt,ro \
+    set -eux; \
+    rm -f /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list; \
+    printf 'Types: deb\nURIs: https://snapshot.ubuntu.com/ubuntu/%s\nSuites: noble noble-updates noble-security\nComponents: main universe\nSigned-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n' "${APT_SNAPSHOT}" > /etc/apt/sources.list.d/snapshot.sources; \
+    apt_options='-o Acquire::https::CaInfo=/run/host-ca.crt -o Acquire::Check-Valid-Until=false'; \
+    apt-get ${apt_options} update; \
+    apt-get ${apt_options} install -y --no-install-recommends \
+        g++ make cmake gdb flex bison binutils libc6-dev \
+        nano less procps file time; \
+    apt-get clean; \
+    rm -rf /var/lib/apt/lists/* /var/cache/apt/* /var/log/apt /var/log/dpkg.log /var/log/alternatives.log /var/log/bootstrap.log \
+           /var/cache/ldconfig/aux-cache /var/cache/debconf/*-old /var/lib/dpkg/*-old /etc/apt/sources.list.d/snapshot.sources
+
+# 2. The student. The base image already has a user ubuntu at 1000:1000, and the quota helper and the runner both rely on the student
+#    being 1000:1000 (decision P0-30): so that user is renamed, not a second one added. No sudo, no password, no setuid program.
+RUN set -eux; \
+    usermod -l student -d /home/student -m -s /bin/bash ubuntu; \
+    groupmod -n student ubuntu; \
+    passwd -l student; \
+    passwd -l root; \
+    test "$(id -u student)" = 1000; \
+    test "$(id -g student)" = 1000; \
+    ! command -v sudo; \
+    find / -xdev -type f \( -perm -4000 -o -perm -2000 \) -exec chmod a-s {} +; \
+    install -d -o student -g student -m 0755 /work; \
+    install -d -m 0755 /run/cbe; \
+    for account in root student; do chage -d "$(( SOURCE_DATE_EPOCH / 86400 ))" "$account"; done; \
+    rm -rf /var/log/lastlog /var/log/faillog /var/cache/ldconfig/aux-cache
+
+# These two change with every build of the agent, so they come after the steps that take long.
+ARG AGENT_SHA256=unknown
+ARG AGENT_VERSION=dev
+COPY --chmod=0755 cbe-agent /usr/local/bin/cbe-agent
+
+ENV LANG=C.UTF-8 TERM=xterm-256color
+LABEL org.opencontainers.image.title="cbe/cpp20" \
+      io.cbe.course="cpp20" \
+      io.cbe.agent.sha256="${AGENT_SHA256}" \
+      io.cbe.agent.version="${AGENT_VERSION}" \
+      io.cbe.apt-snapshot="${APT_SNAPSHOT}"
+
+# The agent is the first process, and it runs as the student. The socket goes to /run/cbe, which the runner mounts from the host;
+# the files are in /work, which it mounts too. A read-only root and a tmpfs at /tmp are what the runner starts it with.
+USER 1000:1000
+WORKDIR /work
+ENTRYPOINT ["/usr/local/bin/cbe-agent"]

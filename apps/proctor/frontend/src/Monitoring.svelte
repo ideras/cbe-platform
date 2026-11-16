@@ -7,6 +7,8 @@
   import ExtendGraceDialog from './ExtendGraceDialog.svelte';
   import EndTimeDialog from './EndTimeDialog.svelte';
   import MonitoringRow from './MonitoringRow.svelte';
+  import { todoNote, gradingSummary, gradeSheetNote } from './workspace.js';
+  import GradeDialog from './GradeDialog.svelte';
   import Icon from '../../../../shared/theme/Icon.svelte';
   import { localTime } from './dates.js';
   import { rosterFilters, rosterCounts, sortRoster, filterRoster, initials, duration, spoken, examLength, lockRule, inProgress, appRelease } from './roster.js';
@@ -33,6 +35,35 @@
   const visible = $derived(filterRoster(sessions, filter));
   const counts = $derived(rosterCounts(sessions));
   const missing = $derived(view.roster?.students_without_session ?? []);
+  // A workspace exam has one more column: what each student's container is doing, and what they say they have done (their own ticks).
+  const workspaces = $derived(new Map((view.workspace?.students ?? []).map(student => [student.session_id, student])));
+  const hasWorkspace = $derived(Boolean(view.workspace));
+  const grading = $derived(gradingSummary(view.workspace?.students));
+  let gradeModal = $state(false);
+  let gradeBusy = $state(false);
+  let gradeError = $state('');
+  async function gradeClass() {
+    if (gradeBusy) return;
+    gradeBusy = true; gradeError = ''; outcome = '';
+    try {
+      const started = await api.GradeExam([]);
+      const left = started.skipped.length;
+      outcome = `${started.queued.length} submission${started.queued.length === 1 ? ' is' : 's are'} queued for grading${left ? `; ${left} student${left === 1 ? ' was' : 's were'} left out (${[...new Set(started.skipped.map(skip => skip.reason))].join('; ')})` : ''}. The grades appear in the roster as the runs end.`;
+      gradeModal = false; await onRefresh();
+    } catch (err) { gradeError = String(err); }
+    finally { gradeBusy = false; }
+  }
+  let sheetBusy = $state(false);
+  // The grade sheet: a CSV with a line for every student of the class (docs/workspace/TEACHER-GUIDE.md). The server makes it; this asks where to keep it.
+  async function downloadGrades() {
+    if (sheetBusy) return;
+    sheetBusy = true; reviewError = ''; outcome = '';
+    try {
+      const path = await api.SaveWorkspaceGrades(view.exam_id);
+      if (path) outcome = gradeSheetNote(path, grading);
+    } catch (err) { reviewError = String(err); }
+    finally { sheetBusy = false; }
+  }
   const policy = $derived(view.roster?.policy ?? {});
   // The server's release, and the students still working whose application is another one.
   const serverVersion = $derived(view.catalog?.server_version ?? '');
@@ -148,6 +179,16 @@
             </div>
           {/if}
         </div>
+        {#if hasWorkspace}
+          <div class="grading" role="group" aria-label="Grading">
+            <span class="chip"><Icon name="fileCheck" size={15} /><span>Grading: <b>{grading.done} graded</b>{grading.confirmed ? ` (${grading.confirmed} confirmed)` : ''}{grading.waiting + grading.running ? ` · ${grading.waiting + grading.running} waiting or being graded` : ''}{grading.failed ? ` · ${grading.failed} failed` : ''}{grading.ungraded ? ` · ${grading.ungraded} submitted, not graded` : ''}</span></span>
+            <span class="note-inline">A grade is advisory until you confirm it.</span>
+            <div class="settings-actions">
+              <button class="outline" disabled={disabled || view.busy || gradeBusy || !grading.gradable} onclick={() => { gradeModal = true; gradeError = ''; }}><Icon name="done" size={15} />Grade submissions…</button>
+              <button class="outline" disabled={disabled || view.busy || sheetBusy || !grading.done} title={grading.done ? 'Save the grades of the class as a spreadsheet file (CSV): the confirmed ones and the advisory ones in separate columns' : 'Nobody has a grade yet'} onclick={downloadGrades}><Icon name="download" size={15} />Download grades…</button>
+            </div>
+          </div>
+        {/if}
         <div class="policy">
           <p><Icon name="lock" size={13} /><span>Exam rules: alarm after {spoken(policy.focus_threshold_ms)} · screenshot every {spoken(policy.capture_interval_ms)} · {lockRule(policy)}.</span></p>
           <p><Icon name="server" size={13} /><span>Server policy: heartbeat {duration(policy.heartbeat_interval_ms)} · overdue strictly beyond {duration(policy.overdue_threshold_ms)}{#if serverVersion}{` · release ${serverVersion}`}{/if}.</span></p>
@@ -163,12 +204,12 @@
           <!-- svelte-ignore a11y_no_noninteractive_tabindex (Keyboard users need to scroll this region in WebKit.) -->
           <div class="table-scroll" role="region" aria-label="Session table — scroll horizontally for controls" tabindex="0"><table>
             <caption class="visually-hidden">All sessions — locked first, then student name; warning columns are independent</caption>
-            <colgroup><col class="student-column" /><col class="network-column" /><col class="focus-column" /><col class="time-column" /><col class="control-column" /></colgroup>
-            <thead><tr><th scope="col">Student</th><th scope="col">Network</th><th scope="col">Focus</th><th scope="col">Lifecycle / remaining</th><th scope="col">Review / control</th></tr></thead>
+            <colgroup><col class="student-column" /><col class="network-column" /><col class="focus-column" />{#if hasWorkspace}<col class="workspace-column" />{/if}<col class="time-column" /><col class="control-column" /></colgroup>
+            <thead><tr><th scope="col">Student</th><th scope="col">Network</th><th scope="col">Focus</th>{#if hasWorkspace}<th scope="col">Workspace <span class="muted-th">(TODO is {todoNote})</span></th>{/if}<th scope="col">Lifecycle / remaining</th><th scope="col">Review / control</th></tr></thead>
             <tbody>{#each visible as row (row.session_id)}
-              <MonitoringRow {row} serverTime={view.roster.server_time} {policy} {serverVersion} disabled={disabled || view.busy} {timingBusy} {unlockBusy} {actionBusy} {releaseBusy}
+              <MonitoringRow {row} workspace={hasWorkspace ? (workspaces.get(row.session_id) ?? null) : undefined} serverTime={view.roster.server_time} {policy} {serverVersion} disabled={disabled || view.busy} {timingBusy} {unlockBusy} {actionBusy} {releaseBusy}
                 onReview={review} onExtend={row => askTiming('grace', row)} onUnlock={askUnlock} onForce={row => ask('force', row)} onRelease={askRelease} />
-            {:else}<tr class="empty-row"><td colspan="5">{sessions.length ? 'No sessions match this filter.' : 'No sessions for this exam yet.'}</td></tr>{/each}</tbody>
+            {:else}<tr class="empty-row"><td colspan={hasWorkspace ? 6 : 5}>{sessions.length ? 'No sessions match this filter.' : 'No sessions for this exam yet.'}</td></tr>{/each}</tbody>
           </table></div>
         </div>
       {/if}
@@ -185,6 +226,7 @@
     </section>
   {/if}
 </div>
+{#if gradeModal}<GradeDialog summary={grading} busy={gradeBusy} error={gradeError} onCancel={() => gradeModal = false} onConfirm={gradeClass} />{/if}
 {#if modal}<Confirmation kind={modal.kind} student={modal.student} busy={actionBusy} error={actionError} onCancel={() => modal = null} onConfirm={action} />{/if}
 {#if unlockModal}<UnlockDialog student={unlockModal} live={sessions.find(row => row.session_id === unlockModal.session_id) ?? null} serverTime={view.roster?.server_time} exam={monitored}
   busy={unlockBusy} error={unlockError} onReview={row => api.OpenReview(row.session_id)} onCancel={() => unlockModal = null} onConfirm={unlock} />{/if}
@@ -220,6 +262,8 @@
   .chip b { color: inherit; } .chip.time { background: var(--warn-fill); color: var(--warn-text); } .time b, .chip.length b { font-family: var(--font-mono); }
   .settings-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-left: auto; }
   .settings-actions button { display: inline-flex; align-items: center; justify-content: center; gap: .4rem; min-height: 36px; padding: .3rem .9rem; border-radius: 8px; font-size: .9rem; }
+  .grading { display: flex; align-items: center; flex-wrap: wrap; gap: .6rem; padding: .7rem .8rem; background: var(--bg-primary); border: 1px solid var(--border-subtle); border-radius: 10px; }
+  .note-inline { color: var(--text-muted); font-size: .8rem; }
   .outline { background: var(--bg-raised); color: var(--action-hover); border-color: var(--action-border); }
   .policy { display: flex; flex-wrap: wrap; gap: .4rem 1.2rem; color: var(--text-muted); font-size: .8rem; }
   .policy p { display: flex; align-items: flex-start; gap: .35rem; margin: 0; }
@@ -232,6 +276,11 @@
   .table-scroll { overflow-x: auto; }
   table { width: 100%; min-width: 980px; border-collapse: collapse; table-layout: fixed; }
   .student-column { width: 19%; } .network-column { width: 24%; } .focus-column { width: 19%; } .time-column { width: 20%; } .control-column { width: 18%; }
+  .workspace-column { width: 22%; }
+  table:has(.workspace-column) { min-width: 1240px; }
+  table:has(.workspace-column) .student-column { width: 16%; } table:has(.workspace-column) .network-column { width: 18%; } table:has(.workspace-column) .focus-column { width: 14%; }
+  table:has(.workspace-column) .time-column { width: 15%; } table:has(.workspace-column) .control-column { width: 15%; }
+  .muted-th { color: var(--text-muted); font-weight: 400; letter-spacing: 0; text-transform: none; }
   th { text-align: left; padding: .6rem .8rem; background: var(--bg-secondary); color: var(--action-hover); border-bottom: 1px solid var(--border-subtle); font-size: .7rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
   .empty-row td { padding: 1.5rem; text-align: center; color: var(--text-muted); }
   .visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }

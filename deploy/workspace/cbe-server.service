@@ -1,0 +1,40 @@
+[Unit]
+Description=CBE exam server (workspace exams enabled), running as its own account
+After=network-online.target cbe-quota-helper.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cbe-server
+Group=cbe-server
+# cbe-server is in the group cbe-ipc, which is what lets it reach the runner's socket and its secret, and nothing else of the runner's.
+SupplementaryGroups=cbe-ipc
+WorkingDirectory=/data/cbe-platform/server
+# One line per setting: the database, the screenshots, the bundles and snapshots and the admin token are all in the server's own folder.
+# Change -bind to the address of the Wi-Fi router's interface. The runner's socket and secret are in /data/cbe-platform/ipc.
+ExecStart=/usr/local/bin/cbe-portal-server \
+  -bind 0.0.0.0:8080 \
+  -database /data/cbe-platform/server/exams.db \
+  -screenshots /data/cbe-platform/server/screenshots \
+  -admin-token-file /data/cbe-platform/server/admin-token \
+  -runner-socket /data/cbe-platform/ipc/runner.sock \
+  -runner-secret-file /data/cbe-platform/ipc/runner.secret \
+  -workspace-dir /data/cbe-platform/server/workspace
+Restart=on-failure
+RestartSec=2
+# The server is a plain web service: it needs nothing of the system but its own folder and the network.
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/data/cbe-platform/server
+ReadOnlyPaths=/data/cbe-platform/ipc
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+# The students' containers are the runner's: stopping or restarting the server leaves them running (they are found again).
+
+[Install]
+WantedBy=multi-user.target

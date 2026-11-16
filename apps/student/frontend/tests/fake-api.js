@@ -1,3 +1,4 @@
+import { FakeWorkspaceServer } from './fake-workspace-server.js';
 let alertListener = () => {};
 export function OnFocusAlert(listener) { alertListener = listener; return () => alertListener = () => {}; }
 export async function AcknowledgeRules() { record('AcknowledgeRules'); state.rules_accepted = true; }
@@ -209,7 +210,46 @@ export async function CalcEvaluate(input, angleMode) {
   if (trimmed === 'ans+1') { fakeAns += 1; return { ok: true, display: String(fakeAns) }; }
   return { ok: false, code: 'SYNTAX' };
 }
+// A workspace exam (Phase 4): the container and the server in front of it are an in-memory FakeWorkspaceServer, and the application's own
+// Go side is stood in for here: it holds the connection (state.workspace.connection), answers the page's requests, and sends events.
+const outputListeners = new Set();
+const messageListeners = new Set();
+let workspaceServer = null;
+export function OnWorkspaceOutput(listener) { outputListeners.add(listener); return () => outputListeners.delete(listener); }
+export function OnWorkspaceMessage(listener) { messageListeners.add(listener); return () => messageListeners.delete(listener); }
+export async function WorkspaceRequest(message) {
+  record('WorkspaceRequest');
+  if (!workspaceServer || state.workspace?.connection !== 'connected') throw Error('The workspace is not connected.');
+  const { type, id, ...fields } = JSON.parse(message);
+  return JSON.stringify({ id, ...(await workspaceServer.request(type, fields)) });
+}
+export async function WorkspaceInput(term, data) {
+  record('WorkspaceInput');
+  if (!workspaceServer || state.workspace?.connection !== 'connected') throw Error('The workspace is not connected.');
+  workspaceServer.input(term, data);
+}
+export async function WorkspaceReconnect() { record('WorkspaceReconnect'); window.__studentHarness.workspaceConnection('connected'); }
+const base64 = bytes => { let text = ''; for (const byte of bytes) text += String.fromCharCode(byte); return btoa(text); };
 window.__studentHarness = {
+  // Makes the exam a workspace exam. `files` is the project; the page then loads an IDE in place of exercises.
+  useWorkspace({ files = {}, terminal = true, canRun = true, canCheck = true, instructions = '<p>Build the program and make <code>make check</code> pass.</p>',
+    todos = [{ id: 't1', text_html: 'Implement <code>push_front</code>', points: 10 }, { id: 't2', text_html: 'Add a test of your own' }], done = {} } = {}) {
+    workspaceServer = new FakeWorkspaceServer({ files, terminal, canRun, canCheck });
+    workspaceServer.onMessage = message => { for (const listener of messageListeners) listener(JSON.stringify(message)); };
+    workspaceServer.onOutput = (term, bytes) => { for (const listener of outputListeners) listener({ term, data: base64(bytes) }); };
+    exam.content = { instructions: '', exercises: [] }; answers = {};
+    state.workspace = { title: 'Lab 2', instructions, todos, done, terminal, can_run: canRun, can_check: canCheck, connection: 'connected', note: '', generation: 1,
+      status: { state: 'running', last_snapshot_at: '2035-01-02T03:00:00Z', deadline_at: '2035-01-02T04:00:00Z', seconds_left: 3600, agent_restarts: 0, terminal } };
+  },
+  get workspaceServer() { return workspaceServer; },
+  workspaceConnection(name, note = '') {
+    const w = state.workspace; if (!w) return;
+    const wasConnected = w.connection === 'connected';
+    w.connection = name; w.note = note;
+    if (name === 'connected' && !wasConnected) w.generation += 1;
+    if (workspaceServer) workspaceServer.online = name === 'connected';
+  },
+  workspaceStatus(value) { Object.assign(state.workspace.status, value); },
   calculatorTools(value) { examTools = value; exam.tools = value; },
   calcUnavailable(value) { calcUnavailable = value; },
   calcQueueFull(value) { calcQueueFull = value; },

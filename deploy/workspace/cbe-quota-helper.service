@@ -1,0 +1,22 @@
+[Unit]
+Description=CBE quota helper: size-limited /work folders for workspace exams (root, serves only cbe-runner)
+After=local-fs.target
+RequiresMountsFor=/data/cbe-platform/work
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/cbe-quota-helperd -volume /data/cbe-platform/work -state /data/cbe-platform -socket /run/cbe-quota/helper.sock -runner cbe-runner
+Restart=on-failure
+RestartSec=2
+# It only needs to set XFS project quotas and make folders on the volume.
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/data/cbe-platform /run/cbe-quota
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=false
+RuntimeDirectory=cbe-quota
+RuntimeDirectoryMode=0750
+
+[Install]
+WantedBy=multi-user.target

@@ -70,7 +70,7 @@ type statusResponse struct {
 	NetworkLocksLeft int `json:"network_locks_left"`
 }
 
-func loginHandler(sessions SessionAPI, logger *slog.Logger) http.HandlerFunc {
+func loginHandler(sessions SessionAPI, logger *slog.Logger, workspaces WorkspaceAPI) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		input, ok := decodeBody[loginRequest](w, r, 8<<10)
 		if !ok {
@@ -80,6 +80,10 @@ func loginHandler(sessions SessionAPI, logger *slog.Logger) http.HandlerFunc {
 		if err != nil {
 			serviceError(w, logger, "login", err)
 			return
+		}
+		if workspaces != nil {
+			// A workspace exam's container is made now, while the student reads the rules, not when they first need it.
+			workspaces.OnLogin(result.SessionID)
 		}
 		writeJSON(w, http.StatusOK, loginResponse{Policy: result.Policy, SessionToken: result.Token, SessionID: result.SessionID, DeadlineAt: result.DeadlineAt, ServerTime: result.ServerTime, MinVolumePercent: result.MinVolumePercent, Locked: result.Locked, NetworkLocksLeft: result.NetworkLocksLeft, RemoteTools: result.RemoteTools})
 	}
@@ -167,7 +171,10 @@ func serviceError(w http.ResponseWriter, logger *slog.Logger, operation string, 
 	var invalid *service.ValidationError
 	var active *service.ActiveSessionsError
 	var open *service.SessionOpenError
+	var blocked *service.PublishBlockedError
 	switch {
+	case errors.As(err, &blocked):
+		writeError(w, http.StatusConflict, blocked.Reason)
 	case errors.As(err, &open):
 		// The account is open on another computer. Retry-After says when that is no longer assumed, which is how the
 		// student application tells this refusal from the other conflicts.

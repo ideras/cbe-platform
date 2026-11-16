@@ -5,6 +5,8 @@ This document specifies how to write an exam for the platform as a single Markdo
 - **Agents:** read [Rules at a glance](#rules-at-a-glance), the [authoring workflow](#authoring-workflow-for-agents) and the [delivery checklist](#delivery-checklist). Everything else is reference. Treat every "must" as enforced by the compiler: a file that breaks one cannot be imported.
 - **Instructors:** start with the [minimal exam](#a-minimal-exam), then read [Answer fields](#answer-fields), the part that is specific to this platform.
 
+This document is about **question exams**. A **workspace exam**, where each student works on a project in an editor and a terminal, is a folder with its own format: see [workspace-format.md](workspace-format.md).
+
 The Markdown is only the authoring format. The proctor dashboard compiles the file when you choose it in **Import exam…** (`shared/examdoc`), turning it into the JSON document the server stores; the server never parses Markdown. [`testdata/exam.md`](../testdata/exam.md) is a complete real exam and [`testdata/exam.json`](../testdata/exam.json) is what it compiles to.
 
 ## Rules at a glance

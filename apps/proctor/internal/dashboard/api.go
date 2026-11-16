@@ -215,6 +215,11 @@ type ExamEntry struct {
 	LockedSessions int `json:"locked_sessions"`
 	// Tools is the exam's effective tools configuration; omitted when the exam has no calculator.
 	Tools *calc.Tools `json:"tools,omitempty"`
+	// Kind is "workspace" for a workspace exam and empty for a question exam. Todos and Image are only there for a workspace exam: how many TODO
+	// items it has, and the state of its own image (state none when its package has no image folder).
+	Kind  string     `json:"kind,omitempty"`
+	Todos *int       `json:"todos,omitempty"`
+	Image *ExamImage `json:"image,omitempty"`
 }
 
 // SettingsValues are the monitoring values the Settings page edits, in whole milliseconds.
@@ -311,12 +316,15 @@ var (
 	errUnreachable  = errors.New("Server unreachable or request timed out. Data or action outcome is unconfirmed; refresh before retrying.")
 )
 
+// errMissing is the server saying a record, an image or a route is not there.
+var errMissing = errors.New("Requested record or image is unavailable, missing or purged.")
+
 func apiError(status int) error {
 	switch status {
 	case 401, 403:
 		return errUnauthorized
 	case 404, 410:
-		return errors.New("Requested record or image is unavailable, missing or purged.")
+		return errMissing
 	case 400, 413, 415:
 		return errors.New("The server rejected the request. Check the selected exam and input.")
 	}

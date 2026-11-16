@@ -30,7 +30,7 @@ func New(clock clock.Clock, sessions SessionAPI, logger *slog.Logger, options ..
 	if cfg.Rules != nil {
 		mux.HandleFunc("GET /rules", rulesHandler(cfg.Rules, logger))
 	}
-	mux.Handle("POST /login", loginHandler(sessions, logger))
+	mux.Handle("POST /login", loginHandler(sessions, logger, cfg.Workspace))
 	mux.Handle("GET /session-status", StudentAuth(sessions, logger, http.HandlerFunc(statusHandler)))
 	mux.Handle("GET /exam", StudentAuth(sessions, logger, examHandler(sessions, logger)))
 	mux.Handle("POST /autosave", StudentAuth(sessions, logger, answerHandler(sessions, logger, cfg.MaxJSONBytes, false)))
@@ -39,6 +39,31 @@ func New(clock clock.Clock, sessions SessionAPI, logger *slog.Logger, options ..
 	mux.Handle("POST /heartbeat", StudentAuth(sessions, logger, heartbeatHandler(sessions, logger)))
 	mux.Handle("POST /event", StudentAuth(sessions, logger, eventHandler(sessions, logger)))
 	admin := http.NewServeMux()
+	if cfg.Workspace != nil {
+		mux.Handle("GET /workspace", StudentAuth(sessions, logger, workspaceViewHandler(cfg.Workspace, logger)))
+		mux.Handle("GET /workspace/ws", StudentAuth(sessions, logger, workspaceSocketHandler(cfg.Workspace, logger)))
+		admin.Handle("POST /admin/class/{id}/workspace-exam", importWorkspaceHandler(cfg.Workspace, logger))
+		admin.Handle("GET /admin/workspace/session/{id}", workspaceAdminHandler(cfg.Workspace, logger))
+		admin.Handle("GET /admin/workspace/snapshot/{id}/tar", workspaceSnapshotHandler(cfg.Workspace, logger))
+		admin.Handle("GET /admin/workspace/exam/{id}/roster", workspaceRosterHandler(cfg.Workspace, logger))
+		admin.Handle("GET /admin/workspace/exam/{id}/grades.csv", workspaceGradesHandler(cfg.Workspace, logger))
+		admin.Handle("GET /admin/workspace/snapshot/{id}/tree", workspaceTreeHandler(cfg.Workspace, logger, false))
+		admin.Handle("GET /admin/workspace/snapshot/{id}/file", workspaceFileHandler(cfg.Workspace, logger, false))
+		admin.Handle("GET /admin/workspace/submission/{id}/tree", workspaceTreeHandler(cfg.Workspace, logger, true))
+		admin.Handle("GET /admin/workspace/submission/{id}/file", workspaceFileHandler(cfg.Workspace, logger, true))
+		admin.Handle("GET /admin/workspace/submission/{id}/zip", workspaceZipHandler(cfg.Workspace, logger))
+		admin.Handle("GET /admin/workspace/session/{id}/report", workspaceReportHandler(cfg.Workspace, logger))
+		admin.Handle("GET /admin/workspace/terminal/{id}/cast", workspaceCastHandler(cfg.Workspace, logger))
+		admin.Handle("POST /admin/workspace/exam/{id}/grade", workspaceGradeExamHandler(cfg.Workspace, logger))
+		admin.Handle("POST /admin/workspace/session/{id}/grade", workspaceGradeSessionHandler(cfg.Workspace, logger))
+		admin.Handle("GET /admin/workspace/session/{id}/gradings", workspaceGradingsHandler(cfg.Workspace, logger))
+		admin.Handle("GET /admin/workspace/grading/{id}", workspaceGradingHandler(cfg.Workspace, logger))
+		admin.Handle("POST /admin/workspace/grading/{id}/confirm", workspaceConfirmHandler(cfg.Workspace, logger, false))
+		admin.Handle("POST /admin/workspace/grading/{id}/unconfirm", workspaceConfirmHandler(cfg.Workspace, logger, true))
+		admin.Handle("POST /admin/workspace/exam/{id}/image/build", workspaceImageBuildHandler(cfg.Workspace, logger))
+		admin.Handle("GET /admin/workspace/exam/{id}/image", workspaceImageHandler(cfg.Workspace, logger))
+		admin.Handle("GET /admin/workspace/exam/{id}/image/build/{build}", workspaceImageBuildLogHandler(cfg.Workspace, logger))
+	}
 	if cfg.Screenshots != nil {
 		mux.Handle("POST /screenshot", StudentAuth(sessions, logger, screenshotUploadHandler(cfg.Screenshots, logger)))
 		admin.Handle("GET /admin/screenshot/{id}", screenshotGetHandler(cfg.Screenshots, logger, false))
@@ -52,7 +77,7 @@ func New(clock clock.Clock, sessions SessionAPI, logger *slog.Logger, options ..
 		admin.Handle("DELETE /admin/exam/{id}", deleteExamHandler(cfg.Exams, logger))
 	}
 	if cfg.Publisher != nil {
-		admin.Handle("GET /admin/exams", examCatalogHandler(cfg.Publisher, cfg.Version, logger))
+		admin.Handle("GET /admin/exams", catalogHandler(cfg.Publisher, cfg.Version, cfg.Workspace, logger))
 		admin.Handle("POST /admin/exam/{id}/publish", publishHandler(cfg.Publisher, logger))
 		admin.Handle("POST /admin/unpublish", unpublishHandler(cfg.Publisher, logger))
 	}

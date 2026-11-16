@@ -1,0 +1,5 @@
+# images/build.sh cpp20 --check on 2026-11-13: two builds from nothing (--no-cache) of the same context
+agent: v0.16.0-21-g9fe122b, sha256 006b74b30f38a33ea005dce2470c455c19ef9032b06bfdb6b972087ad27dcd82
+build a: 869b4a3488ee4704a72cc03f2d2603efd8379c67cb7f3360ec7c86a4e1c00f4f
+build b: 869b4a3488ee4704a72cc03f2d2603efd8379c67cb7f3360ec7c86a4e1c00f4f
+REPRODUCIBLE: two builds from nothing gave the same image

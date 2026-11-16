@@ -24,13 +24,13 @@ func changeAnswer(w http.ResponseWriter, r *http.Request, admitting bool) bool {
 
 func TestRenamingAClassSendsTheNameAndChecksTheAnswer(t *testing.T) {
 	f := newPublishFixture(t, examID)
-	f.server.reply = func(w http.ResponseWriter, r *http.Request, body []byte) bool {
+	f.server.setReply(func(w http.ResponseWriter, r *http.Request, body []byte) bool {
 		if r.Method == "PATCH" && r.URL.Path == "/admin/class/"+classID {
 			reply(w, map[string]any{"class_id": classID, "name": "Mathematics 10B", "student_count": 5, "exam_count": 2, "created_at": at, "published_exam": nil})
 			return true
 		}
 		return false
-	}
+	})
 	renamed, err := f.RenameClass(classID, "  Mathematics 10B ")
 	if err != nil || renamed.ID != classID || renamed.Name != "Mathematics 10B" || renamed.StudentCount != 5 {
 		t.Fatalf("renamed = %+v, %v", renamed, err)
@@ -51,7 +51,7 @@ func TestRenamingAClassSendsTheNameAndChecksTheAnswer(t *testing.T) {
 
 func TestARenameTheServerRefusesOrAnswersWronglyIsReported(t *testing.T) {
 	f := newPublishFixture(t, examID)
-	f.server.reply = func(w http.ResponseWriter, r *http.Request, body []byte) bool {
+	f.server.setReply(func(w http.ResponseWriter, r *http.Request, body []byte) bool {
 		switch string(body) {
 		case `{"name":"Taken"}`:
 			w.Header().Set("Content-Type", "application/json")
@@ -63,7 +63,7 @@ func TestARenameTheServerRefusesOrAnswersWronglyIsReported(t *testing.T) {
 			http.Error(w, "boom "+secret, 500)
 		}
 		return true
-	}
+	})
 	_, err := f.RenameClass(classID, "Taken")
 	var reject *rejection
 	if !errors.As(err, &reject) || reject.Status != 409 || !strings.Contains(err.Error(), "already exists") {
@@ -79,7 +79,7 @@ func TestARenameTheServerRefusesOrAnswersWronglyIsReported(t *testing.T) {
 
 func TestDeletingAClassNeedsConfirmationAndIsReportedFaithfully(t *testing.T) {
 	f := newPublishFixture(t, examID)
-	f.server.reply = func(w http.ResponseWriter, r *http.Request, body []byte) bool {
+	f.server.setReply(func(w http.ResponseWriter, r *http.Request, body []byte) bool {
 		if r.Method != "DELETE" {
 			return false
 		}
@@ -94,7 +94,7 @@ func TestDeletingAClassNeedsConfirmationAndIsReportedFaithfully(t *testing.T) {
 			http.Error(w, "boom", 500)
 		}
 		return true
-	}
+	})
 	if _, err := f.DeleteClass(otherClass, false); err == nil || len(f.server.seen("DELETE", "/admin/class/")) != 0 {
 		t.Fatalf("an unconfirmed deletion was sent: %v", err)
 	}
@@ -112,10 +112,10 @@ func TestDeletingAClassNeedsConfirmationAndIsReportedFaithfully(t *testing.T) {
 		t.Fatalf("unclear failure = %v", err)
 	}
 	// Answering for another class is not a confirmation of this one.
-	f.server.reply = func(w http.ResponseWriter, r *http.Request, body []byte) bool {
+	f.server.setReply(func(w http.ResponseWriter, r *http.Request, body []byte) bool {
 		reply(w, map[string]any{"class_id": classID, "name": "x", "students": 1, "pruned": 0})
 		return r.Method == "DELETE"
-	}
+	})
 	if _, err := f.DeleteClass(otherClass, true); err == nil || !strings.Contains(err.Error(), "invalid") {
 		t.Fatalf("a mismatched answer = %v", err)
 	}
@@ -123,7 +123,7 @@ func TestDeletingAClassNeedsConfirmationAndIsReportedFaithfully(t *testing.T) {
 
 func TestANewRosterIsComparedFirstAndOnlyReplacesTheClassItWasChosenFor(t *testing.T) {
 	f := newPublishFixture(t, examID)
-	f.server.reply = func(w http.ResponseWriter, r *http.Request, body []byte) bool { return changeAnswer(w, r, true) }
+	f.server.setReply(func(w http.ResponseWriter, r *http.Request, body []byte) bool { return changeAnswer(w, r, true) })
 	f.chosen = writeTemp(t, "class-a.csv", append([]byte("\xef\xbb\xbf"), rosterDocument...))
 	preview, err := f.ChooseRosterFile(classID)
 	if err != nil || !preview.Valid || preview.File != "class-a.csv" || preview.Students != 2 || preview.Added != 1 || preview.Removed != 3 || preview.WarningCount != 1 || preview.Warnings[0].Row != 4 || !preview.Admitting || preview.Applied {
@@ -153,10 +153,10 @@ func TestANewRosterIsComparedFirstAndOnlyReplacesTheClassItWasChosenFor(t *testi
 
 func TestARosterFileTheServerRejectsListsItsProblemsAndCannotBeApplied(t *testing.T) {
 	f := newPublishFixture(t, examID)
-	f.server.reply = func(w http.ResponseWriter, r *http.Request, body []byte) bool {
+	f.server.setReply(func(w http.ResponseWriter, r *http.Request, body []byte) bool {
 		problemsReply(w, 400, "invalid request", "roster CSV missing required column \"email\"")
 		return true
-	}
+	})
 	f.chosen = writeTemp(t, "bad.csv", []byte("account_number\n1\n"))
 	preview, err := f.ChooseRosterFile(classID)
 	if err != nil || preview.Valid || len(preview.Problems) != 1 {
@@ -181,7 +181,7 @@ func TestARosterFileTheServerRejectsListsItsProblemsAndCannotBeApplied(t *testin
 func TestAReplacementTheServerRefusesKeepsTheFileAndAnUnclearOneDropsIt(t *testing.T) {
 	f := newPublishFixture(t, examID)
 	mode := "refuse"
-	f.server.reply = func(w http.ResponseWriter, r *http.Request, body []byte) bool {
+	f.server.setReply(func(w http.ResponseWriter, r *http.Request, body []byte) bool {
 		if r.URL.Query().Get("dry_run") == "true" {
 			return changeAnswer(w, r, false)
 		}
@@ -193,7 +193,7 @@ func TestAReplacementTheServerRefusesKeepsTheFileAndAnUnclearOneDropsIt(t *testi
 		}
 		http.Error(w, "boom "+secret, 500)
 		return true
-	}
+	})
 	f.chosen = writeTemp(t, "class.csv", []byte(rosterDocument))
 	if _, err := f.ChooseRosterFile(classID); err != nil {
 		t.Fatal(err)

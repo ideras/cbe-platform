@@ -1,0 +1,21 @@
+== build the driver (it carries the fsync probe and the density check) ==
+== host ==
+cpu: Intel(R) Core(TM) i9-8950HK CPU @ 2.90GHz, 12 threads; memory: 64055 MiB; load: 2.87 2.59 1.99
+== image (network is allowed while an image is built, D11) ==
+localhost/cbe-spike-cpp:1 343 MB
+== sample project: a C++20 lab with STL headers, three translation units ==
+== quota folders for 40 students + a probe ==
+== 1. one compile alone ==
+run 1: user 2.51s, system 0.27s, wall 2.79s, biggest process 162 MiB, rc=0
+run 2: user 2.55s, system 0.26s, wall 2.82s, biggest process 162 MiB, rc=0
+run 3: user 2.50s, system 0.28s, wall 2.79s, biggest process 162 MiB, rc=0
+== 3a. autosave latency, machine idle ==
+{"max_ms":5.839,"n":300,"p50_ms":3.578,"p95_ms":4.719,"p99_ms":5.355}
+== 2. 40 containers press make at the same instant ==
+== results: 40 concurrent compiles ==
+all 40 finished in 132.1s wall (slowest container 129.0s, median 114.7s), failures: 0
+CPU per compile: 12.49s (user+system); host average 4.0 cores busy during the storm
+biggest single process: median 162 MiB, max 162 MiB; the user slice peaked at 4093 MiB for 40 containers
+autosave latency while the storm ran: {"max_ms":52.033,"n":300,"p50_ms":5.423,"p95_ms":14.201,"p99_ms":47.483}
+== host after: load 38.23 18.68 8.16, free 49342 MiB available ==
+sizing exit=0

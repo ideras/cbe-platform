@@ -3,8 +3,13 @@
   import Icon from '../../../../shared/theme/Icon.svelte';
   import { formatTime } from '../../../../shared/exam/timing.js';
   import { localDateTime } from './dates.js';
+  import { imageChip, publishBlock } from './workspace.js';
   let { entry, monitored = false, locked = false, deemphasized = false, monitorable, calculator, logins, admission,
-    onMonitor, onPreview, onPublish, onUnpublish, onDownload, onPurge, onDelete } = $props();
+    onMonitor, onPreview, onPublish, onUnpublish, onDownload, onPurge, onDelete, onImage } = $props();
+  // A workspace exam (Phase 7) has TODO items where a question exam has exercises, and may have an image of its own, built before it is published.
+  const workspace = $derived(entry.kind === 'workspace');
+  const chip = $derived(imageChip(entry.image));
+  const blocked = $derived(publishBlock(entry));
   let copying = $state(false);
   let copied = $state(false);
   let copyError = $state('');
@@ -28,6 +33,8 @@
       <h3>{entry.title}</h3>
       <div class="exam-tags">
         {#if entry.published}<span class="tag open">Published</span>{/if}
+        {#if workspace}<span class="tag workspace" title="This exam is taken in a workspace: files, a terminal and a project, not question fields">Workspace</span>{/if}
+        {#if chip}<span class="tag image-{chip.tone}" title={chip.title}>{chip.text}</span>{/if}
         {#if monitored}<span class="tag monitoring">Monitoring</span>{/if}
         {#if entry.navigation === 'forward_only'}<span class="tag forward" title="Students cannot go back to an exercise once they move on">Forward only</span>{/if}
         {#if calculator}<span class="tag calc" title={calculator}><Icon name="calculator" size={12} />{calculator}</span>{/if}
@@ -39,16 +46,17 @@
     </div>
     <div class="row-actions" role="group" aria-label="Actions for {entry.title}">
       <button class:primary={monitored && !deemphasized} disabled={locked || !monitorable} aria-label="Monitor {entry.title}" title={monitorable ? `Open the monitoring window for ${entry.title}` : 'Nobody has taken this exam yet; publish it first'} onclick={() => onMonitor(entry)}><Icon name="monitor" class="monitor" size="1.35rem" /></button>
-      <button disabled={locked} aria-label="Preview {entry.title}" title={`Preview ${entry.title} as the students see it, calculator included`} onclick={() => onPreview(entry)}><Icon name="preview" size="1.35rem" /></button>
-      {#if !entry.published}<button disabled={locked} aria-label="Publish {entry.title}…" title="Publish {entry.title}…" onclick={() => onPublish(entry)}><Icon name="publish" size="1.35rem" /></button>{/if}
+      <button disabled={locked || workspace} aria-label="Preview {entry.title}" title={workspace ? 'A workspace exam has no question fields to preview; its TODO items are listed here' : `Preview ${entry.title} as the students see it, calculator included`} onclick={() => onPreview(entry)}><Icon name="preview" size="1.35rem" /></button>
+      {#if chip}<button disabled={locked} aria-label="Image of {entry.title}…" title={entry.image.state === 'not_built' ? `Build the image of ${entry.title}…` : `The image of ${entry.title}: build, log…`} onclick={() => onImage(entry)}><Icon name="server" size="1.35rem" /></button>{/if}
+      {#if !entry.published}<button disabled={locked || !!blocked} aria-label="Publish {entry.title}…" title={blocked || `Publish ${entry.title}…`} onclick={() => onPublish(entry)}><Icon name="publish" size="1.35rem" /></button>{/if}
       {#if entry.published}<button disabled={locked} aria-label="Close admission to {entry.title}…" title="Close admission to {entry.title}…" onclick={() => onUnpublish(entry)}><Icon name="closeAdmission" class="close-admission" size="1.35rem" /></button>{/if}
-      {#if entry.total_sessions > 0}<button disabled={locked} aria-label="Download submissions of {entry.title}…" title="Download submissions of {entry.title}…" onclick={() => onDownload(entry)}><Icon name="download" class="download" size="1.35rem" /></button>{/if}
+      {#if entry.total_sessions > 0}<button disabled={locked} aria-label={workspace ? `Download grades of ${entry.title}…` : `Download submissions of ${entry.title}…`} title={workspace ? `Download the grades of ${entry.title} as a spreadsheet file (CSV)…` : `Download submissions of ${entry.title}…`} onclick={() => onDownload(entry)}><Icon name="download" class="download" size="1.35rem" /></button>{/if}
       {#if entry.total_sessions > 0}<button class="purge" disabled={locked || entry.active_sessions > 0} aria-label="Purge screenshots of {entry.title}…" title={entry.active_sessions > 0 ? 'Students are still working in this exam; purge once grades are final' : `Delete the screenshots of ${entry.title} after grading`} onclick={() => onPurge(entry)}><Icon name="purge" size="1.35rem" /></button>{/if}
       {#if !entry.published}<button class="purge" disabled={locked || entry.active_sessions > 0} aria-label="Delete exam {entry.title}…" title={entry.active_sessions > 0 ? 'Students are still working in this exam; delete it once they have finished' : entry.total_sessions > 0 ? `Delete exam ${entry.title} and its ${entry.total_sessions} submission${entry.total_sessions === 1 ? '' : 's'}…` : `Delete exam ${entry.title}…`} onclick={() => onDelete(entry)}><Icon name="deleteExam" class="delete-exam" size="1.35rem" /></button>{/if}
     </div>
   </div>
   <dl class="exam-stats">
-    <div class="es"><dt>Exercises</dt><dd class="number">{entry.exercise_count}</dd></div>
+    <div class="es"><dt>{workspace ? 'TODO items' : 'Exercises'}</dt><dd class="number">{workspace ? entry.todos : entry.exercise_count}</dd></div>
     <div class="es"><dt>Time</dt><dd><span class="time-chip">{formatTime(entry.duration_seconds)}</span>{' '}<span class="grace">+ {formatTime(entry.grace_seconds + (entry.extra_grace_seconds ?? 0))} grace</span></dd></div>
     <div class="es"><dt>Logins allowed</dt><dd>{logins === 'any time' ? 'Any time' : logins}{#if admission !== 'open'}<small class="late">Logins are {admission} now</small>{/if}</dd></div>
     <div class="es"><dt>Sessions</dt><dd><span class="number">{entry.active_sessions}</span>{' working / '}<span class="number">{entry.total_sessions}</span>{' total'}</dd>
@@ -72,6 +80,12 @@
   .monitoring::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--accent-cyan); }
   .forward { background: var(--bg-secondary); color: var(--text-main); }
   .calc { background: var(--bg-secondary); color: var(--text-main); border-color: var(--border-subtle); }
+  .workspace { background: var(--bg-secondary); color: var(--text-main); }
+  .image-ok { background: var(--ok-fill); color: var(--ok-text); border-color: var(--ok-border); }
+  .image-warn { background: var(--warn-fill); color: var(--warn-text); border-color: var(--warn-border, var(--border-subtle)); }
+  .image-active { background: var(--selection-fill); color: var(--action-hover); border-color: var(--cyan-border); }
+  .image-lock { background: var(--alert-fill); color: var(--alert-text); border-color: var(--alert); }
+  .image-neutral { background: var(--bg-secondary); color: var(--text-main); }
   .exam-id { display: inline-flex; align-items: center; max-width: 100%; gap: .35rem; min-height: 0; margin: .45rem 0 0; padding: 0; background: var(--transparent); color: var(--text-muted); border: 0; border-radius: 0; box-shadow: none; font-size: .76rem; font-weight: 400; }
   .exam-id code { min-width: 0; overflow-wrap: anywhere; user-select: text; }
   .exam-id:hover:not(:disabled) { color: var(--action-primary); background: var(--transparent); }
