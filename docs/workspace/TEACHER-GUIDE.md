@@ -209,7 +209,7 @@ In the proctor application, open the class and use **Import workspace exam…**:
 | Students' containers at once | the host's memory budget (`host_memory_mb`) divided by the exam's memory limit |
 | Terminals per student | 4 |
 | One file in the editor | 1 MiB (text) |
-| Autosave | under 300 ms at the 95th percentile on the loopback of the exam server; the router is measured separately ([load-test.md](load-test.md)) |
+| Autosave | 18 ms at the 95th percentile and 99 ms at the 99th, with 40 students all compiling, measured on the exam server's own machine (the plan's target is 300 ms); the router is measured separately ([load-test.md](load-test.md)) |
 
 ## Where to read more
 
