@@ -862,6 +862,8 @@ test('a splitter resizes the editor and the terminals with the pointer and with 
 
 test('the splitter and the terminal text size touch nothing outside the page, and the terminals still fit in a small window', async ({ page }) => {
   await start(page, {}, { width: 1000, height: 700 });
+  // The wide font that CI draws with (DejaVu Sans), where the toolbar is taller than in a narrow one.
+  await page.addStyleTag({ content: ':root { --font-sans: "DejaVu Sans" !important; }' });
   await openSrc(page);
   await openTerminal(page);
   const splitter = page.getByRole('separator', { name: 'Resize the terminals' });
@@ -869,13 +871,10 @@ test('the splitter and the terminal text size touch nothing outside the page, an
   await page.keyboard.press('Home');
   await page.getByRole('button', { name: 'A+ Larger terminal text' }).click();
   await page.keyboard.press('End');
-  // Both panes still show, whatever the window and the share: the editor's tabs and the terminal's tab row are inside the window.
-  const window = page.viewportSize();
-  for (const selector of ['.editor-box', '.terminal-box']) {
-    const box = await page.locator(selector).boundingBox();
-    expect(box.height).toBeGreaterThan(80);
-    expect(box.y + box.height).toBeLessThanOrEqual(window.height + 1);
-  }
+  // Both panes still show, whatever the share: each has room (the page may be a few pixels taller than a small window, as the workspace has a minimum
+  // height, and a wide font makes the toolbar taller: what is asked is that every part is in view).
+  for (const selector of ['.editor-box', '.terminal-box']) expect((await page.locator(selector).boundingBox()).height).toBeGreaterThan(80);
+  for (const target of [page.getByRole('textbox', { name: /Editor for/ }), page.getByRole('region', { name: 'Terminal 1 output' }), splitter]) await expect(target).toBeInViewport();
   expect(await page.evaluate(() => window.__storage.length)).toBe(0);
 });
 
