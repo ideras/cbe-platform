@@ -130,6 +130,7 @@ func TestAGradingRunGetsTheSubmissionAndTheBundleAndLeavesNothing(t *testing.T) 
 		_ = filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 			if err == nil && !info.IsDir() {
 				rel, _ := filepath.Rel(root, path)
+				rel = filepath.ToSlash(rel)
 				bundleSeen = append(bundleSeen, rel)
 				modes[rel] = info.Mode().Perm()
 			}

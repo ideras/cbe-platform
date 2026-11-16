@@ -889,7 +889,14 @@ func TestAClientThatCancelsEndsTheBuildAndABrokenStreamIsAnError(t *testing.T) {
 	}
 	client := r.api(t)
 	ctx, cancel := context.WithCancel(context.Background())
-	_, err := client.BuildImage(ctx, r.buildRequest(), bytes.NewReader(archive(t, map[string]string{"Containerfile": plainContainerfile})), func(string) { cancel() })
+	// The client goes away when the runtime's build has printed its first line, not at the first line of the log: the service prints its own before it
+	// starts the build, and a client that is gone by then means the build is never started (found in CI, where a slow machine let the first one out alone).
+	var seen strings.Builder
+	_, err := client.BuildImage(ctx, r.buildRequest(), bytes.NewReader(archive(t, map[string]string{"Containerfile": plainContainerfile})), func(text string) {
+		if seen.WriteString(text); strings.Contains(seen.String(), "RUN sleep 1000") {
+			cancel()
+		}
+	})
 	if !errors.Is(err, context.Canceled) {
 		t.Errorf("a client that cancels: %v", err)
 	}

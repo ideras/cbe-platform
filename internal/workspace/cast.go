@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -31,7 +32,7 @@ type castWriter struct {
 const maxTranscriptBytes = 4 << 20
 
 func newCastWriter(path string, start time.Time, cols, rows int, title string, limit int64) (*castWriter, error) {
-	if err := os.MkdirAll(dirOf(path), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, err
 	}
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
@@ -55,13 +56,6 @@ func newCastWriter(path string, start time.Time, cols, rows int, title string, l
 		return nil, err
 	}
 	return &castWriter{file: file, start: start, limit: limit}, nil
-}
-
-func dirOf(path string) string {
-	if i := strings.LastIndexByte(path, '/'); i >= 0 {
-		return path[:i]
-	}
-	return "."
 }
 
 // Write adds what a program printed at a time. Once the limit is passed nothing more is written but a line saying so.

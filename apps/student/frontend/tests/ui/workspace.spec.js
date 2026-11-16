@@ -672,6 +672,10 @@ async function inTheMiddleOfABigFile(page) {
   // less according to the fonts of the machine (found in CI); ten lines up it is in the middle of what is shown, and nothing needs to move.
   for (let i = 0; i < 10; i += 1) await page.keyboard.press('ArrowUp');
   await expect(page.getByRole('group', { name: 'Workspace status' })).toContainText('Nothing to save');
+  // The connection and the server copy are told when the first answers come (a slow machine, as CI is, may not have had them yet): the toolbar is measured
+  // with all it will say, so the time is where it stays.
+  await expect(page.getByRole('group', { name: 'Workspace status' })).toContainText('Connected');
+  await expect(page.getByRole('group', { name: 'Workspace status' })).toContainText('Server copy');
   await page.evaluate(() => document.querySelectorAll('.cm-line').forEach(line => { line.__drawn = true; }));
   return editor;
 }
