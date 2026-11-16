@@ -687,6 +687,8 @@ const held = page => page.evaluate(() => {
 
 test('an autosave does not draw the editor again, move its scroll, or move what is around it', async ({ page }) => {
   const editor = await inTheMiddleOfABigFile(page);
+  // A wide font for the toolbar, as Linux uses when it has nothing better (DejaVu Sans, CI's): the bold "Unsaved changes" was wider than its place in it.
+  await page.addStyleTag({ content: ':root { --font-sans: "DejaVu Sans" !important; }' });
   const status = page.getByRole('group', { name: 'Workspace status' });
   const place = () => page.evaluate(() => ({ time: Math.round(document.querySelector('header.toolbar [aria-label="Remaining time"]').getBoundingClientRect().left), tab: Math.round(document.querySelector('.tab.front').getBoundingClientRect().width), save: Math.round(document.querySelector('header.toolbar .save').getBoundingClientRect().width) }));
   const before = { ...(await held(page)), ...(await place()) };
