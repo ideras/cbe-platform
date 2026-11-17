@@ -55,14 +55,20 @@ func TestRealOwnBase(t *testing.T) {
 		return result
 	}
 	// A real container of a build, an agent that answers, and what the student's terminal sees.
-	session := func(t *testing.T, result BuildResult) (*machine, *machineSession) {
+	session := func(t *testing.T, result BuildResult, seed ...[]byte) (*machine, *machineSession) {
 		t.Helper()
 		m := &machine{t: t, runner: runner, session: randomID("sob")}
 		t.Cleanup(func() { _ = runner.Remove(ctx, m.session) })
 		if _, err := runner.Create(ctx, CreateRequest{Session: m.session, Exam: exam, Image: "", Build: result.Hash, Resources: Resources{CPU: 1, MemoryMB: 256, DiskMB: 20}}); err != nil {
 			t.Fatalf("create: %v", err)
 		}
-		if _, err := runner.Seed(ctx, m.session, contextTar(t, map[string]string{"README.txt": "the starter\n"})); err != nil {
+		starter := bytes.NewReader(nil)
+		if len(seed) > 0 {
+			starter = bytes.NewReader(seed[0])
+		} else {
+			starter = contextTar(t, map[string]string{"README.txt": "the starter\n"})
+		}
+		if _, err := runner.Seed(ctx, m.session, starter); err != nil {
 			t.Fatalf("seed: %v", err)
 		}
 		if _, err := runner.Start(ctx, m.session); err != nil {
@@ -169,6 +175,27 @@ func TestRealOwnBase(t *testing.T) {
 		}
 		if code, out := s.m.run(s.c, "python -c 'open(\"/work/out.txt\",\"w\").write(\"x\"); print(open(\"/work/out.txt\").read())'"); code != 0 || !strings.Contains(out, "x") {
 			t.Errorf("python writes in /work: %d %q", code, out)
+		}
+	})
+	t.Run("the C++ example package: a toolchain from the Ubuntu archive snapshot, and its starter compiles", func(t *testing.T) {
+		containerfile, err := os.ReadFile("../../testdata/workspace/lab-listas-own-base/image/Containerfile")
+		if err != nil {
+			t.Fatal(err)
+		}
+		result := build(t, map[string]string{"Containerfile": string(containerfile)}, false)
+		if !result.OK {
+			t.Fatalf("%+v\n%s", result, result.Log)
+		}
+		bundle, _ := starterBundle(t)
+		_, s := session(t, result, bundle)
+		for what, want := range map[string]string{
+			"g++ --version | head -n 1": "g++ (Ubuntu",
+			"id -un":                    "student",
+			"make 2>&1; echo status $?": "status 0",
+		} {
+			if code, out := s.m.run(s.c, what); code != 0 || !strings.Contains(strings.ReplaceAll(out, "\r", ""), want) {
+				t.Errorf("%q: status %d, output %q, want %q", what, code, out, want)
+			}
 		}
 	})
 	t.Run("an image that declares a volume is refused, and says which", func(t *testing.T) {

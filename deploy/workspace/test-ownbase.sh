@@ -29,6 +29,7 @@ trap cleanup EXIT
 
 (cd "$repo" && go test -c -o "$work/runner.test" ./internal/runner)
 mkdir -p "$work/internal/runner"
+cp -r "$repo/testdata" "$work/testdata"
 chmod -R a+rX "$work"; chmod a+rx "$work"
 private_runner_start "$work"
 echo "the private runner is up ($PR_TAG)"

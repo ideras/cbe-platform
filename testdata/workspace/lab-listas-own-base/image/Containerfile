@@ -1,0 +1,19 @@
+# The C++20 course of this example, as an exam with a base image of its own: nothing is needed on the server but this file. The base is any image (here Ubuntu, pinned
+# by digest), and the packages come from a dated snapshot of the Ubuntu archive, so a rebuild next year gives the same toolchain. The server adds the rest when it builds
+# the exam's image: the student account (uid 1000), no way up (no sudo, no setuid files, root locked), the agent, and the folders /work, /run/cbe and /tmp. Write only what
+# the exam needs: for a class that needs Python, FROM python:3.12-slim and RUN pip install numpy==2.1.3 is the whole file (docs/workspace/images.md).
+FROM docker.io/library/ubuntu:24.04@sha256:2198e4c65076e9cb0b3d695219df667c0e3b0072da64ca3c2648aca17dcecaf5
+
+ARG APT_SNAPSHOT=20261105T000000Z
+ENV DEBIAN_FRONTEND=noninteractive
+
+# The base has no CA certificates to reach the snapshot over HTTPS, so the build lends the server's bundle as ca.crt (a bind mount that leaves nothing in the image).
+RUN --mount=type=bind,source=ca.crt,target=/run/host-ca.crt,ro \
+    set -eux; \
+    rm -f /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list; \
+    printf 'Types: deb\nURIs: https://snapshot.ubuntu.com/ubuntu/%s\nSuites: noble noble-updates noble-security\nComponents: main universe\nSigned-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n' "${APT_SNAPSHOT}" > /etc/apt/sources.list.d/snapshot.sources; \
+    apt_options='-o Acquire::https::CaInfo=/run/host-ca.crt -o Acquire::Check-Valid-Until=false'; \
+    apt-get ${apt_options} update; \
+    apt-get ${apt_options} install -y --no-install-recommends g++ make cmake gdb binutils libc6-dev nano less procps file time; \
+    apt-get clean; \
+    rm -rf /var/lib/apt/lists/* /var/cache/apt/* /var/log/apt /var/log/dpkg.log /etc/apt/sources.list.d/snapshot.sources

@@ -248,7 +248,11 @@ func runWorkspace(path, dir string, asJSON bool, bundlesPath string) int {
 		terminal = "on"
 	}
 	fmt.Printf("%s\n", exam.Title)
-	fmt.Printf("  workspace exam, %d min, image %s, terminal %s\n", exam.DurationSeconds/60, workspace.Image, terminal)
+	image := "image " + workspace.Image
+	if workspace.Image == "" {
+		image = "a base image of its own (image/Containerfile)"
+	}
+	fmt.Printf("  workspace exam, %d min, %s, terminal %s\n", exam.DurationSeconds/60, image, terminal)
 	if summary := calculatorSummary(exam.Tools); summary != "" {
 		fmt.Printf("  %s\n", summary)
 	}
@@ -276,7 +280,11 @@ func runWorkspace(path, dir string, asJSON bool, bundlesPath string) int {
 		fmt.Println("  no grading folder")
 	}
 	if bundles.Image != nil {
-		fmt.Printf("  image bundle: %s (the exam's own image, built from %s before it is published)\n", describeBundle(*bundles.Image), workspace.Image)
+		from := workspace.Image
+		if from == "" {
+			from = "the base its Containerfile names"
+		}
+		fmt.Printf("  image bundle: %s (the exam's own image, built from %s before it is published)\n", describeBundle(*bundles.Image), from)
 		for _, warning := range bundles.ImageWarnings {
 			fmt.Printf("  warning: %s\n", warning)
 		}
