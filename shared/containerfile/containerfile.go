@@ -144,7 +144,9 @@ var (
 	stagePattern  = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_.-]*$`)
 )
 
-// Check says what is wrong with a Containerfile for an exam whose course image is image (`cbe/cpp20`), and what to warn about.
+// Check says what is wrong with a Containerfile for an exam whose course image is image (`cbe/cpp20`), and what to warn about. An image of ""
+// is an exam with a base of its own (decision D-CB-1): every FROM may name any image, or an earlier stage, and the runner adds the agent
+// and the rest of the contract after the file's last stage (internal/runner/finalize.go).
 func Check(text, image string) Result {
 	var r Result
 	problem := func(line int, format string, args ...any) {
@@ -171,12 +173,12 @@ func Check(text, image string) Result {
 			continue
 		}
 		if r.Stages == 0 && in.Command != "FROM" && in.Command != "ARG" {
-			problem(in.Line, "%s comes before the first FROM: a Containerfile starts with FROM %s", in.Command, image)
+			problem(in.Line, "%s comes before the first FROM: a Containerfile starts with FROM %s", in.Command, baseName(image))
 			continue
 		}
 		switch in.Command {
 		case "FROM":
-			name := checkFrom(in, image, stages, problem)
+			name := checkFrom(in, image, stages, problem, warn)
 			r.Stages++
 			stages = append(stages, name)
 			if digest := fromDigest(in, image); digest != "" {
@@ -196,7 +198,7 @@ func Check(text, image string) Result {
 		}
 	}
 	if r.Stages == 0 && len(r.Problems) == 0 {
-		problem(1, "a Containerfile starts with FROM %s", image)
+		problem(1, "a Containerfile starts with FROM %s", baseName(image))
 	}
 	if len(seenDigest) > 1 {
 		problem(1, "the FROM lines write different digests of %s: they must all be the one the build pins", image)
@@ -227,13 +229,24 @@ func fromDigest(in Instruction, image string) string {
 	return ""
 }
 
-func checkFrom(in Instruction, image string, stages []string, problem func(int, string, ...any)) string {
+// baseName is what a FROM names in a message: the course image, or, for an exam with a base of its own, any image.
+func baseName(image string) string {
+	if image == "" {
+		return "the base image (FROM python:3.12-slim)"
+	}
+	return image
+}
+
+// referencePattern is an image reference: an optional registry (with a port), a name of lower case words, an optional tag and an optional digest.
+var referencePattern = regexp.MustCompile(`^(?:[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::[0-9]{1,5})?/)?[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*)*(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?(?:@sha256:[0-9a-f]{64})?$`)
+
+func checkFrom(in Instruction, image string, stages []string, problem func(int, string, ...any), warn func(int, string, ...any)) string {
 	if len(in.Flags) > 0 {
 		problem(in.Line, "FROM takes no options here (%s)", truncate(in.Flags[0], 30))
 	}
 	ref, as, ok := fromParts(in)
 	if !ok {
-		problem(in.Line, "FROM must be written FROM %s or FROM %s AS name", image, image)
+		problem(in.Line, "FROM must be written FROM %s or FROM %s AS name", baseName(image), baseName(image))
 		return ""
 	}
 	if as != "" && !stagePattern.MatchString(as) {
@@ -244,6 +257,10 @@ func checkFrom(in Instruction, image string, stages []string, problem func(int, 
 		if earlier != "" && strings.EqualFold(earlier, ref) {
 			return name
 		}
+	}
+	if image == "" {
+		checkOwnBase(in, ref, problem, warn)
+		return name
 	}
 	base, digest, hasDigest := strings.Cut(ref, "@")
 	switch {
@@ -259,6 +276,21 @@ func checkFrom(in Instruction, image string, stages []string, problem func(int, 
 		problem(in.Line, "FROM %s: the only image a workspace exam's Containerfile may start from is the exam's own course image, %s, or an earlier stage of the same file", truncate(ref, 60), image)
 	}
 	return name
+}
+
+// checkOwnBase judges a FROM of an exam that has a base of its own: any image reference, written plainly. An image with no digest is a warning: the
+// tag can name another image tomorrow, and a rebuild would not be the image the exam was tried with.
+func checkOwnBase(in Instruction, ref string, problem func(int, string, ...any), warn func(int, string, ...any)) {
+	switch {
+	case strings.Contains(ref, "$"):
+		problem(in.Line, "FROM cannot use a variable: write the image it names")
+	case ref == "scratch":
+		warn(in.Line, "FROM scratch has no shell, which the terminals of the students need: the image will be refused unless a later stage adds one")
+	case !referencePattern.MatchString(ref):
+		problem(in.Line, "FROM %s is not an image reference (registry/name:tag or name@sha256:…, lower case)", truncate(ref, 60))
+	case !strings.Contains(ref, "@sha256:"):
+		warn(in.Line, "FROM %s has no digest: the tag can name another image later, and a rebuild would not be the image the exam was tried with; write FROM %s@sha256:… (podman image inspect --format '{{.Digest}}' %s)", truncate(ref, 60), truncate(ref, 60), truncate(ref, 60))
+	}
 }
 
 // option returns the value of --name=value among flags.
@@ -373,4 +405,68 @@ func Pin(text, image, ref string) (string, error) {
 		}
 	}
 	return strings.Join(lines, "\n"), nil
+}
+
+// Reference is the image a FROM names, taken apart: Registry is where it is pulled from (docker.io when the reference names none), Repository
+// what it is called there, Tag and Digest as written.
+type Reference struct {
+	Line       int
+	Text       string
+	Registry   string
+	Repository string
+	Tag        string
+	Digest     string
+}
+
+// References are the images the file pulls: its FROM lines that name an image and not an earlier stage, in the order they are written. The
+// runner keeps to the registries its administrator allows by them.
+func References(text string) []Reference {
+	instructions, err := Parse(text)
+	if err != nil {
+		return nil
+	}
+	var out []Reference
+	var stages []string
+	for _, in := range instructions {
+		if in.Command != "FROM" {
+			continue
+		}
+		ref, as, ok := fromParts(in)
+		if !ok {
+			continue
+		}
+		isStage := false
+		for _, earlier := range stages {
+			if earlier != "" && strings.EqualFold(earlier, ref) {
+				isStage = true
+			}
+		}
+		stages = append(stages, strings.ToLower(as))
+		if isStage || ref == "scratch" {
+			continue
+		}
+		out = append(out, splitReference(in.Line, ref))
+	}
+	return out
+}
+
+func splitReference(line int, ref string) Reference {
+	r := Reference{Line: line, Text: ref}
+	rest := ref
+	if name, digest, found := strings.Cut(rest, "@"); found {
+		rest, r.Digest = name, digest
+	}
+	registry, path := "docker.io", rest
+	if head, tail, found := strings.Cut(rest, "/"); found && (strings.ContainsAny(head, ".:") || head == "localhost") {
+		registry, path = strings.ToLower(head), tail
+	}
+	// The tag is after the last colon of the last path element.
+	if colon := strings.LastIndex(path, ":"); colon > strings.LastIndex(path, "/") {
+		path, r.Tag = path[:colon], path[colon+1:]
+	}
+	if registry == "docker.io" && !strings.Contains(path, "/") {
+		path = "library/" + path
+	}
+	r.Registry, r.Repository = registry, path
+	return r
 }

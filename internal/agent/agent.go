@@ -41,6 +41,19 @@ type Config struct {
 	ReapAll bool
 	// Version is reported in agent.hello.
 	Version string
+
+	// walkRoot is where the self test looks for setuid files: "/" unless a test says another tree.
+	walkRoot string
+}
+
+// firstShell is the shell of a terminal when none is configured: bash, and for an image that has none (Alpine, many slim images) the plain shell.
+func firstShell() string {
+	for _, path := range []string{"/bin/bash", "/usr/bin/bash", "/bin/sh", "/usr/bin/sh"} {
+		if info, err := os.Stat(path); err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
+			return path
+		}
+	}
+	return "/bin/bash"
 }
 
 func (c *Config) fill() {
@@ -51,7 +64,7 @@ func (c *Config) fill() {
 	}
 	def(&c.Socket, "/run/cbe/agent.sock")
 	def(&c.Work, "/work")
-	def(&c.Shell, "/bin/bash")
+	def(&c.Shell, firstShell())
 	def(&c.Home, "/tmp/home")
 	def(&c.User, "student")
 	def(&c.Path, "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
