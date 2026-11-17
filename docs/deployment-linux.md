@@ -2,7 +2,7 @@
 
 The server is installed in two steps that are kept apart on purpose:
 
-1. **The installer** (`cbe-portal-VERSION-linux-ARCH.run`) puts the program files in one folder, `/opt/cbe-portal`. It changes nothing else, so it can be run again, and undone, safely.
+1. **The installer** (`cbe-portal-server-VERSION-linux-ARCH-installer.run`) puts the program files in one folder, `/opt/cbe-portal`. It changes nothing else, so it can be run again, and undone, safely.
 2. **The configurator** (`cbe-portalctl configure`) makes the machine a server: the accounts, the folders, the XFS volume for workspace exams, the services. It does what a configuration file says (or what a few questions
    answer), it checks first and shows what it will do, and it can be run again: what is done is left alone.
 
@@ -38,9 +38,9 @@ On Debian and Ubuntu: `sudo apt install podman uidmap xfsprogs`. `cbe-portalctl 
 Download the installer for your machine from the release page, check it, and run it as root:
 
 ```sh
-sha256sum -c cbe-portal-0.17.0-linux-x64.run.sha256
-sudo sh cbe-portal-0.17.0-linux-x64.run                    # asks whether to configure now
-sudo sh cbe-portal-0.17.0-linux-x64.run -- --config cbe.conf --yes     # unattended: the options after -- are the installer's
+sha256sum -c cbe-portal-server-0.17.0-linux-x64-installer.run.sha256
+sudo sh cbe-portal-server-0.17.0-linux-x64-installer.run                    # asks whether to configure now
+sudo sh cbe-portal-server-0.17.0-linux-x64-installer.run -- --config cbe.conf --yes     # unattended: the options after -- are the installer's
 ```
 
 | Installer option | |

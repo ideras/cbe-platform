@@ -1,9 +1,9 @@
 #!/bin/sh
-# Installs the CBE Portal server's program files. This is the script the self-extracting installer (cbe-portal-VERSION-linux-ARCH.run) runs after it unpacks
+# Installs the CBE Portal server's program files. This is the script the self-extracting installer (cbe-portal-server-VERSION-linux-ARCH-installer.run) runs after it unpacks
 # itself, and it can be run from the unpacked folder. It only puts files in place: the machine is made a server by `cbe-portalctl configure`, which this
 # script runs when it is asked to (--config) or when a person is at the terminal.
 #
-#   sudo ./cbe-portal-0.17.0-linux-x64.run -- [options]
+#   sudo ./cbe-portal-server-0.17.0-linux-x64-installer.run -- [options]
 #     --prefix DIR    where the program files go (default /opt/cbe-portal)
 #     --config FILE   configure the server from this file once the files are in place (unattended with --yes)
 #     --yes           do not ask before changing the machine

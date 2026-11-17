@@ -1,5 +1,5 @@
 #!/bin/bash
-# Makes the self-extracting installer of the CBE Portal server for Linux, with makeself:  cbe-portal-VERSION-linux-x64.run (or -arm64)
+# Makes the self-extracting installer of the CBE Portal server for Linux, with makeself:  cbe-portal-server-VERSION-linux-x64-installer.run (or -arm64)
 #
 #   scripts/installer/linux/make_installer.sh --version v0.17.0 --arch amd64 --bin-dir DIR --output DIR
 #
@@ -54,7 +54,7 @@ mkdir -p "$output"
 # The release names the two architectures x64 and arm64 (cbe-portal-server-linux-x64.tar.gz); the version is without its v.
 label=$arch
 [ "$arch" = amd64 ] && label=x64
-file="$output/cbe-portal-${version#v}-linux-$label.run"
+file="$output/cbe-portal-server-${version#v}-linux-$label-installer.run"
 # --needroot: the installer changes the system. --keep-umask: the files keep the modes they are given here, not the umask of whoever runs it.
 "$makeself" --sha256 --needroot --keep-umask --nox11 "$stage" "$file" "CBE Portal server $version ($arch)" ./install.sh
 (cd "$output" && sha256sum "$(basename "$file")" > "$(basename "$file").sha256")

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Tests an installer that make_installer.sh made:  scripts/installer/linux/test_installer.sh cbe-portal-VERSION-linux-x64.run
+# Tests an installer that make_installer.sh made:  scripts/installer/linux/test_installer.sh cbe-portal-server-VERSION-linux-x64-installer.run
 #
 # It installs into a folder of its own (--prefix) with --no-configure --no-link, so nothing of the machine outside that folder is changed, upgrades it,
 # and uninstalls it. The installer needs root to run: with sudo (passwordless) when it is not root; without either the test is skipped.
