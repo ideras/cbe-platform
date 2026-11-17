@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -181,7 +182,8 @@ func (c Config) Validate() error {
 			return fmt.Errorf("runner config: base_registries has %q, which is not a registry (docker.io, ghcr.io, localhost:5000)", registry)
 		}
 	}
-	if c.AgentBinary != "" && !strings.HasPrefix(c.AgentBinary, "/") {
+	// A full path: rooted at "/" (the runner's host is Linux), or absolute where the code is only tested (a drive letter on Windows).
+	if c.AgentBinary != "" && !strings.HasPrefix(c.AgentBinary, "/") && !filepath.IsAbs(c.AgentBinary) {
 		return errors.New("runner config: agent_binary is a full path")
 	}
 	return nil
