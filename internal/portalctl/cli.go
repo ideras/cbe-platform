@@ -10,6 +10,7 @@ import (
 	"path"
 	"strings"
 
+	"exam-platform/internal/imagecheck"
 	"exam-platform/internal/portalctl/conf"
 	"exam-platform/internal/portalctl/sys"
 )
@@ -25,6 +26,10 @@ type Env struct {
 	// Exe is the path of this program: INSTALL_DIR is where its bin folder is.
 	Exe     string
 	Version string
+
+	// Podman is how the container runtime is run by the `image` commands: nil is the real one (the person's own for `image check`, the runner account's for
+	// the commands that change the server). Tests give a fake.
+	Podman imagecheck.Podman
 
 	// reader is what is read from Stdin, made once: a second reader on the same input would not have what the first has already taken in.
 	reader *bufio.Reader

@@ -244,3 +244,17 @@ func TestTheImagesAFilePullsAreTakenApart(t *testing.T) {
 		t.Error("a file that cannot be read pulls nothing")
 	}
 }
+
+// A class image installed by name (`cbe-portalctl image install nn-2026 DIR`) is a course image like cbe/cpp20: a lab's own image/ may start FROM it, and
+// from nothing else.
+func TestALabsImageMayStartFromAnInstalledClassImageWhoseNameHasNoSlash(t *testing.T) {
+	if r := Check("FROM nn-2026\nRUN true\n", "nn-2026"); len(r.Problems) != 0 {
+		t.Errorf("FROM the class image: %v", r.Problems)
+	}
+	if r := Check("FROM nn-2026\nRUN true\n", "nn-2027"); len(r.Problems) == 0 {
+		t.Error("FROM another class image was taken")
+	}
+	if r := Check("FROM ubuntu:24.04\n", "nn-2026"); len(r.Problems) == 0 {
+		t.Error("FROM a base that is not the class image was taken")
+	}
+}

@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -28,6 +29,7 @@ type fakePodman struct {
 	runErr    error
 	noPodman  bool
 	agentSum  string
+	modes     map[string]os.FileMode // the mode of each build context's folder and of its files, by "context/file" ("context" for the folder, "work" for its parent)
 }
 
 func (f *fakePodman) run(_ context.Context, args []string, stdout, stderr io.Writer) error {
@@ -51,6 +53,18 @@ func (f *fakePodman) run(_ context.Context, args []string, stdout, stderr io.Wri
 			f.contexts = map[string]map[string]string{}
 		}
 		f.contexts[filepath.Base(dir)] = files
+		if f.modes == nil {
+			f.modes = map[string]os.FileMode{}
+		}
+		name := filepath.Base(dir)
+		if info, err := os.Stat(filepath.Dir(dir)); err == nil {
+			f.modes["work"] = info.Mode().Perm()
+		}
+		for _, e := range entries {
+			if info, err := e.Info(); err == nil {
+				f.modes[name+"/"+e.Name()] = info.Mode().Perm()
+			}
+		}
 		fmt.Fprintf(stdout, "STEP 1/1: build %d\n", f.builds)
 		return f.buildErr[f.builds]
 	case "image":
@@ -66,7 +80,7 @@ func (f *fakePodman) run(_ context.Context, args []string, stdout, stderr io.Wri
 			fmt.Fprint(stdout, passing)
 		}
 		return f.runErr
-	case "rmi":
+	case "rmi", "tag", "untag":
 	default:
 		return fmt.Errorf("unexpected %v", args)
 	}
@@ -331,5 +345,81 @@ func TestALinkInTheBuildContextIsRefused(t *testing.T) {
 	}
 	if _, err := Check(context.Background(), r.options); err == nil || !strings.Contains(err.Error(), "holds no links") {
 		t.Errorf("%v", err)
+	}
+}
+
+func TestAnAcceptedImageCanBeKeptUnderItsNamesWithItsLabels(t *testing.T) {
+	r := newRig(t, pythonFile)
+	r.options.Name = "localhost/cbe-course/nn-2026"
+	r.options.Labels = map[string]string{"io.cbe.course": "nn-2026", "io.cbe.other": "x"}
+	result := r.check(t)
+	if !result.OK || result.Image != "localhost/cbe-course/nn-2026:latest" || result.ImageID != "abc123" ||
+		strings.Join(result.Tags, " ") != "localhost/cbe-course/nn-2026:abc123 localhost/cbe-course/nn-2026:latest" {
+		t.Fatalf("%+v\n%s", result, r.out)
+	}
+	// The labels are put on the finishing build, in a fixed order, and the image is named after it passed.
+	built := r.fake.called("build")
+	if line := strings.Join(built[1], " "); !strings.Contains(line, "--label io.cbe.course=nn-2026 --label io.cbe.other=x --tag") || strings.Contains(strings.Join(built[0], " "), "--label") {
+		t.Errorf("the labels: %v", built)
+	}
+	tagged := r.fake.called("tag")
+	if len(tagged) != 1 || !strings.Contains(tagged[0][1], ":finished") || strings.Join(tagged[0][2:], " ") != "localhost/cbe-course/nn-2026:abc123 localhost/cbe-course/nn-2026:latest" {
+		t.Errorf("tag: %v", tagged)
+	}
+	// Only the check's own names are taken off, and never with rmi --force (which would take the image with them), and never with untag IMAGE alone (which takes every name off).
+	if len(r.fake.called("rmi")) != 0 {
+		t.Errorf("the image that is kept was removed: %v", r.fake.called("rmi"))
+	}
+	for _, u := range r.fake.called("untag") {
+		if len(u) != 3 {
+			t.Errorf("untag without the name to take off would take every name off: %v", u)
+		}
+	}
+	untagged := r.fake.called("untag")
+	if len(untagged) != 2 || untagged[0][1] != "localhost/cbe-course/nn-2026:abc123" || !strings.HasSuffix(untagged[0][2], ":finished") || untagged[1][1] != untagged[1][2] || !strings.HasSuffix(untagged[1][2], ":author") {
+		t.Errorf("untag: %v", untagged)
+	}
+}
+
+func TestAnImageThatFailsIsNotNamedAndIsRemoved(t *testing.T) {
+	r := newRig(t, pythonFile)
+	r.options.Name = "localhost/cbe-course/nn-2026"
+	r.fake.selftest = `{"version":"t","ok":false,"checks":[{"name":"no-sudo","ok":false,"detail":"sudo is in the image"}]}`
+	result := r.check(t)
+	if result.OK || result.Image != "" || len(result.Tags) != 0 || len(r.fake.called("tag")) != 0 || len(r.fake.called("untag")) != 0 || len(r.fake.called("rmi")) != 1 {
+		t.Errorf("%+v %v", result, r.fake.calls)
+	}
+}
+
+func TestTheFoldersOfTheBuildCanBeReadByAnotherAccountWhenAskedFor(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("file modes are not what they are elsewhere")
+	}
+	r := newRig(t, pythonFile)
+	for _, name := range []string{"Containerfile", "data/train.csv"} {
+		if err := os.Chmod(filepath.Join(r.dir, "image", name), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r.options.Readable = true
+	if result := r.check(t); !result.OK {
+		t.Fatalf("%+v", result)
+	}
+	if r.fake.modes["work"]&0o055 != 0o055 {
+		t.Errorf("the folder of the build is %v: another account cannot enter it", r.fake.modes["work"])
+	}
+	if mode := r.fake.modes["author/Containerfile"]; mode&0o044 != 0o044 {
+		t.Errorf("the Containerfile is %v: another account cannot read it", mode)
+	}
+	if mode := r.fake.modes["finish/cbe-agent"]; mode&0o055 != 0o055 {
+		t.Errorf("the agent is %v", mode)
+	}
+	// Without it the author's files keep their modes.
+	r = newRig(t, pythonFile)
+	if err := os.Chmod(filepath.Join(r.dir, "image", "Containerfile"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if result := r.check(t); !result.OK || r.fake.modes["author/Containerfile"] != 0o600 {
+		t.Errorf("%+v %v", result, r.fake.modes["author/Containerfile"])
 	}
 }

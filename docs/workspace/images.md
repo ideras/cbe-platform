@@ -50,6 +50,13 @@ After the author's last stage the runner builds **its own layer** on top, which 
 It needs a Linux base that has `/bin/sh` and `/etc/passwd` (`FROM scratch` and distroless images cannot be finished; the message says so). The terminals use `/bin/bash` when the image has it
 and `/bin/sh` when it does not (Alpine). The agent is a static program: nothing of its own is needed in the base.
 
+### Reusing it for a whole class
+
+The `image/` of a package belongs to that exam. When several exams of a class use the same tools, the administrator installs the image once, by name, with `cbe-portalctl image install NAME DIR` (D-CB-7;
+`docs/deployment-linux.md`, "An image for a whole class"), and every exam says `image: NAME` in `workspace.md`, with no `image/` folder. The installed image has gone through the same finishing and checks as an exam's
+own, and the runner treats it as a course image (an approved name). A lab that needs one more library keeps an `image/` that starts `FROM NAME`. Installing the same name again with `--replace` moves `:latest` to the
+new build for the workspaces created from then on. (A library of images managed from the proctor application, for instructors who are not the administrator, is recorded and deferred: D-CB-8.)
+
 ### Checking it before the server does
 
 `cbe-portalctl image check lab-python/` (the package folder, its `image/` folder or the Containerfile) does all of the following on **your computer** with its Podman, with the same code the runner uses:

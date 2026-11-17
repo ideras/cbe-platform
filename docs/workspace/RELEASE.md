@@ -48,6 +48,7 @@ and sets the limits of the containers' control group (`limits.sh`). It is the ma
 - **No packages or network for students**, by design; an exam that needs a library builds its own image.
 - **TODO ticks are the student's word**; a grade is advisory until the proctor confirms it.
 - **Grading measures; it is not a lock**: the student's code runs in the container `grade` runs in (P6-13).
+- **A class image is installed by the administrator** (`cbe-portalctl image install`, D-CB-7): an instructor who is not the server's administrator brings the image in each exam's package. A library of images in the proctor application (import, build, list and pin to an exam) is recorded and deferred (D-CB-8).
 - **An exam's image is the proctor's own code** (it builds with network, as root in the build container, P7-12), and images are removed by hand (P8-7).
 - **One host**: no second runtime, no several exam servers; the container host is the exam server's machine.
 - **macOS** was never run with the IDE (deferred by the owner).

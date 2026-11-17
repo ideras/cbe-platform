@@ -167,6 +167,26 @@ What the server needs for that, and the configurator sets up:
 A package that names a **course image** instead (`image: cbe/cpp20`) still works: that image is built once on the container host with `images/build.sh cpp20` from the source tree (`images/README.md`) and approved in `runner.json`
 (`images`). The C++ course as a package that brings its own base is `testdata/workspace/lab-listas-own-base` (it is also in the installer's `share/examples`).
 
+### An image for a whole class: `image install`
+
+An exam's own `image/` belongs to that exam: ten labs of one class would mean ten copies of the Containerfile and ten builds. For a class, the administrator installs the image **once, by name**:
+
+```sh
+sudo cbe-portalctl image install nn-2026 nn-2026-image/        # DIR: an image/ folder, or a package that has one
+sudo cbe-portalctl restart                                    # a new name: the runner reads its settings when it starts
+sudo cbe-portalctl image list                                 # what the runner approves, and whether the runtime has each
+```
+
+It builds the folder the way an exam's own image is built (your Containerfile, the runner's finishing layer, the checks and the agent's self test), but in the **runner's storage**, as
+`localhost/cbe-course/nn-2026:<id>` and `:latest` (labelled `io.cbe.course=nn-2026`), and approves `nn-2026` in `runner.json` (`images`, pointing at `:latest`; every other setting is kept). Then every exam of the class
+says **`image: nn-2026`** in its `workspace.md` and needs no `image/` folder. A lab that needs something extra keeps a small `image/` whose Containerfile starts `FROM nn-2026`.
+
+- **A new name needs a restart** of the runner (`cbe-portalctl restart`, which refuses while students are working; or `--restart` on the same command). The students' containers survive it.
+- **Installing the same name again needs `--replace`, and no restart**: `:latest` moves to the new image (the old one stays under its id until `podman rmi`), and the workspaces created from then on use it; students already
+  working keep the container they have. Use it to rebuild a class image, for example to update a package.
+- **`base_registries` applies; `custom_base` does not**: that setting is about what an exam brings, and this is the administrator's own act. A failed check installs nothing and changes no setting.
+- It needs the server configured for workspace exams, root, and the agent (`INSTALL_DIR/bin/cbe-agent`, or `--agent`). It does not remove images: `podman rmi` (as `cbe-runner`) and the line in `runner.json` do.
+
 ### Checking an image before the server does
 
 An author can build and check an `image/` folder on their own computer, without importing the exam:

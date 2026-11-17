@@ -19,12 +19,16 @@ private_runner_start() {
   PR_BEFORE_WORK=$(sudo -n ls "$BASE/work" | sort)
   (cd "$repo" && go build -trimpath -o "$work/cbe-runner" ./cmd/cbe-runner && CGO_ENABLED=0 go build -trimpath -o "$work/cbe-agent" ./cmd/cbe-agent)
   python3 - "$work/runner.json" "$BASE" "$PR_TAG" "$work" <<'PY'
-import json, sys
+import json, os, sys
 out, base, tag, work = sys.argv[1:]
 cfg = json.load(open('/etc/cbe-platform/runner.json'))
 # agent_binary: the agent the runner puts in the images of exams that bring a base of their own.
 cfg.update({'socket': f'{base}/ipc/runner-{tag}.sock', 'secret_file': f'{base}/ipc/runner-{tag}.secret', 'state_root': f'{base}/runner-{tag}',
             'run_root': f'{base}/run-{tag}', 'grade_root': f'{base}/grading-{tag}', 'agent_binary': f'{work}/cbe-agent', 'custom_base': True})
+# PR_IMAGES="name=reference,name=reference": more course images this runner approves (an image that `cbe-portalctl image install` made).
+for pair in filter(None, os.environ.get('PR_IMAGES', '').split(',')):
+    name, reference = pair.split('=', 1)
+    cfg.setdefault('images', {})[name] = reference
 json.dump(cfg, open(out, 'w'), indent=2)
 PY
   head -c 32 /dev/urandom | base64 | tr -d '\n=' > "$work/secret"
