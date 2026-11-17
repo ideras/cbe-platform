@@ -40,6 +40,8 @@ type Fake struct {
 	mounts    []mount
 	nextUID   int
 	nextSys   int
+	// busy are the accounts that have a process running (the user manager that lingering starts), which userdel refuses to delete.
+	busy map[string]bool
 }
 
 type node struct {
@@ -58,7 +60,7 @@ type mount struct{ source, target, fstype, options string }
 func NewFake() *Fake {
 	f := &Fake{Root: true, Arc: "amd64", Failures: map[string]error{}, Missing: map[string]bool{}, FS: map[string]string{}, Free: map[string]int64{},
 		nodes: map[string]*node{}, users: map[string]User{}, groups: map[string]int{"root": 0}, members: map[string]map[string]bool{},
-		linger: map[string]bool{}, enabled: map[string]bool{}, active: map[string]bool{}, formatted: map[string]string{}, nextUID: 1000, nextSys: 900}
+		linger: map[string]bool{}, busy: map[string]bool{}, enabled: map[string]bool{}, active: map[string]bool{}, formatted: map[string]string{}, nextUID: 1000, nextSys: 900}
 	f.users["root"] = User{Name: "root", Home: "/root"}
 	for _, dir := range []string{"/", "/etc", "/etc/systemd", "/etc/systemd/system", "/home", "/opt", "/usr", "/usr/local", "/usr/local/bin", "/var", "/var/lib", "/run", "/run/systemd", "/run/systemd/system"} {
 		f.nodes[dir] = &node{dir: true, mode: 0o755}
@@ -352,11 +354,22 @@ func (f *Fake) run(account string, env []string, name string, args []string) (st
 			}
 		}
 		return "", errors.New("umount: not mounted")
+	case "pkill":
+		for name := range f.busy {
+			if len(args) == 3 && args[2] == name {
+				delete(f.busy, name)
+				return "", nil
+			}
+		}
+		return "", errors.New("pkill: exit status 1")
 	case "userdel":
 		name := args[len(args)-1]
 		u, ok := f.users[name]
 		if !ok {
 			return "", fmt.Errorf("userdel: user '%s' does not exist", name)
+		}
+		if f.busy[name] {
+			return "", fmt.Errorf("userdel: user %s is currently used by process 2708: exit status 8", name)
 		}
 		delete(f.users, name)
 		delete(f.groups, name)
@@ -479,8 +492,12 @@ func (f *Fake) loginctl(args []string) (string, error) {
 		f.Install("/var/lib/systemd/linger/"+args[1], "", 0o644)
 		if u, ok := f.users[args[1]]; ok {
 			f.active[fmt.Sprintf("user@%d.service", u.UID)] = true // lingering starts the user manager
+			f.busy[args[1]] = true
 			f.controllers(u.UID)
 		}
+		return "", nil
+	case len(args) == 2 && args[0] == "terminate-user":
+		delete(f.busy, args[1])
 		return "", nil
 	case len(args) >= 2 && args[0] == "show-user":
 		if f.linger[args[1]] {
@@ -543,6 +560,14 @@ func (f *Fake) systemctl(account string, args []string) (string, error) {
 		return "", nil
 	case "stop":
 		delete(f.active, scope+unit)
+		if strings.HasPrefix(unit, "user@") {
+			uid, _ := strconv.Atoi(strings.TrimSuffix(strings.TrimPrefix(unit, "user@"), ".service"))
+			for name, u := range f.users {
+				if u.UID == uid {
+					delete(f.busy, name)
+				}
+			}
+		}
 		return "", nil
 	case "is-active":
 		if f.active[scope+unit] {

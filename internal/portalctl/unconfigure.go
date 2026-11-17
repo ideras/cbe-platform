@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path"
 	"strings"
+	"time"
 )
 
 // The services, in the order they are started: the quota helper and the runner before the server that uses them. They are stopped in
@@ -303,15 +304,19 @@ func accountsStep() Step {
 		},
 		Apply: func(c *Ctx) error {
 			if c.L.Workspace {
-				if _, ok := c.Sys.Lookup(c.L.RunnerUser); ok {
-					_, _ = c.Sys.Run("loginctl", "disable-linger", c.L.RunnerUser)
-					if _, err := c.Sys.Run("userdel", "--remove", c.L.RunnerUser); err != nil {
+				if u, ok := c.Sys.Lookup(c.L.RunnerUser); ok {
+					// Lingering keeps the runner's user manager (and what runs under it) up after its services are stopped, and
+					// userdel will not delete an account that has a process: the manager is told to stop first.
+					_, _ = c.Sys.Run("loginctl", "disable-linger", u.Name)
+					_, _ = c.Sys.Run("loginctl", "terminate-user", u.Name)
+					_, _ = c.systemctl("stop", fmt.Sprintf("user@%d.service", u.UID))
+					if err := deleteAccount(c, u.Name, true); err != nil {
 						return err
 					}
 				}
 			}
 			if _, ok := c.Sys.Lookup(c.L.ServerUser); ok {
-				if _, err := c.Sys.Run("userdel", c.L.ServerUser); err != nil {
+				if err := deleteAccount(c, c.L.ServerUser, false); err != nil {
 					return err
 				}
 			}
@@ -323,6 +328,30 @@ func accountsStep() Step {
 			return nil
 		},
 	}
+}
+
+// pause is how long the removal of an account waits for its processes to be gone; the tests do not wait.
+var pause = time.Sleep
+
+// deleteAccount deletes an account. One that still has a process (a process of the runner's user manager takes a moment to end, and a program
+// the services left) is refused by userdel: what is left is ended, and the deletion is tried again, a few times.
+func deleteAccount(c *Ctx, name string, removeHome bool) error {
+	args := []string{name}
+	if removeHome {
+		args = []string{"--remove", name}
+	}
+	var err error
+	for attempt := 0; attempt < 6; attempt++ {
+		if _, err = c.Sys.Run("userdel", args...); err == nil {
+			return nil
+		}
+		if !strings.Contains(err.Error(), "currently used by process") {
+			return err
+		}
+		_, _ = c.Sys.Run("pkill", "-KILL", "-u", name) // exit status 1 is that nothing is left to end
+		pause(time.Second)
+	}
+	return err
 }
 
 // ----- the services as they are

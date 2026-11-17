@@ -2,10 +2,12 @@ package portalctl
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"exam-platform/internal/portalctl/conf"
 	"exam-platform/internal/portalctl/sys"
@@ -300,5 +302,61 @@ func TestTheGuideListsEveryKey(t *testing.T) {
 		if !strings.Contains(string(data), "| `"+spec.Name+"` |") {
 			t.Errorf("docs/deployment-linux.md has no row for %s", spec.Name)
 		}
+	}
+}
+
+// Lingering keeps the runner's user manager running after its services are stopped, and userdel refuses an account that has a process (found on the first
+// real removal of the data): the manager is ended first, and a process that is slow to go is ended and the deletion tried again.
+func TestRemovingTheDataEndsTheRunnersUserManagerBeforeDeletingTheAccount(t *testing.T) {
+	pause = func(time.Duration) {}
+	f := machine()
+	f.Install("/root/cbe.conf", workspaceConfig, 0o644)
+	if code, s := command(f, "", false, "configure", "--config", "/root/cbe.conf", "--yes"); code != 0 {
+		t.Fatalf("%s\n%s", s.out.String(), s.err.String())
+	}
+	// The user manager of the runner is up (lingering started it): the simulated userdel refuses the account while it is.
+	if _, err := f.Run("userdel", "--remove", "cbe-runner"); err == nil || !strings.Contains(err.Error(), "currently used by process") {
+		t.Fatalf("the simulated machine does not refuse an account that has a process: %v", err)
+	}
+	before := len(f.Calls)
+	code, s := command(f, "", false, "unconfigure", "--remove-data", "--yes")
+	if code != 0 {
+		t.Fatalf("exit %d\n%s\n%s", code, s.out.String(), s.err.String())
+	}
+	calls := strings.Join(f.Calls[before:], "\n")
+	terminate, stop, userdel := strings.Index(calls, "loginctl terminate-user cbe-runner"), strings.Index(calls, "systemctl stop user@1000.service"), strings.Index(calls, "userdel --remove cbe-runner")
+	if terminate < 0 || stop < terminate || userdel < stop {
+		t.Errorf("the user manager is ended (%d, %d) before the account is deleted (%d):\n%s", terminate, stop, userdel, calls)
+	}
+	if _, found := f.Lookup("cbe-runner"); found {
+		t.Error("the runner's account is still there")
+	}
+
+	// Stubborn: the manager cannot be told to stop, and a process stays until it is killed.
+	g := machine()
+	g.Install("/root/cbe.conf", workspaceConfig, 0o644)
+	if code, s := command(g, "", false, "configure", "--config", "/root/cbe.conf", "--yes"); code != 0 {
+		t.Fatalf("%s\n%s", s.out.String(), s.err.String())
+	}
+	g.Failures["loginctl terminate-user"] = errors.New("loginctl: failed")
+	g.Failures["systemctl stop user@"] = errors.New("systemctl: failed")
+	code, s = command(g, "", false, "unconfigure", "--remove-data", "--yes")
+	if code != 0 || !strings.Contains(strings.Join(g.Calls, "\n"), "pkill -KILL -u cbe-runner") {
+		t.Fatalf("exit %d: a process that stays is ended\n%s\n%s", code, s.out.String(), s.err.String())
+	}
+	if _, found := g.Lookup("cbe-runner"); found {
+		t.Error("the runner's account is still there after the process was ended")
+	}
+
+	// Another reason for userdel to refuse is not retried: it is the error.
+	h := machine()
+	h.Install("/root/cbe.conf", workspaceConfig, 0o644)
+	if code, s := command(h, "", false, "configure", "--config", "/root/cbe.conf", "--yes"); code != 0 {
+		t.Fatalf("%s\n%s", s.out.String(), s.err.String())
+	}
+	h.Failures["userdel"] = errors.New("userdel: cannot lock /etc/passwd")
+	code, s = command(h, "", false, "unconfigure", "--remove-data", "--yes")
+	if code != 1 || !strings.Contains(s.err.String(), "cannot lock /etc/passwd") || strings.Contains(strings.Join(h.Calls, "\n"), "pkill") {
+		t.Errorf("exit %d\n%s\n%s", code, s.out.String(), s.err.String())
 	}
 }
