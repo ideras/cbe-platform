@@ -196,7 +196,7 @@ func (b *ImageBuilder) settle(record ImageBuildRecord, result runner.BuildResult
 	if !result.OK {
 		code := result.Failure
 		switch code {
-		case BuildFailContainerfile, BuildFailBase, BuildFailBuild, BuildFailTimeout, BuildFailVerify:
+		case BuildFailContainerfile, BuildFailBase, BuildFailBuild, BuildFailTimeout, BuildFailVerify, BuildFailPolicy:
 		default:
 			code = BuildFailRunner
 		}
@@ -327,8 +327,11 @@ type ImageView struct {
 	ExamID string `json:"exam_id"`
 	// State is one of the Image… constants. Present says the runner was asked and has the image; it is only set by Image, never by the
 	// states of a list (a list does not ask the runner).
-	State   string `json:"state"`
+	State string `json:"state"`
+	// Image is the course image the exam names. It is "" for an exam with a base image of its own, and OwnBase says so (the base is then in the builds'
+	// BaseName).
 	Image   string `json:"image,omitempty"`
+	OwnBase bool   `json:"own_base,omitempty"`
 	Present *bool  `json:"present,omitempty"`
 	// Ready is whether the exam can be published as far as its image goes.
 	Ready bool `json:"ready"`
@@ -350,7 +353,7 @@ func buildView(r ImageBuildRecord, withLog bool) ImageBuildView {
 // asking the runner. A failed or running build does not take away a good build that is there; the state says what the latest build is doing,
 // and Ready says whether there is a good image.
 func stateView(examID, image, imageHash string, latest *ImageBuildRecord, hasGood bool) ImageView {
-	view := ImageView{ExamID: examID, State: ImageNone, Image: image}
+	view := ImageView{ExamID: examID, State: ImageNone, Image: image, OwnBase: image == ""}
 	if imageHash == "" {
 		view.Ready = true // nothing to build: the course image is what it uses
 		return view

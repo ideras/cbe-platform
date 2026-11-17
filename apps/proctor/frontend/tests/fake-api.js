@@ -689,7 +689,7 @@ function imageView(id, withLog, logFrom = 0) {
   } else if (build) {
     Object.assign(build, { live: false, log_from: 0, log_next: build.log.length });
   }
-  return { exam_id: id, state: entry.image.state, image: 'cbe/cpp20', present: entry.image.state === 'ready' ? true : null, ready: entry.image.ready, build, builds };
+  return { exam_id: id, state: entry.image.state, image: entry.image.image, ...(entry.image.own_base ? { own_base: true } : {}), present: entry.image.state === 'ready' ? true : null, ready: entry.image.ready, build, builds };
 }
 // Changes the state of an exam's image in the catalog to match its latest build.
 function settleImage(id) {
@@ -697,7 +697,7 @@ function settleImage(id) {
   const detail = imageDetail[id];
   const latest = detail.builds[0];
   const good = detail.builds.some(item => item.state === 'ok');
-  entry.image = { exam_id: id, state: { queued: 'queued', running: 'building', ok: 'ready', failed: 'failed' }[latest.state], image: 'cbe/cpp20', ready: good, build: structuredClone({ ...latest, log: '' }), builds: [] };
+  entry.image = { exam_id: id, state: { queued: 'queued', running: 'building', ok: 'ready', failed: 'failed' }[latest.state], image: entry.image.image, own_base: entry.image.own_base, ready: good, build: structuredClone({ ...latest, log: '' }), builds: [] };
 }
 export async function ChooseWorkspaceExam(classId) {
   calls.workspaceImport.chosen.push(classId);
@@ -743,11 +743,11 @@ Object.assign(window.ProctorHarness, {
   buildFails(message) { buildFailure = message; },
   imageReadFails(message) { imageReadFails = message; },
   // Makes an exam a workspace exam with an image in a state, and the builds it has (newest first, with their logs).
-  workspaceExam(id, { state = 'not_built', ready = false, todos = 2, builds = [] } = {}) {
+  workspaceExam(id, { state = 'not_built', ready = false, todos = 2, builds = [], image = 'cbe/cpp20', own_base = false } = {}) {
     const entry = examById(id);
     entry.kind = 'workspace'; entry.todos = todos; entry.exercise_count = 0;
     imageDetail[id] = { builds: builds.map(item => buildOf(item.build_id, item.state, item)) };
-    entry.image = { exam_id: id, state, image: 'cbe/cpp20', ready, build: imageDetail[id].builds[0] ? { ...imageDetail[id].builds[0], log: '' } : null, builds: [] };
+    entry.image = { exam_id: id, state, image, own_base, ready, build: imageDetail[id].builds[0] ? { ...imageDetail[id].builds[0], log: '' } : null, builds: [] };
   },
   // A change to the latest build of an exam (a build that goes on, ends, or fails) and what the catalog then says.
   imageBuild(id, change) {

@@ -29,10 +29,10 @@
           </dd></div>
           <div class="row"><dt>Project</dt><dd>{plural(preview.starter_files, 'starter file')}, copied to each student’s <code>/work</code>. The terminal is {preview.terminal ? 'on' : 'off'}.{#if buttons.length} <small>{buttons.join(' · ')}</small>{/if}</dd></div>
           <div class="row"><dt>Hidden tests</dt><dd>{#if preview.has_grading}{plural(preview.grading_files, 'file')}, kept on the server and never sent to students.{:else}None: this exam cannot be graded by the server.{/if}</dd></div>
-          <div class="row"><dt>Container</dt><dd>{preview.image}: {preview.cpu} cpu, {preview.memory_mb} MB of memory, {preview.disk_mb} MB of disk for each student.</dd></div>
+          <div class="row"><dt>Container</dt><dd>{preview.image || 'A base image of its own'}: {preview.cpu} cpu, {preview.memory_mb} MB of memory, {preview.disk_mb} MB of disk for each student.</dd></div>
           <div class="row"><dt>Image</dt><dd>
             {#if preview.own_image}
-              <strong>Its own image</strong> built from {preview.image} ({plural(preview.image_files, 'file')} in <code>image/</code>). Build it from the exam’s Image button after importing; the exam cannot be published until it is built.
+              <strong>Its own image</strong> built from {preview.image || 'the base its Containerfile names'} ({plural(preview.image_files, 'file')} in <code>image/</code>). Build it from the exam’s Image button after importing; the exam cannot be published until it is built.
             {:else}The course image {preview.image}, as it is.{/if}
           </dd></div>
         </dl>

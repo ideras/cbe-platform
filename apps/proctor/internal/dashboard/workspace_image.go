@@ -59,6 +59,7 @@ type ExamImage struct {
 	ExamID  string       `json:"exam_id"`
 	State   string       `json:"state"`
 	Image   string       `json:"image"`
+	OwnBase bool         `json:"own_base"`
 	Present *bool        `json:"present"`
 	Ready   bool         `json:"ready"`
 	Build   *ImageBuild  `json:"build"`

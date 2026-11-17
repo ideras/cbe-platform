@@ -216,7 +216,7 @@ export function shortDigest(digest) {
 
 const buildFailures = {
   containerfile: 'The Containerfile is not accepted', base: 'The course image on this server is not the one the file names', build: 'A step of the build failed',
-  timeout: 'The build took too long', verify: 'The image does not keep the course image’s contract', runner: 'The runner could not build it', interrupted: 'The server stopped during the build',
+  timeout: 'The build took too long', verify: 'The image does not keep the contract of a workspace image', policy: 'This server does not allow that build', runner: 'The runner could not build it', interrupted: 'The server stopped during the build',
 };
 export const buildFailureLabel = code => buildFailures[code] ?? 'The build failed';
 

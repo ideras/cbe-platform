@@ -192,7 +192,8 @@ func (r *Runner) Create(_ context.Context, req runner.CreateRequest) (runner.Sta
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.note("create", req.Session)
-	if !r.Images[req.Image] {
+	// An exam with a base of its own (image "") is run from the image built for it, and from nothing else.
+	if !r.Images[req.Image] && !(req.Image == "" && req.Build != "") {
 		return runner.Status{}, fmt.Errorf("%w: %q", runner.ErrNotApproved, req.Image)
 	}
 	if req.Build != "" && r.Built[runner.BuiltName(req.Exam, req.Build)] != req.Exam {
@@ -544,7 +545,7 @@ func (r *Runner) BuildImage(ctx context.Context, req runner.BuildRequest, buildC
 		result.Exam = req.Exam
 		return result, err
 	}
-	if !r.Images[req.Image] {
+	if req.Image != "" && !r.Images[req.Image] {
 		return runner.BuildResult{}, fmt.Errorf("%w: %q", runner.ErrNotApproved, req.Image)
 	}
 	text, found := files["Containerfile"]
@@ -552,6 +553,12 @@ func (r *Runner) BuildImage(ctx context.Context, req runner.BuildRequest, buildC
 		return runner.BuildResult{}, fmt.Errorf("%w: the build context has no file called Containerfile", runner.ErrBadRequest)
 	}
 	result := runner.BuildResult{Exam: req.Exam, BaseName: req.Image, BaseDigest: BaseDigest}
+	if req.Image == "" {
+		// A base of its own: the runner names the first image the file starts from.
+		if refs := containerfile.References(text); len(refs) > 0 {
+			result.BaseName = refs[0].Text
+		}
+	}
 	// say adds to the log and sends it on, as the runner does.
 	say := func(text string) {
 		result.Log += text

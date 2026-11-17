@@ -174,7 +174,7 @@ test('a build that fails says why, keeps its log, and can be tried again; warnin
   await expect(practice).toContainText('Build failed');
   await practice.getByRole('button', { name: /^Image of / }).click();
   const dialog = page.getByRole('dialog', { name: 'Image of Practice exam' });
-  await expect(dialog.getByRole('alert')).toContainText('The image does not keep the course image’s contract.');
+  await expect(dialog.getByRole('alert')).toContainText('The image does not keep the contract of a workspace image.');
   await expect(dialog.getByRole('alert')).toContainText('end the Containerfile with USER 1000:1000');
   await expect(dialog.getByRole('alert')).not.toContainText('An earlier build');
   await expect(dialog).toContainText('Warnings');
@@ -292,4 +292,35 @@ test('a build that has been quiet for a while says so, and a build that goes on 
   await page.evaluate(() => window.ProctorHarness.imageBuild('33333333-3333-4333-8333-333333333333', { state: 'running', started_at: new Date().toISOString(), step: 1, steps: 4, step_text: 'FROM x', log: 'STEP 1/4: FROM x\n' }));
   await expect(dialog.getByLabel('Build output')).toHaveText('STEP 1/4: FROM x\n', { timeout: 6000 });
   await expect(dialog.getByLabel('Build output')).not.toContainText('could not resolve');
+});
+
+test('a package with a base image of its own is previewed as such, and its build names the base', async ({ page }) => {
+  const exams = await open(page);
+  await page.evaluate(pkg => window.ProctorHarness.workspacePackage(pkg), goodPackage({ image: '', folder: 'lab-python', title: 'Neural networks lab' }));
+  await exams.getByRole('button', { name: 'Import workspace exam…' }).click();
+  const preview = page.getByTestId('workspace-import');
+  await expect(preview).toContainText('Neural networks lab');
+  await expect(preview).toContainText('A base image of its own: 1 cpu');
+  await expect(preview).toContainText('built from the base its Containerfile names');
+  await expect(preview).not.toContainText('The course image ');
+  await preview.getByLabel('Exam PIN').fill('pin-1234');
+  await preview.getByRole('button', { name: 'Import workspace exam' }).click();
+  await expect(preview).toBeHidden();
+  // Its image dialog says base image, and the build's base is what the Containerfile named.
+  await page.evaluate(args => window.ProctorHarness.workspaceExam('33333333-3333-4333-8333-333333333333', args), { state: 'ready', ready: true, own_base: true, image: '', builds: [{ build_id: 1, state: 'ok', hash: '0123456789abcdef', base_name: 'docker.io/library/python:3.12-slim@sha256:0123', base_digest: DIGEST, warnings: [], duration_ms: 3600, log: 'Base image: docker.io/library/python:3.12-slim\n' }] });
+  await examCard(exams, 'Practice exam').getByRole('button', { name: /^Image of / }).click();
+  const dialog = page.getByRole('dialog', { name: 'Image of Practice exam' });
+  await expect(dialog).toContainText('built from the base its Containerfile names');
+  await expect(dialog).toContainText('Base image');
+  await expect(dialog).toContainText('docker.io/library/python:3.12-slim');
+});
+
+test('a build the server does not allow says so', async ({ page }) => {
+  const policy = { build_id: 2, state: 'failed', failure: 'policy', message: 'FROM ghcr.io/acme/db:1 (line 1): this server does not take images from ghcr.io; it allows docker.io', warnings: [], duration_ms: 20, log: 'x\n' };
+  const exams = await open(page);
+  await page.evaluate(args => window.ProctorHarness.workspaceExam('33333333-3333-4333-8333-333333333333', args), workspaceExam('failed', false, [policy]));
+  await examCard(exams, 'Practice exam').getByRole('button', { name: /^Image of / }).click();
+  const dialog = page.getByRole('dialog', { name: 'Image of Practice exam' });
+  await expect(dialog.getByRole('alert')).toContainText('This server does not allow that build.');
+  await expect(dialog.getByRole('alert')).toContainText('does not take images from ghcr.io');
 });

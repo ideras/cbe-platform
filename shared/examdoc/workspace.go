@@ -69,7 +69,8 @@ type WorkspaceExam struct {
 
 // WorkspaceSettings is what the workspace.md front matter says about the container and the project.
 type WorkspaceSettings struct {
-	// Image names a course image, such as cbe/cpp20. The server checks that it has the image.
+	// Image names a course image, such as cbe/cpp20; the server checks that it has the image. It is "" for an exam with a base image of its own: the
+	// package then holds image/Containerfile, which starts FROM any image, and the server's runner finishes the image it makes (decision D-CB-1).
 	Image    string `json:"image"`
 	Terminal bool   `json:"terminal"`
 	// Run and Check are the commands behind the Run and Check buttons, run in /work; a button is hidden when its command is empty.
@@ -88,6 +89,9 @@ type WorkspaceSettings struct {
 	// version, an ADD from a URL with no checksum) are then neither shown nor kept. Nil is the default, on, and is how `on` is written too, so a
 	// package that says it compiles to the same document as one that does not.
 	ImageWarnings *bool `json:"image_warnings,omitempty"`
+
+	// imageGiven is that the front matter has an image: key (right or wrong). It is not part of the document.
+	imageGiven bool
 }
 
 // Resources are the limits of the student's container.

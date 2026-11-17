@@ -143,7 +143,7 @@ func CompileWorkspaceFS(pkg fs.FS) (WorkspaceExam, WorkspaceBundles, error) {
 			add("image must be a folder: it holds the Containerfile and the files it copies")
 		default:
 			if bundle, ok := buildBundle(pkg, "image", add); ok {
-				if warnings, ok := checkContainerfile(pkg, exam.Workspace.Image, add); ok {
+				if warnings, ok := checkContainerfile(pkg, exam.Workspace.Image, !exam.Workspace.imageGiven, add); ok {
 					bundles.Image = &bundle
 					if exam.Workspace.ImageWarnings == nil || *exam.Workspace.ImageWarnings {
 						bundles.ImageWarnings = warnings
@@ -152,6 +152,11 @@ func CompileWorkspaceFS(pkg fs.FS) (WorkspaceExam, WorkspaceBundles, error) {
 				}
 			}
 		}
+	}
+
+	// An exam has an image: a course image the server has (image:), or a base of its own (image/Containerfile and no image:).
+	if _, hasFolder := kinds["image"]; !hasFolder && !exam.Workspace.imageGiven && len(problems) == 0 {
+		add("the exam needs an image: name a course image of the server in the front matter (image: cbe/cpp20), or give the package an image/ folder whose Containerfile starts FROM any base image (image: is then left out)")
 	}
 
 	if len(problems) > 0 {
@@ -179,13 +184,14 @@ func readSource(pkg fs.FS, name string) ([]byte, error) {
 }
 
 // checkContainerfile reads image/Containerfile and applies the platform's rules to it (shared/containerfile, which the server and the
-// runner apply again). It returns the warnings, and false when there are problems. image is the exam's course image, or "" when the front
+// runner apply again). It returns the warnings, and false when there are problems. image is the exam's course image, or "" when the exam has a base of
+// its own (ownBase: the Containerfile may start FROM any image) or when the front
 // matter did not give a usable one, which has been reported already.
-func checkContainerfile(pkg fs.FS, image string, add func(string, ...any)) ([]string, bool) {
+func checkContainerfile(pkg fs.FS, image string, ownBase bool, add func(string, ...any)) ([]string, bool) {
 	info, err := fs.Lstat(pkg, "image/Containerfile")
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
-		add("image/Containerfile: missing: the image folder must hold a file called Containerfile (not Dockerfile) that starts with FROM <the exam's image>")
+		add("image/Containerfile: missing: the image folder must hold a file called Containerfile (not Dockerfile) that starts with FROM the exam's course image, or FROM any base image when the front matter has no image:")
 		return nil, false
 	case err != nil:
 		add("image/Containerfile: %v", err)
@@ -203,8 +209,8 @@ func checkContainerfile(pkg fs.FS, image string, add func(string, ...any)) ([]st
 		add("image/Containerfile: %v", err)
 		return nil, false
 	}
-	if image == "" {
-		// The front matter's image is wrong or missing, and said so: there is nothing to compare the FROM with.
+	if image == "" && !ownBase {
+		// The front matter's image is wrong, and said so: there is nothing to compare the FROM with.
 		return nil, false
 	}
 	found := containerfile.Check(string(data), image)
@@ -379,9 +385,8 @@ func parseWorkspaceFrontMatter(lines []string, report func(int, string, ...any))
 		}
 	})
 	s.requireBasics(seen, report)
-	if !seen["image"] {
-		report(1, "the front matter must set an image, such as image: cbe/cpp20")
-	}
+	// Whether there is an image is decided with the package's folders (an image/ folder with a Containerfile is an image of its own): CompileWorkspaceFS.
+	workspace.imageGiven = seen["image"]
 	return s, workspace
 }
 
