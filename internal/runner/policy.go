@@ -37,6 +37,11 @@ func (c Config) Check(req CreateRequest) (Resources, string, error) {
 		return Resources{}, "", badRequest("session and exam must be IDs of letters, digits, _ and -, at most 64")
 	}
 	reference, approved := c.Images[req.Image]
+	// An exam with a base of its own (image "") is run from the image the runner built for it: nothing else names it, and the runner has checked that the
+	// image has this exam's labels before it makes a container of it.
+	if req.Image == "" && req.Build != "" {
+		approved = true
+	}
 	if !approved {
 		return Resources{}, "", fmt.Errorf("%w: %q", ErrNotApproved, req.Image)
 	}

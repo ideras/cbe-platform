@@ -37,9 +37,11 @@ type fakeRuntime struct {
 	// infos is what the runtime says of an image it has (an image with no entry here is a plain one); build is what an image build does, in
 	// place of the default, which adds one layer to the base and tags it; agentSums is the SHA-256 the checking container prints for the
 	// agent of an image, by reference (the base's label when there is none).
-	infos         map[string]ImageInfo
-	build         func(ctx context.Context, spec ImageBuildSpec, buildContext []byte, log io.Writer) error
-	agentSums     map[string]string
+	infos     map[string]ImageInfo
+	build     func(ctx context.Context, spec ImageBuildSpec, buildContext []byte, log io.Writer) error
+	agentSums map[string]string
+	// selfTests is what the agent's self test prints in the checking container of an image, by reference (a passing report when there is none).
+	selfTests     map[string]string
 	builds        int
 	buildSpecs    []ImageBuildSpec
 	buildContexts [][]byte
@@ -67,7 +69,7 @@ type fakeContainer struct {
 
 func newFakeRuntime() *fakeRuntime {
 	return &fakeRuntime{containers: map[string]*fakeContainer{}, images: map[string]bool{"localhost/cbe/cpp20:latest": true},
-		infos: map[string]ImageInfo{"localhost/cbe/cpp20:latest": baseImage()}, agentSums: map[string]string{}}
+		infos: map[string]ImageInfo{"localhost/cbe/cpp20:latest": baseImage()}, agentSums: map[string]string{}, selfTests: map[string]string{}}
 }
 
 func (f *fakeRuntime) note(call string) { f.calls = append(f.calls, call) }
@@ -137,6 +139,18 @@ func (f *fakeRuntime) Wait(ctx context.Context, name string) (int, error) {
 	}
 	exit, out := 0, Output{}
 	switch {
+	case len(c.spec.Cmd) == 1 && c.spec.Cmd[0] == "-selftest":
+		// The checking container of an image with a base of its own: the agent's self test.
+		f.mu.Lock()
+		report, found := f.selfTests[c.spec.Image]
+		if !found {
+			report, found = f.selfTests["*"] // for every image
+		}
+		f.mu.Unlock()
+		if !found {
+			report = passingSelfTest
+		}
+		out = Output{Stdout: []byte(report)}
 	case len(c.spec.Entrypoint) > 0 && c.spec.Entrypoint[0] == "/usr/bin/sha256sum":
 		// The checking container of an image build: it prints the hash of the agent in the image it was made from.
 		f.mu.Lock()
@@ -404,7 +418,13 @@ type rig struct {
 	secret string
 }
 
-func newRig(t *testing.T) *rig {
+// passingSelfTest is what `cbe-agent -selftest` prints when the image keeps the contract.
+const passingSelfTest = `{"version":"test","ok":true,"checks":[{"name":"user","ok":true},{"name":"shell","ok":true,"detail":"/bin/bash"},{"name":"no-setuid-files","ok":true,"detail":"900 files looked at"}]}`
+
+func newRig(t *testing.T) *rig { return newRigWith(t, nil) }
+
+// newRigWith is newRig with the configuration changed first.
+func newRigWith(t *testing.T, edit func(*Config)) *rig {
 	t.Helper()
 	base, err := os.MkdirTemp("", "runner")
 	if err != nil {
@@ -413,6 +433,9 @@ func newRig(t *testing.T) *rig {
 	t.Cleanup(func() { os.RemoveAll(base) })
 	cfg := DefaultConfig()
 	cfg.WorkRoot, cfg.RunRoot, cfg.StateRoot, cfg.GradeRoot = filepath.Join(base, "work"), filepath.Join(base, "run"), filepath.Join(base, "state"), filepath.Join(base, "grade")
+	if edit != nil {
+		edit(&cfg)
+	}
 	rt, q := newFakeRuntime(), &fakeQuota{}
 	svc, err := NewService(cfg, rt, q, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
