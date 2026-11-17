@@ -29,8 +29,8 @@ type ownBuild struct {
 	seconds int
 }
 
-// selfTestReport is what `cbe-agent -selftest` prints (internal/agent/selftest.go).
-type selfTestReport struct {
+// SelfTestReport is what `cbe-agent -selftest` prints (internal/agent/selftest.go).
+type SelfTestReport struct {
 	Version string `json:"version"`
 	OK      bool   `json:"ok"`
 	Checks  []struct {
@@ -40,7 +40,8 @@ type selfTestReport struct {
 	} `json:"checks"`
 }
 
-func (r selfTestReport) failed() string {
+// Failed lists what did not pass, as a sentence.
+func (r SelfTestReport) Failed() string {
 	var out []string
 	for _, c := range r.Checks {
 		if !c.OK {
@@ -75,7 +76,7 @@ func (s *Service) buildOwnBase(ctx context.Context, req BuildRequest, b *ownBuil
 	}
 	if len(s.cfg.BaseRegistries) > 0 {
 		for _, ref := range pulled {
-			if !s.registryAllowed(ref.Registry) {
+			if !s.cfg.AllowsRegistry(ref.Registry) {
 				return finish(FailPolicy, fmt.Sprintf("FROM %s (line %d): this server does not take images from %s; it allows %s", ref.Text, ref.Line, ref.Registry, strings.Join(s.cfg.BaseRegistries, ", ")))
 			}
 		}
@@ -209,9 +210,12 @@ func (s *Service) removeOwnWorkingContainers(pulled []containerfile.Reference) {
 	s.removeWorkingContainers(pendingRepo+"x", 2)
 }
 
-// registryAllowed says whether the administrator allows images from a registry.
-func (s *Service) registryAllowed(registry string) bool {
-	for _, allowed := range s.cfg.BaseRegistries {
+// AllowsRegistry says whether the administrator allows images from a registry (no list: every registry).
+func (c Config) AllowsRegistry(registry string) bool {
+	if len(c.BaseRegistries) == 0 {
+		return true
+	}
+	for _, allowed := range c.BaseRegistries {
 		if strings.EqualFold(allowed, registry) {
 			return true
 		}
@@ -219,9 +223,9 @@ func (s *Service) registryAllowed(registry string) bool {
 	return false
 }
 
-// verifyOwnBase says what is wrong with the image the runner finished, or "" when it is a workspace image: its configuration is what the runner's layer
-// wrote, and the agent in it, run as a student's container is run, finds nothing wrong (cbe-agent -selftest).
-func (s *Service) verifyOwnBase(ctx context.Context, req BuildRequest, built ImageInfo, ref, agentHex string, log *logBuffer) string {
+// ImageConfigProblem says what is wrong with the configuration of an image the runner has finished (the user, the entrypoint, the working folder, the
+// agent's label, the volumes), or "" when it is a workspace image's. agentHex is the SHA-256 of the agent that was put in it.
+func ImageConfigProblem(built ImageInfo, agentHex string) string {
 	switch {
 	case built.User != "1000:1000" && built.User != "1000":
 		return fmt.Sprintf("the user of the image is %q, and it must be 1000:1000", built.User)
@@ -234,11 +238,20 @@ func (s *Service) verifyOwnBase(ctx context.Context, req BuildRequest, built Ima
 	case len(built.Volumes) > 0:
 		return fmt.Sprintf("the image declares the volume(s) %s (VOLUME in the Containerfile of the base, as the postgres image does): a container made from it would get a writable folder outside the student's, with no quota. Start from an image that declares no volume (for the database: a plain ubuntu image with the server installed from its packages)", strings.Join(built.Volumes, ", "))
 	}
+	return ""
+}
+
+// verifyOwnBase says what is wrong with the image the runner finished, or "" when it is a workspace image: its configuration is what the runner's layer
+// wrote, and the agent in it, run as a student's container is run, finds nothing wrong (cbe-agent -selftest).
+func (s *Service) verifyOwnBase(ctx context.Context, req BuildRequest, built ImageInfo, ref, agentHex string, log *logBuffer) string {
+	if problem := ImageConfigProblem(built, agentHex); problem != "" {
+		return problem
+	}
 	out, code, err := s.runChecker(ctx, req.Exam, built, ref, []string{AgentPath}, []string{"-selftest"})
 	if err != nil {
 		return "the image could not be checked: " + err.Error()
 	}
-	var report selfTestReport
+	var report SelfTestReport
 	if jsonErr := json.Unmarshal(out.Stdout, &report); jsonErr != nil {
 		return fmt.Sprintf("the agent in the image did not run (status %d): %s%s. The image must be a Linux image the agent, a static program, can run in: not a different architecture, and with /proc", code, strings.TrimSpace(string(out.Stderr)), strings.TrimSpace(string(out.Stdout)))
 	}
@@ -250,7 +263,7 @@ func (s *Service) verifyOwnBase(ctx context.Context, req BuildRequest, built Ima
 		fmt.Fprintf(log, "  self test  %s  %s\n", mark, c.Name)
 	}
 	if !report.OK {
-		return "the image does not keep the contract of a workspace image: " + report.failed()
+		return "the image does not keep the contract of a workspace image: " + report.Failed()
 	}
 	return ""
 }

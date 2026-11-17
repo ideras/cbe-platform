@@ -50,6 +50,13 @@ After the author's last stage the runner builds **its own layer** on top, which 
 It needs a Linux base that has `/bin/sh` and `/etc/passwd` (`FROM scratch` and distroless images cannot be finished; the message says so). The terminals use `/bin/bash` when the image has it
 and `/bin/sh` when it does not (Alpine). The agent is a static program: nothing of its own is needed in the base.
 
+### Checking it before the server does
+
+`cbe-portalctl image check lab-python/` (the package folder, its `image/` folder or the Containerfile) does all of the following on **your computer** with its Podman, with the same code the runner uses:
+the rules of the Containerfile, your build, the finishing layer, the image's configuration and the agent's self test, and says `OK` or `NOT ACCEPTED: why`. The agent comes from the server's installation
+(`/opt/cbe-portal/bin/cbe-agent`) or from `--agent`, and the server's `custom_base` and `base_registries` are applied when `/opt/cbe-portal/etc/runner.json` is there (`--runner-config`). `--keep` leaves the image for
+a look (`podman run --rm -it --entrypoint /bin/sh …`). The server does all of it again when the proctor builds the exam's image.
+
 ### What is checked, and what is refused
 
 Before the image is kept, the runner starts it **as a student's container is started** (no network, a read-only root, no capabilities, no new privileges, the student user) and runs
@@ -203,4 +210,5 @@ a student who logs in after a rebuild gets the new image.
 its routes and the real database), the proctor's Playwright specs (`tests/ui/workspace-image.spec.js`) and, **with real builds, real containers and a real network**,
 `deploy/workspace/test-image.sh` (`deployment.md`). For a base of its own: `internal/runner/ownbase_test.go` (the two builds, the policy and the verification, against a fake runtime),
 `internal/agent/selftest_test.go`, `shared/examdoc` and `internal/httpapi/workspace_ownbase_test.go` (the whole flow through the routes) and, **with real builds, containers and network**,
-`deploy/workspace/test-ownbase.sh` (Alpine, Ubuntu, Python with a pip library, a Redis base that is refused for its volume, and the C++ example package built from the archive snapshot).
+`deploy/workspace/test-ownbase.sh` (Alpine, Ubuntu, Python with a pip library, a Redis base that is refused for its volume, and the C++ example package built from the archive snapshot). The validator:
+`internal/imagecheck` (against a fake runtime) and `deploy/workspace/test-imagecheck.sh` (the real command, run as `cbe-runner`).

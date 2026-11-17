@@ -35,5 +35,7 @@ echo "Building the programs ($version, linux/$arch) ..."
 (cd "$repo" && go build "${flags[@]}" -o "$bins/cbe-runner" ./cmd/cbe-runner)
 (cd "$repo" && go build "${flags[@]}" -o "$bins/cbe-quota-helperd" ./cmd/cbe-quota-helper)
 (cd "$repo" && go build "${flags[@]}" -o "$bins/cbe-portalctl" ./cmd/cbe-portalctl)
+# The agent the runner puts in the images of exams that bring a base of their own (runner.json agent_binary): a static program, built the way images/build.sh builds it.
+(cd "$repo" && go build -trimpath -ldflags "-s -w -buildid= -X main.version=$version" -o "$bins/cbe-agent" ./cmd/cbe-agent)
 (cd "$repo/shared/examdoc" && go build -trimpath -o "$bins/examc" ./cmd/examc)
 "$here/make_installer.sh" --version "$version" --arch "$arch" --bin-dir "$bins" --output "$output"

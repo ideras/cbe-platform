@@ -31,6 +31,8 @@ const (
 	Address
 	// Text is a few words of server flags, in the same safe alphabet as a path plus spaces.
 	Text
+	// Registries is a list of container registries (docker.io, ghcr.io, localhost:5000) separated by commas or spaces.
+	Registries
 )
 
 // Spec is one key.
@@ -73,6 +75,8 @@ var Specs = []Spec{
 	{Name: "XFS_DEVICE", Kind: Path, Optional: true, Workspace: true, Help: "A spare partition to format instead of a file, for example /dev/sdb1. Everything on it is erased: it needs XFS_DEVICE_ERASE=yes."},
 	{Name: "XFS_DEVICE_ERASE", Kind: Bool, Default: "no", Workspace: true, Help: "yes: allow XFS_DEVICE to be formatted. Nothing is ever formatted without it."},
 	{Name: "HOST_MEMORY_MB", Kind: Int, Default: "0", Min: 0, Max: 4 << 20, Workspace: true, Help: "The most memory (MiB) the students' containers may add up to. 0 is 70% of the machine's memory."},
+	{Name: "ALLOW_CUSTOM_BASE", Kind: Bool, Default: "yes", Workspace: true, Help: "yes: an exam may bring a base image of its own (its Containerfile starts FROM any image; the runner finishes and checks it). no: only the course images in runner.json can be used."},
+	{Name: "BASE_REGISTRIES", Kind: Registries, Optional: true, Workspace: true, Help: "The registries an exam's image may be pulled from, for example docker.io,ghcr.io. Empty: any registry."},
 	{Name: "CONTAINER_STORAGE_DIR", Kind: Path, Optional: true, Workspace: true, Help: "Where the container runtime keeps images (default: under the runner account's home). Images need room: a Python image with its libraries is several GB. Existing images are not moved."},
 }
 
@@ -286,10 +290,11 @@ func unquote(value string) (string, error) {
 }
 
 var (
-	safePath = regexp.MustCompile(`^/[A-Za-z0-9._/@+-]*$`)
-	nameForm = regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,31}$`)
-	textForm = regexp.MustCompile(`^[A-Za-z0-9_./:=@,+ -]*$`)
-	hostForm = regexp.MustCompile(`^[A-Za-z0-9.-]*$`)
+	safePath     = regexp.MustCompile(`^/[A-Za-z0-9._/@+-]*$`)
+	nameForm     = regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,31}$`)
+	textForm     = regexp.MustCompile(`^[A-Za-z0-9_./:=@,+ -]*$`)
+	registryForm = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?(?::[0-9]{1,5})?$`)
+	hostForm     = regexp.MustCompile(`^[A-Za-z0-9.-]*$`)
 )
 
 // normalize checks a value against what its key takes, and returns it in its normal form.
@@ -358,6 +363,18 @@ func normalize(spec Spec, value string) (string, error) {
 			return "", fmt.Errorf("the host %q is not an address or a name", clip(host))
 		}
 		return value, nil
+	case Registries:
+		var registries []string
+		for _, item := range strings.FieldsFunc(value, func(r rune) bool { return r == ',' || r == ' ' || r == '\t' }) {
+			if !registryForm.MatchString(item) {
+				return "", fmt.Errorf("%q is not a registry (lower case, such as docker.io, ghcr.io or localhost:5000)", clip(item))
+			}
+			registries = append(registries, item)
+		}
+		if len(registries) == 0 && !spec.Optional {
+			return "", fmt.Errorf("it needs a value")
+		}
+		return strings.Join(registries, ","), nil
 	case Text:
 		if len(value) > 400 || !textForm.MatchString(value) {
 			return "", fmt.Errorf("it holds a character that is not allowed (letters, digits, spaces and _ . / : = @ , + - only)")

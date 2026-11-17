@@ -27,7 +27,7 @@ func values(t *testing.T, text string) *conf.Values {
 // machine is a machine the installer has been run on: the programs are in /opt/cbe-portal/bin.
 func machine() *sys.Fake {
 	f := sys.NewFake()
-	for _, program := range []string{"cbe-portal-server", "cbe-runner", "cbe-quota-helperd"} {
+	for _, program := range []string{"cbe-portal-server", "cbe-runner", "cbe-quota-helperd", "cbe-agent"} {
 		f.Install("/opt/cbe-portal/bin/"+program, "binary", 0o755)
 	}
 	return f
@@ -174,6 +174,7 @@ func TestAWorkspaceServerIsMadeFromNothingAndASecondRunChangesNothing(t *testing
 		"socket": "/data/cbe-platform/ipc/runner.sock", "socket_group": "cbe-ipc", "secret_file": "/data/cbe-platform/ipc/runner.secret",
 		"runtime_socket": "unix:///run/user/1000/podman/podman.sock", "work_root": "/data/cbe-platform/work", "run_root": "/data/cbe-platform/run",
 		"state_root": "/data/cbe-platform/runner", "grade_root": "/data/cbe-platform/grading", "host_memory_mb": float64(0),
+		"agent_binary": "/opt/cbe-portal/bin/cbe-agent", "custom_base": true,
 	} {
 		if settings[key] != want {
 			t.Errorf("runner.json %s = %v, want %v", key, settings[key], want)
@@ -181,6 +182,9 @@ func TestAWorkspaceServerIsMadeFromNothingAndASecondRunChangesNothing(t *testing
 	}
 	if _, ok := settings["images"]; !ok {
 		t.Error("the settings keep the images")
+	}
+	if registries, ok := settings["base_registries"].([]any); !ok || len(registries) != 0 {
+		t.Errorf("base_registries is %v: with none, every registry is allowed, and it is written as []", settings["base_registries"])
 	}
 	// The three services.
 	server1 := f.Text("/opt/cbe-portal/lib/systemd/cbe-server.service")
@@ -357,6 +361,33 @@ func TestADeviceIsFormattedOnlyWhenItIsNamedAndNotMounted(t *testing.T) {
 	g.AddMount("/dev/sdb1", "/mnt/data", "ext4", "rw")
 	if _, _, err := run(t, g, v, Options{}); err == nil || !strings.Contains(err.Error(), "is mounted") || strings.Contains(strings.Join(g.Calls, "\n"), "mkfs") {
 		t.Errorf("a mounted device: %v", err)
+	}
+}
+
+// Whether an exam may bring a base image of its own, and from which registries, are decided by the configuration (ALLOW_CUSTOM_BASE, BASE_REGISTRIES): the
+// runner's settings say it, and a file that said otherwise is put right.
+func TestTheRunnersSettingsSayWhichBasesAnExamMayHave(t *testing.T) {
+	f := machine()
+	f.Install("/opt/cbe-portal/etc/runner.json", `{"custom_base": true, "base_registries": ["quay.io"], "agent_binary": "/somewhere/else"}`, 0o644)
+	config := workspaceConfig + "ALLOW_CUSTOM_BASE=no\nBASE_REGISTRIES=docker.io, ghcr.io\n"
+	if _, out, err := run(t, f, values(t, config), Options{}); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	var settings struct {
+		CustomBase     bool     `json:"custom_base"`
+		BaseRegistries []string `json:"base_registries"`
+		AgentBinary    string   `json:"agent_binary"`
+	}
+	if err := json.Unmarshal([]byte(f.Text("/opt/cbe-portal/etc/runner.json")), &settings); err != nil {
+		t.Fatal(err)
+	}
+	if settings.CustomBase || strings.Join(settings.BaseRegistries, ",") != "docker.io,ghcr.io" || settings.AgentBinary != "/opt/cbe-portal/bin/cbe-agent" {
+		t.Errorf("the runner's settings: %+v", settings)
+	}
+	// A second run changes nothing.
+	result, out, err := run(t, f, values(t, config), Options{DryRun: true})
+	if err != nil || result.Todo != 0 || result.Problems != 0 {
+		t.Errorf("a second run: %+v %v\n%s", result, err, out)
 	}
 }
 
