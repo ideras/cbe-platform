@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -53,6 +54,14 @@ type Config struct {
 	// refuses to make one that would go over it (Phase 8). Every container may use its whole limit at once, so this is what keeps forty of them
 	// from taking the machine, which also runs the exam server and whatever else its owner does. 0 means 70% of the machine's memory (a class of forty students at the default 1 GiB fits in a machine of 64 GiB).
 	HostMemoryMB int `json:"host_memory_mb"`
+	// CustomBase says whether an exam may bring a base image of its own: an image/Containerfile that starts FROM any image, which the runner finishes with the
+	// agent and the rest of the contract (internal/runner/finalize.go) and verifies. On by default; off, only the approved images above can be built on.
+	CustomBase bool `json:"custom_base"`
+	// BaseRegistries are the registries an exam's own base may be pulled from (docker.io, ghcr.io, quay.io, localhost:5000...). None means any.
+	BaseRegistries []string `json:"base_registries"`
+	// AgentBinary is the static cbe-agent the runner puts in every image it finishes; its hash is part of the image's name, so a new agent makes new
+	// images. It is the file the installer put in INSTALL_DIR/bin.
+	AgentBinary string `json:"agent_binary"`
 }
 
 // DefaultConfig is the configuration of the plan: the limits of its Appendix A, and the maximums of the Phase 0 sizing.
@@ -66,11 +75,14 @@ func DefaultConfig() Config {
 		Default: Resources{CPU: 1, MemoryMB: 1024, DiskMB: 100},
 		Pids:    256, Inodes: 20000, TmpMB: 64, StopSeconds: 5,
 		GradeRoot: "/data/cbe-platform/grading", GradeParallel: 2, GradeMaxSeconds: 1800, GradeOutputBytes: 256 << 10,
-		BuildMaxSeconds: 900, BuildMemoryMB: 2048,
+		BuildMaxSeconds: 900, BuildMemoryMB: 2048, CustomBase: true,
 	}
 }
 
 var idPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+
+// registryPattern is a registry as an image reference writes it: lower case, with an optional port.
+var registryPattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?(?::[0-9]{1,5})?$`)
 
 // ValidID says whether id is a session or exam ID the runner takes: letters, digits, _ and -, at most 64.
 func ValidID(id string) bool { return idPattern.MatchString(id) }
@@ -123,6 +135,9 @@ func LoadConfig(path string) (Config, error) {
 	set("build_max_seconds", func() { merged.BuildMaxSeconds = overlay.BuildMaxSeconds })
 	set("build_memory_mb", func() { merged.BuildMemoryMB = overlay.BuildMemoryMB })
 	set("host_memory_mb", func() { merged.HostMemoryMB = overlay.HostMemoryMB })
+	set("custom_base", func() { merged.CustomBase = overlay.CustomBase })
+	set("base_registries", func() { merged.BaseRegistries = overlay.BaseRegistries })
+	set("agent_binary", func() { merged.AgentBinary = overlay.AgentBinary })
 	return merged, merged.Validate()
 }
 
@@ -134,8 +149,8 @@ func (c Config) Validate() error {
 			return fmt.Errorf("runner config: %s is required", name)
 		}
 	}
-	if len(c.Images) == 0 {
-		return errors.New("runner config: no approved images")
+	if len(c.Images) == 0 && !c.CustomBase {
+		return errors.New("runner config: no approved images, and custom_base is off: no exam could have an image")
 	}
 	for name, ref := range c.Images {
 		if !imageNamePattern.MatchString(name) || strings.TrimSpace(ref) == "" {
@@ -161,6 +176,15 @@ func (c Config) Validate() error {
 	}
 	if c.BuildMaxSeconds < 10 || c.BuildMemoryMB < 256 {
 		return errors.New("runner config: build_max_seconds is at least 10 and build_memory_mb at least 256")
+	}
+	for _, registry := range c.BaseRegistries {
+		if !registryPattern.MatchString(registry) {
+			return fmt.Errorf("runner config: base_registries has %q, which is not a registry (docker.io, ghcr.io, localhost:5000)", registry)
+		}
+	}
+	// A full path: rooted at "/" (the runner's host is Linux), or absolute where the code is only tested (a drive letter on Windows).
+	if c.AgentBinary != "" && !strings.HasPrefix(c.AgentBinary, "/") && !filepath.IsAbs(c.AgentBinary) {
+		return errors.New("runner config: agent_binary is a full path")
 	}
 	return nil
 }

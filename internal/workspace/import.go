@@ -140,7 +140,7 @@ func (im *Importer) Import(ctx context.Context, classID string, documentJSON, st
 			problems.add("%s", problem)
 		}
 	}
-	im.checkWorkspace(ctx, doc.Workspace, problems)
+	im.checkWorkspace(ctx, doc.Workspace, len(image) > 0, problems)
 	im.checkContent(doc.Content, problems)
 	starterHash := im.checkBundle("starter", starter, doc.StarterBundle, true, problems)
 	gradingHash := ""
@@ -204,13 +204,21 @@ func (im *Importer) checkImageBundle(data []byte, image string, problems *Valida
 	}
 }
 
-func (im *Importer) checkWorkspace(ctx context.Context, w Settings, problems *ValidationError) {
-	if len(w.Image) > 128 || !imagePattern.MatchString(w.Image) {
+func (im *Importer) checkWorkspace(ctx context.Context, w Settings, hasImageBundle bool, problems *ValidationError) {
+	switch {
+	case w.Image == "":
+		// An exam with a base image of its own (decision D-CB-1): there is no course image to ask about, and the image bundle is what the exam is.
+		if !hasImageBundle {
+			problems.add("workspace.image is missing, and the package has no image bundle: the exam needs a course image, or a Containerfile whose FROM names a base image")
+		}
+	case len(w.Image) > 128 || !imagePattern.MatchString(w.Image):
 		problems.add("workspace.image must be the name of a course image, such as cbe/cpp20")
-	} else if status, err := im.Runner.ImageInspect(ctx, w.Image); err != nil {
-		problems.add("the runner could not be asked about the image %s: %v", w.Image, err)
-	} else if !status.Approved || !status.Present {
-		problems.add("this server does not have the course image %s (approved: %v, present: %v)", w.Image, status.Approved, status.Present)
+	default:
+		if status, err := im.Runner.ImageInspect(ctx, w.Image); err != nil {
+			problems.add("the runner could not be asked about the image %s: %v", w.Image, err)
+		} else if !status.Approved || !status.Present {
+			problems.add("this server does not have the course image %s (approved: %v, present: %v)", w.Image, status.Approved, status.Present)
+		}
 	}
 	r := w.Resources
 	switch {

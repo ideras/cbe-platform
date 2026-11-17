@@ -83,6 +83,8 @@ const (
 	FailBuild         = "build"
 	FailTimeout       = "timeout"
 	FailVerify        = "verify"
+	// FailPolicy is a build the server's administrator does not allow: custom bases are off, the registry is not allowed, or the agent to put in the image is not set.
+	FailPolicy = "policy"
 )
 
 // BuildResult is what image.build returns, whatever way the build ended: a Containerfile that is refused, a step that fails or a build that
@@ -231,10 +233,11 @@ func (s *Service) BuildImage(ctx context.Context, req BuildRequest, buildContext
 // made by the goroutine that builds, one at a time.
 func (s *Service) BuildImageLive(ctx context.Context, req BuildRequest, buildContext io.Reader, live io.Writer) (BuildResult, error) {
 	reference, approved := s.cfg.Images[req.Image]
+	own := req.Image == "" // an exam with a base of its own: ownbase.go
 	switch {
 	case !examTagPattern.MatchString(req.Exam):
 		return BuildResult{}, badRequest("the exam of a build must be lowercase letters, digits, _ and -, at most 64")
-	case !approved:
+	case !own && !approved:
 		return BuildResult{}, fmt.Errorf("%w: %q", ErrNotApproved, req.Image)
 	}
 	seconds := req.TimeoutSeconds
@@ -283,6 +286,10 @@ func (s *Service) BuildImageLive(ctx context.Context, req BuildRequest, buildCon
 		result.DurationMS = time.Since(started).Milliseconds()
 		s.logger.Info("image build ended", "exam", req.Exam, "ok", result.OK, "failure", code, "cached", result.Cached, "hash", result.Hash, "ms", result.DurationMS)
 		return result, nil
+	}
+
+	if own {
+		return s.buildOwnBase(ctx, req, &ownBuild{log: log, result: &result, finish: finish, text: string(text), clean: clean.Bytes(), rawSum: rawSum[:], seconds: seconds})
 	}
 
 	// The course image, and the digest the build is pinned to.
@@ -425,44 +432,10 @@ func (s *Service) verifyImage(ctx context.Context, req BuildRequest, base, built
 // agentHash hashes the agent in an image, in a container made as a student's is (no network, a read-only root, no capabilities) that runs
 // sha256sum instead of the agent, and is removed after.
 func (s *Service) agentHash(ctx context.Context, exam string, image ImageInfo, ref string) (string, error) {
-	spec := hardened(s.cfg, Resources{CPU: 1, MemoryMB: 128, DiskMB: 1}, ref)
-	id := strings.TrimPrefix(image.ID, "sha256:")
-	spec.Name = "cbe-verify-" + exam + "-" + id[:min(12, len(id))]
-	spec.Labels = map[string]string{LabelRole: RoleVerify, LabelExam: exam}
-	spec.Entrypoint = []string{"/usr/bin/sha256sum"}
-	spec.Cmd = []string{AgentPath}
-	bg := func() (context.Context, context.CancelFunc) {
-		return context.WithTimeout(context.Background(), 30*time.Second)
-	}
-	_ = s.rt.Remove(ctx, spec.Name)
-	if _, err := s.rt.Create(ctx, spec); err != nil {
-		return "", fmt.Errorf("the checking container: %w", err)
-	}
-	defer func() {
-		c, cancel := bg()
-		defer cancel()
-		_ = s.rt.Remove(c, spec.Name)
-	}()
-	collector, err := s.rt.Attach(ctx, spec.Name, 4<<10)
+	out, code, err := s.runChecker(ctx, exam, image, ref, []string{"/usr/bin/sha256sum"}, []string{AgentPath})
 	if err != nil {
 		return "", err
 	}
-	defer collector.Close()
-	if err := s.rt.Start(ctx, spec.Name); err != nil {
-		return "", err
-	}
-	running, stop := context.WithTimeout(ctx, verifyTimeout)
-	code, err := s.rt.Wait(running, spec.Name)
-	stop()
-	if err != nil {
-		c, cancel := bg()
-		_ = s.rt.Stop(c, spec.Name, time.Second)
-		cancel()
-		return "", fmt.Errorf("it did not end: %w", err)
-	}
-	reading, stopReading := context.WithTimeout(ctx, 20*time.Second)
-	out, _ := collector.Collect(reading)
-	stopReading()
 	if code != 0 {
 		return "", fmt.Errorf("sha256sum ended with code %d: %s", code, strings.TrimSpace(string(out.Stderr)))
 	}
@@ -471,6 +444,50 @@ func (s *Service) agentHash(ctx context.Context, exam string, image ImageInfo, r
 		return "", fmt.Errorf("sha256sum printed %q", strings.TrimSpace(string(out.Stdout)))
 	}
 	return fields[0], nil
+}
+
+// runChecker runs a program in a container made from an image the way a student's is made (no network, a read-only root, no capabilities, the
+// student user), in place of the image's own entrypoint, waits for it, and returns what it printed and its status. The container is removed after.
+func (s *Service) runChecker(ctx context.Context, exam string, image ImageInfo, ref string, entrypoint, cmd []string) (Output, int, error) {
+	spec := hardened(s.cfg, Resources{CPU: 1, MemoryMB: 256, DiskMB: 1}, ref)
+	id := strings.TrimPrefix(image.ID, "sha256:")
+	spec.Name = "cbe-verify-" + exam + "-" + id[:min(12, len(id))]
+	spec.Labels = map[string]string{LabelRole: RoleVerify, LabelExam: exam}
+	spec.Entrypoint = entrypoint
+	spec.Cmd = cmd
+	bg := func() (context.Context, context.CancelFunc) {
+		return context.WithTimeout(context.Background(), 30*time.Second)
+	}
+	_ = s.rt.Remove(ctx, spec.Name)
+	if _, err := s.rt.Create(ctx, spec); err != nil {
+		return Output{}, 0, fmt.Errorf("the checking container: %w", err)
+	}
+	defer func() {
+		c, cancel := bg()
+		defer cancel()
+		_ = s.rt.Remove(c, spec.Name)
+	}()
+	collector, err := s.rt.Attach(ctx, spec.Name, 64<<10)
+	if err != nil {
+		return Output{}, 0, err
+	}
+	defer collector.Close()
+	if err := s.rt.Start(ctx, spec.Name); err != nil {
+		return Output{}, 0, err
+	}
+	running, stop := context.WithTimeout(ctx, verifyTimeout)
+	code, err := s.rt.Wait(running, spec.Name)
+	stop()
+	if err != nil {
+		c, cancel := bg()
+		_ = s.rt.Stop(c, spec.Name, time.Second)
+		cancel()
+		return Output{}, 0, fmt.Errorf("it did not end: %w", err)
+	}
+	reading, stopReading := context.WithTimeout(ctx, 20*time.Second)
+	out, _ := collector.Collect(reading)
+	stopReading()
+	return out, code, nil
 }
 
 // contextFile returns the contents of a regular file at the top of a tar archive.

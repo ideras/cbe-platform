@@ -1,5 +1,9 @@
 # Course images
 
+> **A class does not need a course image any more.** An exam can bring a base image of its own (`image/Containerfile` that starts `FROM` any image, and no `image:` in `workspace.md`), and the server finishes
+> and checks it: `docs/workspace/images.md`, "A base image of its own". This folder is how the server's own **course images** (`cbe/cpp20`) are made, for exams that name one with `image:`; the C++ course as
+> a package of its own is `testdata/workspace/lab-listas-own-base`.
+
 A workspace exam runs in a container made from a **course image**: one image per course (decision D2), such as `cbe/cpp20` or
 `cbe/python-nn`. The image holds the course's tools and the agent (`cmd/cbe-agent`), which is the container's first process. An exam
 names its image in `workspace.md` (`image: cbe/cpp20`); the server only starts images on its approved list.

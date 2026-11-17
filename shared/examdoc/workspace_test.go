@@ -277,7 +277,7 @@ func TestWorkspaceProblemsNameTheirLines(t *testing.T) {
 		"pin in file":          {pkg(extra("pin: 1234\n"), "[ ] a\n"), "line 5: the PIN does not belong in the exam file"},
 		"focus threshold":      {pkg(extra("focus_threshold: 8s\n"), "[ ] a\n"), "line 5: focus_threshold is set in the proctor's Settings now"},
 		"navigation":           {pkg(extra("navigation: free\n"), "[ ] a\n"), "line 5: navigation is not allowed in a workspace exam"},
-		"no image":             {pkg("title: x\nduration: 1h\n", "[ ] a\n"), "line 1: the front matter must set an image"},
+		"no image":             {pkg("title: x\nduration: 1h\n", "[ ] a\n"), "the exam needs an image: name a course image of the server in the front matter (image: cbe/cpp20), or give the package an image/ folder"},
 		"empty image":          {pkg("title: x\nduration: 1h\nimage:\n", "[ ] a\n"), "line 4: image needs the name of a course image"},
 		"image with tag":       {pkg("title: x\nduration: 1h\nimage: cbe/cpp20:latest\n", "[ ] a\n"), "line 4: image must be the name of a course image"},
 		"image uppercase":      {pkg("title: x\nduration: 1h\nimage: CBE/cpp20\n", "[ ] a\n"), "line 4: image must be the name of a course image"},
@@ -777,5 +777,54 @@ func TestTheImageExampleMatchesItsCompiledDocument(t *testing.T) {
 	}
 	if exam.Workspace.Image != "cbe/cpp20" {
 		t.Errorf("image %q", exam.Workspace.Image)
+	}
+}
+
+const ownFront = "title: Lab\nduration: 1h\n"
+const pythonFrom = "FROM docker.io/library/python:3.12-slim@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n"
+
+func compileFS(t *testing.T, files fs.FS) (WorkspaceExam, WorkspaceBundles, error) {
+	t.Helper()
+	return CompileWorkspaceFS(files)
+}
+
+// An exam with a base of its own: no image: in the front matter, and an image/ folder whose Containerfile starts FROM any image.
+func TestAnExamMayBringABaseImageOfItsOwn(t *testing.T) {
+	exam, bundles, err := compileFS(t, pkg(ownFront, "[ ] a\n", fstest.MapFS{"image/Containerfile": {Data: []byte(pythonFrom + "RUN pip install numpy==2.1.3\n")}, "image/data.csv": {Data: []byte("1,2")}}))
+	if err != nil {
+		t.Fatalf("a package with a base of its own: %v", err)
+	}
+	if exam.Workspace.Image != "" || bundles.Image == nil || exam.ImageBundle == "" || len(bundles.ImageWarnings) != 0 {
+		t.Errorf("image %q, bundle %v, hash %q, warnings %v", exam.Workspace.Image, bundles.Image != nil, exam.ImageBundle, bundles.ImageWarnings)
+	}
+	// An image with no digest compiles, with a warning (which image_warnings: off leaves out).
+	_, bundles, err = compileFS(t, pkg(ownFront, "[ ] a\n", fstest.MapFS{"image/Containerfile": {Data: []byte("FROM python:3.12-slim\n")}}))
+	if err != nil || len(bundles.ImageWarnings) != 1 || !strings.Contains(bundles.ImageWarnings[0], "image/Containerfile line 1: FROM python:3.12-slim has no digest") {
+		t.Errorf("an unpinned base: %v %v", err, bundles.ImageWarnings)
+	}
+	_, bundles, err = compileFS(t, pkg(ownFront+"image_warnings: off\n", "[ ] a\n", fstest.MapFS{"image/Containerfile": {Data: []byte("FROM python:3.12-slim\n")}}))
+	if err != nil || len(bundles.ImageWarnings) != 0 {
+		t.Errorf("warnings off: %v %v", err, bundles.ImageWarnings)
+	}
+}
+
+func TestABaseOfItsOwnIsHeldToTheRulesAndNeedsItsFile(t *testing.T) {
+	for name, test := range map[string]struct {
+		files fs.FS
+		want  string
+	}{
+		"a volume":                        {pkg(ownFront, "[ ] a\n", fstest.MapFS{"image/Containerfile": {Data: []byte(pythonFrom + "VOLUME /data\n")}}), "image/Containerfile line 2: VOLUME is not allowed"},
+		"a variable":                      {pkg(ownFront, "[ ] a\n", fstest.MapFS{"image/Containerfile": {Data: []byte("ARG V=1\nFROM python:$V\n")}}), "image/Containerfile line 2: FROM cannot use a variable"},
+		"not a reference":                 {pkg(ownFront, "[ ] a\n", fstest.MapFS{"image/Containerfile": {Data: []byte("FROM Python:3.12\n")}}), "is not an image reference"},
+		"no Containerfile":                {pkg(ownFront, "[ ] a\n", fstest.MapFS{"image/setup.sh": {Data: []byte("x")}}), "image/Containerfile: missing"},
+		"a course image and another FROM": {pkg(okFront, "[ ] a\n", fstest.MapFS{"image/Containerfile": {Data: []byte(pythonFrom)}}), "the only image a workspace exam's Containerfile may start from"},
+		"neither":                         {pkg(ownFront, "[ ] a\n"), "the exam needs an image"},
+	} {
+		t.Run(name, func(t *testing.T) { wantProblem(t, test.files, test.want) })
+	}
+	// A wrong image: key is the one problem, not two.
+	problems := workspaceProblems(t, pkg("title: x\nduration: 1h\nimage: cbe/cpp20:latest\n", "[ ] a\n", fstest.MapFS{"image/Containerfile": {Data: []byte("FROM cbe/cpp20\n")}}))
+	if strings.Count(problems.Error(), "image") > 2 || strings.Contains(problems.Error(), "the exam needs an image") {
+		t.Errorf("a wrong image: key is reported once:\n%s", problems.Error())
 	}
 }

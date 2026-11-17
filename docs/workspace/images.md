@@ -1,6 +1,87 @@
-# An exam's own image
+# An exam's image
 
-Phase 7. A workspace exam runs in a container made from a **course image** (`cbe/cpp20`): one image per course, built and approved by whoever runs the server
+An exam's students and its hidden tests run in a container made from an **image**. There are two ways to say which, and the second is the way to have the tools of one class
+without the tools of another (Python and its libraries for a neural-networks class, PostgreSQL and `psql` for a databases class, a C++ toolchain for a compilers class):
+
+1. **A base image of its own** (decision D-CB-1; the way to write a new class's image). The package has `image/Containerfile` and **no `image:`** in `workspace.md`. The Containerfile starts
+   `FROM` **any image** (`python:3.12-slim`, `ubuntu:24.04`, `alpine:3.20`, `ghcr.io/your-school/lab-base:2026.1`...) and adds what the class needs. **The server finishes it**: after the author's last
+   line it adds the student account, the agent and the rest of the contract, and checks the result. The host needs nothing prepared: no image to build, no entry in a list.
+2. **A course image of the server** (`image: cbe/cpp20`; Phase 7). A course image is built by whoever runs the server (`images/README.md`) and approved in `runner.json`; the package may add to it
+   with `image/` (a Containerfile that starts `FROM` that course image). Everything below "A course image" is about this way.
+
+The compiler (`examc`) and the server say which one a package is: no `image:` and an `image/Containerfile` is a base of its own; no `image:` and no `image/` is an error.
+
+## A base image of its own
+
+```text
+lab-python/
+  workspace.md          (no image: line)
+  project/
+  grading/
+  image/
+    Containerfile
+    data/train.csv      anything the Containerfile copies
+```
+
+```dockerfile
+# image/Containerfile of a neural-networks class: Python and its libraries, and no C++ compiler.
+FROM docker.io/library/python:3.12-slim@sha256:…
+RUN pip install --no-cache-dir numpy==2.1.3 torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
+COPY data/ /srv/data/
+```
+
+`testdata/workspace/lab-listas-own-base` is a complete example (the C++ course: a toolchain from the Ubuntu archive snapshot, built for real in `deploy/workspace/test-ownbase.sh`).
+
+**Write only what the class needs.** The rules of the Containerfile are the ones of every exam image (`shared/containerfile`: below, in the table): `RUN --network` may be `default` or `none`,
+no `VOLUME`, no `ONBUILD`, no variable in a `FROM`, `COPY --from` only from an earlier stage. What is different is the `FROM`: **any image reference**
+(`registry/name:tag` or `name@sha256:…`, lower case), or an earlier stage of the file. A `FROM` with no digest is a **warning** (the tag can name another image tomorrow, and a rebuild would not
+be the image the exam was tried with); it can be silenced with `image_warnings: off`, and pinned with `podman image inspect --format '{{.Digest}}' python:3.12-slim`.
+
+### What the server adds
+
+After the author's last stage the runner builds **its own layer** on top, which the author cannot reorder or add to (`internal/runner/finalize.go`, `finalize/cbe-finalize.sh`):
+
+- **The student account**: uid 1000, gid 1000, called `student`, home `/home/student`. An account or group that has 1000 in the base (`ubuntu` in the Ubuntu images, `node` in the Node ones) is taken out.
+- **No way up**: root's password locked, no `sudo`, and every setuid and setgid bit removed from every file.
+- **The container's three places**: `/work` (the student's files are mounted there), `/run/cbe` (the agent's socket) and `/tmp` (a small tmpfs, no exec).
+- **The agent** at `/usr/local/bin/cbe-agent` (the file `agent_binary` names in `runner.json`, the one the installer puts in `/opt/cbe-portal/bin`), its hash as a label, `USER 1000:1000`,
+  `WORKDIR /work`, `HEALTHCHECK NONE` and the agent as the entrypoint.
+
+It needs a Linux base that has `/bin/sh` and `/etc/passwd` (`FROM scratch` and distroless images cannot be finished; the message says so). The terminals use `/bin/bash` when the image has it
+and `/bin/sh` when it does not (Alpine). The agent is a static program: nothing of its own is needed in the base.
+
+### What is checked, and what is refused
+
+Before the image is kept, the runner starts it **as a student's container is started** (no network, a read-only root, no capabilities, no new privileges, the student user) and runs
+`cbe-agent -selftest`, which looks at the container from inside. Its log is in the build's log:
+
+| Check | Fails when |
+|---|---|
+| `user`, `account` | the agent does not run as 1000:1000, or `/etc/passwd` does not name uid 1000 `student` |
+| `shell`, `work`, `tmp` | there is no shell, no `/work` folder in the image, or `/tmp` cannot be written |
+| `root-read-only`, `capabilities`, `no-new-privileges`, `network` | the container is not run as a student's is (a fault of the runner's settings, not of the image) |
+| `no-sudo`, `no-setuid-files` | a `sudo` or a file with a setuid or setgid bit is in the image |
+
+and before that it looks at the image's own configuration: the user, the entrypoint and the working folder are the runner's, and **the image declares no volume**. A base that declares one
+(the `postgres`, `mysql` and `redis` images do) is **refused**: a container made from it would get a writable folder outside the student's, with no quota. For a databases class start from a plain
+`ubuntu` and install the server from its packages (`apt-get install postgresql`), and start it from the exam's Run command or by hand: **the agent starts nothing but terminals**.
+
+### What the administrator decides (`runner.json`)
+
+- `custom_base` (default `true`): `false` turns bases of an exam's own off; such an exam's build fails with the failure *policy*, and only course images can be built on.
+- `base_registries` (default none: **any registry**): `["docker.io", "ghcr.io"]` restricts the `FROM`s of every exam to those registries. A build with another is refused with the failure *policy* and the list.
+- `agent_binary`: the static agent the runner puts in every image it finishes. The installer sets it. An image is named by the exam and a hash of (its files, this agent, the finishing),
+  so **a new agent makes new images** (a build that finds the same hash builds nothing).
+
+Everything else is as for any exam image: built from the proctor's **Image** button before the exam is published, cached, one at a time, with the runner's `build_max_seconds` and
+`build_memory_mb`, with the network of the server while it builds and **none** in the containers made from the result. Images are kept after an exam is over (`podman rmi` removes them),
+and **a base is pulled into the runner's storage** (a Python image with its libraries is several GB: the runner's home, or `CONTAINER_STORAGE_DIR`, needs the room).
+
+---
+
+# A course image
+
+A workspace exam may run in a container made from a **course image** (`cbe/cpp20`): one image per course, built and approved by whoever runs the server
 (`images/README.md`). When an exam needs something the course image does not have (a library, a tool, a configuration file), its package can hold
 `image/`: a `Containerfile` that starts from the course image, and the files it copies. The server builds it **before the exam is published**, as an action
 of the proctor, checks that it is still the course image's contract, and gives the exam's students and its hidden tests that image and no other exam's.
@@ -120,4 +201,6 @@ a student who logs in after a rebuild gets the new image.
 
 `shared/containerfile` (the rules: table-driven), `internal/runner/image_test.go` (the runner with a fake runtime), `internal/httpapi/workspace_phase7_test.go` (the server's flow, through
 its routes and the real database), the proctor's Playwright specs (`tests/ui/workspace-image.spec.js`) and, **with real builds, real containers and a real network**,
-`deploy/workspace/test-image.sh` (`deployment.md`).
+`deploy/workspace/test-image.sh` (`deployment.md`). For a base of its own: `internal/runner/ownbase_test.go` (the two builds, the policy and the verification, against a fake runtime),
+`internal/agent/selftest_test.go`, `shared/examdoc` and `internal/httpapi/workspace_ownbase_test.go` (the whole flow through the routes) and, **with real builds, containers and network**,
+`deploy/workspace/test-ownbase.sh` (Alpine, Ubuntu, Python with a pip library, a Redis base that is refused for its volume, and the C++ example package built from the archive snapshot).

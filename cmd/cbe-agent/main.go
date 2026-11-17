@@ -27,14 +27,18 @@ func main() {
 	cfg := agent.Config{Version: version}
 	flag.StringVar(&cfg.Socket, "socket", envOr("CBE_AGENT_SOCKET", "/run/cbe/agent.sock"), "the Unix socket to listen on")
 	flag.StringVar(&cfg.Work, "work", envOr("CBE_AGENT_WORK", "/work"), "the folder of the student's files")
-	flag.StringVar(&cfg.Shell, "shell", "/bin/bash", "the shell of a terminal")
+	flag.StringVar(&cfg.Shell, "shell", "", "the shell of a terminal (default: /bin/bash, or /bin/sh in an image that has no bash)")
 	flag.StringVar(&cfg.Home, "home", "/tmp/home", "the home folder of the programs the agent starts (made if it is missing)")
 	flag.DurationVar(&cfg.Heartbeat, "heartbeat", 5*time.Second, "how often to send a heartbeat to every connection")
 	showVersion := flag.Bool("version", false, "print the version and exit")
+	selftest := flag.Bool("selftest", false, "look at the container the agent runs in, print whether it keeps the contract of a workspace image (JSON), and exit")
 	flag.Parse()
 	if *showVersion {
 		fmt.Println(version)
 		return
+	}
+	if *selftest {
+		os.Exit(agent.WriteSelfTest(os.Stdout, cfg))
 	}
 	cfg.ReapAll = os.Getpid() == 1
 	if os.Geteuid() == 0 {

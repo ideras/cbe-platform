@@ -102,7 +102,7 @@
   const showTime = ms => buildTime(ms);
 </script>
 
-<Modal title="Image of {exam.title}" titleId="image-dialog-title" icon="server" subtitle="The exam’s own image, built from {view?.image ?? 'its course image'} before the exam is published." width="46rem" busy={working} {onClose}>
+<Modal title="Image of {exam.title}" titleId="image-dialog-title" icon="server" subtitle="The exam’s own image, built from {view?.image || 'the base its Containerfile names'} before the exam is published." width="46rem" busy={working} {onClose}>
   <div class="image" data-testid="image-dialog">
     {#if !view && !problem}<p class="muted" role="status">Reading the image…</p>{/if}
     {#if view}
@@ -119,7 +119,7 @@
       {#if view.state === 'missing'}<div class="failure" role="alert"><strong>The runner does not have this exam’s image any more.</strong> Build it again before publishing.</div>{/if}
       {#if view.build}
         <dl>
-          <div><dt>Course image</dt><dd>{view.build.base_name || view.image}</dd></div>
+          <div><dt>{view.own_base ? 'Base image' : 'Course image'}</dt><dd>{view.build.base_name || view.image}</dd></div>
           {#if view.build.base_digest}<div><dt>Built on</dt><dd><code title={view.build.base_digest}>{shortDigest(view.build.base_digest)}</code></dd></div>{/if}
           {#if view.build.hash}<div><dt>Image</dt><dd><code title="localhost/cbe-exam/{exam.exam_id}:{view.build.hash}">{view.build.hash}</code></dd></div>{/if}
           {#if view.build.state === 'ok' || view.build.state === 'failed'}<div><dt>Took</dt><dd>{showTime(view.build.duration_ms)}</dd></div>{/if}

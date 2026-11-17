@@ -389,7 +389,7 @@ type GradeSummary struct {
 	At        time.Time
 }
 
-// Image build states, and the codes of why a build failed (Phase 7): the runner's (containerfile, base, build, timeout, verify), and the
+// Image build states, and the codes of why a build failed (Phase 7): the runner's (containerfile, base, build, timeout, verify, policy), and the
 // server's own (runner: it did not answer or refused; interrupted: the exam server stopped).
 const (
 	BuildQueued  = "queued"
@@ -402,8 +402,10 @@ const (
 	BuildFailBuild         = "build"
 	BuildFailTimeout       = "timeout"
 	BuildFailVerify        = "verify"
-	BuildFailRunner        = "runner"
-	BuildFailInterrupted   = "interrupted"
+	// BuildFailPolicy is a build the server's administrator does not allow: bases of an exam's own are off, the registry is not allowed, or there is no agent.
+	BuildFailPolicy      = "policy"
+	BuildFailRunner      = "runner"
+	BuildFailInterrupted = "interrupted"
 )
 
 // ImageBuildRecord is a row of an exam's image builds. Hash, Tag-less: the runner names the image by its Hash (16 hexadecimal digits), which

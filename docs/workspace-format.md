@@ -10,7 +10,7 @@ The package is only the authoring format. `examc` (`shared/examdoc`) compiles it
 ## Rules at a glance
 
 1. A package is a **folder** with `workspace.md` and `project/` in it. `grading/` is optional. Nothing else may be in it, except the pictures the instructions use and names that start with a dot.
-2. `workspace.md` **starts with a front matter block** between two `---` lines. `title`, `duration` and `image` are required.
+2. `workspace.md` **starts with a front matter block** between two `---` lines. `title` and `duration` are required, and so is an image: `image:` (a course image) or an `image/Containerfile` that starts `FROM` any base.
 3. The text after the front matter is the **instructions**. **Every `[ ] text` line is a TODO item** and is taken out of the instructions into the TODO list. There must be at least one.
 4. A TODO item is **one line**. Its points and ID go at the end, in braces: `[ ] Implement push_front {#t1 points=10}`.
 5. **No links, no raw HTML, no `#` heading, no `{{blank}}` fields and no `answer` blocks.** Pictures are allowed as `![alt text](file.svg)` with a PNG, JPEG, GIF or SVG file in the package, never from `grading/`.
@@ -53,7 +53,8 @@ lab-listas/
   image/                the build context of the exam's own image: a Containerfile and the files it copies (optional)
 ```
 
-- `image/` is the exam's **own image**, built from the course image before the exam is published: for a library, a tool or a file the course image does not have. It must hold a file called `Containerfile` (not `Dockerfile`), and may hold anything the Containerfile copies. The rules, the build and the checks are in [images.md](workspace/images.md); in short, every `FROM` names the exam's `image:` or an earlier stage, a build that does not keep the course image's user, entrypoint and agent fails, and the exam cannot be published until its image is built.
+- `image/` is the exam's **own image**, built before the exam is published. With `image:` it is built **from the course image**; **without `image:`, its Containerfile starts `FROM` any base image**
+  (`python:3.12-slim`, `ubuntu:24.04`...) and the server adds the student account, the agent and the rest of the contract (`docs/workspace/images.md`: "A base image of its own"). Built from the course image, for a library, a tool or a file the course image does not have. It must hold a file called `Containerfile` (not `Dockerfile`), and may hold anything the Containerfile copies. The rules, the build and the checks are in [images.md](workspace/images.md); in short, every `FROM` names the exam's `image:` or an earlier stage, a build that does not keep the course image's user, entrypoint and agent fails, and the exam cannot be published until its image is built.
 - A folder or file that is not in the list is refused too, so a mistyped `grader/` cannot silently lose the hidden tests. The exceptions are names that start with a dot (`.git`, `.DS_Store`), `Thumbs.db`, `desktop.ini`, and the pictures the instructions use.
 - `workspace.md`, `project/` and `grading/` must be real files and folders, not links.
 
@@ -88,7 +89,7 @@ One `key: value` per line. A value may be in quotes. A line that starts with `#`
 |-----|----------|---------|
 | `title`, `duration` | yes | As in a question exam: `duration` is a length of time in whole seconds, such as `80m` or `1h20m`. |
 | `grace`, `opens_at`, `closes_at`, `min_volume`, `calculator`, `points` | no | Exactly as in a question exam (see [exam-format.md](exam-format.md#front-matter)). `points` is the total of the TODO items. |
-| `image` | yes | The name of a course image, such as `cbe/cpp20`: lowercase words joined by `/`, `.`, `_` or `-`, **without a tag or digest** (the server pins the version). Import fails if the server does not have the image. |
+| `image` | yes, unless the package has `image/Containerfile` | The name of a course image, such as `cbe/cpp20`: lowercase words joined by `/`, `.`, `_` or `-`, **without a tag or digest** (the server pins the version). Import fails if the server does not have the image. |
 | `terminal` | no | `on` (default) or `off`. With `off`, students get only the Run and Check buttons. |
 | `run`, `check` | no | One line: the command behind the **Run** and **Check** buttons, run in `/work`. A button is hidden when its command is absent. At most 1,000 bytes. |
 | `submit` | no | What is submitted: one glob, or a bracketed list. Default: everything in `/work` except what `ignore` names. |
@@ -198,6 +199,7 @@ The bytes themselves travel next to the document when an exam is imported. `exam
 | `the exam has no TODO items` | List the tasks as `[ ] text` lines. |
 | `TODO id "t2" is already used` | An item named `t2` by hand collides with the default ID of the second item; rename it. |
 | `image must be the name of a course image` | Write `cbe/cpp20`, with no tag, no digest and no uppercase letters. |
+| `the exam needs an image: name a course image…` | Add `image: cbe/cpp20` (a course image of the server), or an `image/` folder whose Containerfile starts `FROM` any base image, and leave `image:` out. |
 | `image/Containerfile: missing` | The folder `image/` needs a file called `Containerfile` (not `Dockerfile`). |
 | `image/Containerfile line N: FROM x: the only image a workspace exam's Containerfile may start from…` | Write `FROM cbe/cpp20` (the exam's `image:`), or `FROM` an earlier stage of the file. |
 | `image/Containerfile line N: RUN --network=host is not allowed` | Leave the build's network as it is: a `RUN` already has the network of the build. `VOLUME` and `ONBUILD` are not allowed either. |
@@ -211,7 +213,7 @@ The bytes themselves travel next to the document when an exam is imported. `exam
 ## Delivery checklist
 
 - [ ] `build/examc lab/` prints the summary with no problems.
-- [ ] `title`, `duration` and `image` are set, and the image is one the server has.
+- [ ] `title` and `duration` are set, and so is the image: a course image the server has (`image:`), or an `image/Containerfile` with a base of its own (no `image:`).
 - [ ] Every TODO item has an ID the grading script uses, and its points add up.
 - [ ] `project/` holds what every student should start with and nothing else: no solution, no build output.
 - [ ] `grading/grade` runs on the course image (or on the exam's own image) and prints the JSON above.

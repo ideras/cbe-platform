@@ -97,6 +97,9 @@ type ImageInfo struct {
 	WorkDir    string
 	// Layers are the digests of the image's file system layers, the lowest first: an image made from another has the other's layers first.
 	Layers []string
+	// Volumes are the folders the image declares as volumes (VOLUME in a Containerfile, as the postgres image does): a container made from it gets a
+	// writable volume at each, outside the student's folder and its quota.
+	Volumes []string
 }
 
 // ImageBuildSpec is what the runtime is told about a build: the tag the image is given, its labels, whether to build without the cache, and

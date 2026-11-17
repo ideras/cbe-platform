@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -286,6 +287,10 @@ func (d *Docker) ImageInspect(ctx context.Context, ref string) (runner.ImageInfo
 	if result.Config != nil {
 		info.Labels = result.Config.Labels
 		info.User, info.Entrypoint, info.Cmd, info.WorkDir = result.Config.User, result.Config.Entrypoint, result.Config.Cmd, result.Config.WorkingDir
+		for volume := range result.Config.Volumes {
+			info.Volumes = append(info.Volumes, volume)
+		}
+		sort.Strings(info.Volumes)
 	}
 	return info, nil
 }

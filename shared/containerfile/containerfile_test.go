@@ -172,3 +172,75 @@ func TestPin(t *testing.T) {
 		t.Error("a file that does not parse was pinned")
 	}
 }
+
+const pythonDigest = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+// An exam with a base of its own (image ""): any image may be named, plainly, and one with no digest is warned about.
+func TestAnExamWithABaseOfItsOwnMayStartFromAnyImage(t *testing.T) {
+	for name, text := range map[string]string{
+		"a pinned image":         "FROM docker.io/library/python:3.12-slim@" + pythonDigest + "\nRUN pip install numpy==2.1.3\n",
+		"the library shorthand":  "FROM python@" + pythonDigest + "\n",
+		"another registry":       "FROM ghcr.io/acme/db-lab:2024.1@" + pythonDigest + "\n",
+		"a registry with a port": "FROM localhost:5000/lab/base:1@" + pythonDigest + "\n",
+		"two stages":             "FROM golang:1.23@" + pythonDigest + " AS build\nRUN go build\nFROM alpine:3.20@" + pythonDigest + "\nCOPY --from=build /out /out\n",
+		"a stage of the file":    "FROM ubuntu:24.04@" + pythonDigest + " AS base\nFROM base\n",
+	} {
+		if r := Check(text, ""); len(r.Problems) > 0 || len(r.Warnings) > 0 {
+			t.Errorf("%s: problems %v, warnings %v", name, r.Problems, r.Warnings)
+		}
+	}
+	r := Check("FROM python:3.12-slim\n", "")
+	if len(r.Problems) != 0 || len(r.Warnings) != 1 || !strings.Contains(r.Warnings[0], "line 1: FROM python:3.12-slim has no digest") || !strings.Contains(r.Warnings[0], "podman image inspect") {
+		t.Errorf("an image with no digest: %+v", r)
+	}
+	if r := Check("FROM scratch\nCOPY a /a\n", ""); len(r.Problems) != 0 || len(r.Warnings) != 1 || !strings.Contains(r.Warnings[0], "has no shell") {
+		t.Errorf("scratch: %+v", r)
+	}
+}
+
+func TestAnOwnBaseIsStillHeldToTheRestOfTheRules(t *testing.T) {
+	for name, test := range map[string]struct{ text, want string }{
+		"a variable":           {"ARG V=3\nFROM python:$V\n", "FROM cannot use a variable"},
+		"upper case":           {"FROM Python:3.12\n", "is not an image reference"},
+		"two colons":           {"FROM python:3:12\n", "is not an image reference"},
+		"an option":            {"FROM --platform=linux/amd64 python:3.12\n", "FROM takes no options"},
+		"another image's copy": {"FROM python:3.12@" + pythonDigest + "\nCOPY --from=alpine:3 /a /a\n", "can only name an earlier stage"},
+		"no FROM":              {"RUN true\n", "comes before the first FROM: a Containerfile starts with FROM the base image"},
+		"a volume":             {"FROM python:3.12@" + pythonDigest + "\nVOLUME /data\n", "VOLUME is not allowed"},
+		"host network":         {"FROM python:3.12@" + pythonDigest + "\nRUN --network=host pip install x==1\n", "RUN --network=host is not allowed"},
+		"an empty file":        {"# nothing\n", "a Containerfile starts with FROM the base image"},
+	} {
+		r := Check(test.text, "")
+		if !strings.Contains(strings.Join(r.Problems, "\n"), test.want) {
+			t.Errorf("%s: problems = %v, want %q", name, r.Problems, test.want)
+		}
+	}
+	// The course image's rules are unchanged: another image is refused when the exam names one.
+	if r := Check("FROM python:3.12\n", "cbe/cpp20"); len(r.Problems) == 0 || !strings.Contains(r.Problems[0], "the only image a workspace exam's Containerfile may start from") {
+		t.Errorf("a course image exam: %v", r.Problems)
+	}
+}
+
+// The registries a file pulls from are known to whoever runs the server: they are taken from the FROM lines, with the ones the file does not pull left out.
+func TestTheImagesAFilePullsAreTakenApart(t *testing.T) {
+	text := "FROM python:3.12-slim AS build\nFROM docker.io/library/postgres:16@" + pythonDigest + "\nFROM build\nFROM ghcr.io/acme/lab/db:2024.1\nFROM localhost:5000/base\nFROM scratch\nFROM quay.io/x/y@" + pythonDigest + " AS last\n"
+	got := References(text)
+	want := []Reference{
+		{Line: 1, Text: "python:3.12-slim", Registry: "docker.io", Repository: "library/python", Tag: "3.12-slim"},
+		{Line: 2, Text: "docker.io/library/postgres:16@" + pythonDigest, Registry: "docker.io", Repository: "library/postgres", Tag: "16", Digest: pythonDigest},
+		{Line: 4, Text: "ghcr.io/acme/lab/db:2024.1", Registry: "ghcr.io", Repository: "acme/lab/db", Tag: "2024.1"},
+		{Line: 5, Text: "localhost:5000/base", Registry: "localhost:5000", Repository: "base"},
+		{Line: 7, Text: "quay.io/x/y@" + pythonDigest, Registry: "quay.io", Repository: "x/y", Digest: pythonDigest},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("references = %+v", got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("reference %d = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+	if References("not a Containerfile \x00") != nil {
+		t.Error("a file that cannot be read pulls nothing")
+	}
+}
