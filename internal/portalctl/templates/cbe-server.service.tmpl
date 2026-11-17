@@ -1,0 +1,49 @@
+[Unit]
+Description=CBE exam server{{if .Workspace}} (workspace exams enabled){{end}}
+After=network-online.target{{if .Workspace}} cbe-quota-helper.service{{end}}
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{.ServerUser}}
+Group={{.ServerUser}}
+{{- if .Workspace}}
+# The server is in {{.IPCGroup}}, which is what lets it reach the runner's socket and its secret, and nothing else of the runner's.
+SupplementaryGroups={{.IPCGroup}}
+{{- end}}
+WorkingDirectory={{.ServerDir}}
+ExecStart={{.InstallDir}}/bin/cbe-portal-server \
+  -bind {{.Bind}} \
+  -database {{.Database}} \
+  -screenshots {{.Screenshots}} \
+  -admin-token-file {{.Token}}
+{{- if .Workspace}} \
+  -runner-socket {{.Data}}/ipc/runner.sock \
+  -runner-secret-file {{.Data}}/ipc/runner.secret \
+  -workspace-dir {{.WorkspaceDir}}
+{{- end}}
+{{- if .Extra}} \
+  {{.Extra}}
+{{- end}}
+Restart=on-failure
+RestartSec=2
+# The server is a plain web service: it needs nothing of the system but its own folders and the network.
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths={{.WritablePaths}}
+{{- if .Workspace}}
+ReadOnlyPaths={{.Data}}/ipc
+{{- end}}
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+{{- if .Workspace}}
+# The students' containers are the runner's: stopping or restarting the server leaves them running (they are found again).
+{{- end}}
+
+[Install]
+WantedBy=multi-user.target

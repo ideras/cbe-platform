@@ -269,9 +269,42 @@ jobs:
           lipo cbe-portal-server -verify_arch x86_64 arm64
           codesign --verify --strict cbe-portal-server
           python3 ../scripts/ci/smoke.py cbe-portal-server
+  installer:
+    name: Linux installer ${{ matrix.userarch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {runner: ubuntu-24.04, arch: amd64, userarch: x64}
+          - {runner: ubuntu-24.04-arm, arch: arm64, userarch: arm64}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.8'
+          architecture: ${{ matrix.userarch }}
+          cache-dependency-path: |
+            go.sum
+            shared/examdoc/go.sum
+      - run: sudo apt-get update && sudo apt-get install -y makeself
+      - name: Build the installer
+        env:
+          # The release the programs report: the pushed tag, or the tag a manual release names; other builds use the commit.
+          CBE_VERSION: ${{ inputs.tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
+        run: scripts/installer/linux/build.sh --arch '${{ matrix.arch }}' --output build/installer
+      - name: Test the installer (install, upgrade, uninstall in a folder of its own)
+        run: scripts/installer/linux/test_installer.sh build/installer/cbe-portal-server-*-linux-${{ matrix.userarch }}-installer.run
+      - name: Upload the installer
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cbe-portal-server-installer-linux-${{ matrix.userarch }}
+          path: build/installer/cbe-portal-server-*-linux-${{ matrix.userarch }}-installer.run*
+          if-no-files-found: error
   release:
     name: Publish GitHub Release
-    needs: [native, macos-universal, universal-smoke]
+    needs: [native, macos-universal, universal-smoke, installer]
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     timeout-minutes: 15

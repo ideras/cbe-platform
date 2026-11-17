@@ -1,3 +1,5 @@
+> **Installing a server?** Use the installer and the configurator: [`docs/deployment-linux.md`](../deployment-linux.md). This document explains how the pieces work and why.
+
 # Deploying workspace exams
 
 How the pieces of a workspace exam are set up on the container host, which is also the exam server's computer. The plan is
