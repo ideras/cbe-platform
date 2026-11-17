@@ -481,6 +481,8 @@ func runnerConfigStep() Step {
 			"runtime_socket": fmt.Sprintf("unix:///run/user/%d/podman/podman.sock", u.UID), "quota_socket": "/run/cbe-quota/helper.sock",
 			"work_root": c.L.WorkDir, "run_root": path.Join(c.L.Data, "run"), "state_root": path.Join(c.L.Data, "runner"), "grade_root": path.Join(c.L.Data, "grading"),
 			"host_memory_mb": c.L.HostMemoryMB,
+			// What exams with a base of their own are finished with, and whether they are allowed (ALLOW_CUSTOM_BASE, BASE_REGISTRIES).
+			"agent_binary": c.L.AgentBinary(), "custom_base": c.L.CustomBase, "base_registries": c.L.BaseRegistries,
 		} {
 			settings[key] = value
 		}

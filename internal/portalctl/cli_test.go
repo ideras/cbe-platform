@@ -133,6 +133,29 @@ func TestADryRunNeedsNoRootAndChangesNothing(t *testing.T) {
 	}
 }
 
+// The agent is what the runner puts in the images of exams that bring a base of their own: a machine without it cannot do that, and says so, unless
+// the configuration does not allow such exams.
+func TestDoctorNeedsTheAgentWhenExamsMayBringTheirOwnBase(t *testing.T) {
+	f := machine()
+	f.Install("/root/cbe.conf", workspaceConfig, 0o644)
+	if code, s := command(f, "", false, "doctor", "--config", "/root/cbe.conf"); strings.Contains(s.out.String(), "program cbe-agent") == false || code != 0 {
+		t.Errorf("with the agent: exit %d\n%s\n%s", code, s.out.String(), s.err.String())
+	}
+	g := sys.NewFake()
+	for _, program := range []string{"cbe-portal-server", "cbe-runner", "cbe-quota-helperd"} {
+		g.Install("/opt/cbe-portal/bin/"+program, "binary", 0o755)
+	}
+	g.Install("/root/cbe.conf", workspaceConfig, 0o644)
+	g.Install("/root/no-custom.conf", workspaceConfig+"ALLOW_CUSTOM_BASE=no\n", 0o644)
+	code, s := command(g, "", false, "doctor", "--config", "/root/cbe.conf")
+	if code == 0 || !strings.Contains(s.out.String(), "/opt/cbe-portal/bin/cbe-agent is missing") {
+		t.Errorf("without the agent: exit %d\n%s\n%s", code, s.out.String(), s.err.String())
+	}
+	if code, s := command(g, "", false, "doctor", "--config", "/root/no-custom.conf"); strings.Contains(s.out.String(), "cbe-agent") || code != 0 {
+		t.Errorf("with custom bases off the agent is not needed: exit %d\n%s\n%s", code, s.out.String(), s.err.String())
+	}
+}
+
 func TestAMachineThatCannotBeConfiguredSaysWhy(t *testing.T) {
 	f := machine()
 	f.Missing["podman"] = true

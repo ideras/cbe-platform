@@ -8,10 +8,10 @@ The server is installed in two steps that are kept apart on purpose:
 
 ```
 /opt/cbe-portal/                       the program: replaced by an upgrade, removed by the uninstaller. Never holds exams.
-  bin/   cbe-portal-server  cbe-runner  cbe-quota-helperd  cbe-portalctl  examc
+  bin/   cbe-portal-server  cbe-runner  cbe-quota-helperd  cbe-portalctl  cbe-agent  examc
   etc/   cbe-portal.conf (the answers)   runner.json (the runner's settings)        kept by an upgrade
   lib/systemd/   the three units (made by the configurator), linked into the folders systemd reads
-  share/ docs/  examples/lab-listas
+  share/ docs/  examples/lab-listas  examples/lab-listas-own-base
   VERSION  ARCH  uninstall.sh
 
 DATA_DIR (default /var/lib/cbe-portal)  the data: nothing of it is touched by an upgrade or by the uninstaller
@@ -96,6 +96,8 @@ XFS_VOLUME_SIZE=64G
 | `XFS_DEVICE` | | *workspace.* A spare partition to format instead of a file, for example `/dev/sdb1`. |
 | `XFS_DEVICE_ERASE` | `no` | *workspace.* `yes` lets `XFS_DEVICE` be formatted. Nothing is ever formatted without it. |
 | `HOST_MEMORY_MB` | `0` | *workspace.* The most memory the students' containers may add up to. `0` is 70% of the machine's memory. |
+| `ALLOW_CUSTOM_BASE` | `yes` | *workspace.* `yes`: an exam may bring a base image of its own (its `image/Containerfile` starts `FROM` any image; the runner finishes and checks it: `docs/workspace/images.md`). `no`: only the course images named in `runner.json` can be used. Written to `custom_base` in `runner.json`. |
+| `BASE_REGISTRIES` | | *workspace.* The registries an exam's image may be pulled from, for example `docker.io,ghcr.io`. Empty: any registry. A build with another `FROM` fails with *policy* and says which registries are allowed. Written to `base_registries`. |
 | `CONTAINER_STORAGE_DIR` | | *workspace.* Where the container runtime keeps its images (default: under the runner's home). Images already there are not moved. |
 
 ### What it does, and what it will not do
@@ -150,8 +152,33 @@ The server takes the student's address from the last `X-Forwarded-For` entry onl
 
 ## Images for workspace exams
 
-The installer holds no course image, and the configurator makes none. An exam's own image is built from its package (`image/Containerfile`) when the exam is published (`docs/workspace/images.md`). Until an exam can name any
-base image (planned), the base of today's packages, `cbe/cpp20`, is built once on the container host with `images/build.sh cpp20` from the source tree (`images/README.md`).
+The installer holds no course image, and the configurator makes none: **an exam brings the image it needs.** Its package has an `image/Containerfile` that starts `FROM` any image (`python:3.12-slim`, `ubuntu:24.04`,
+your school's own), and the server builds it when the proctor presses **Build the image**, before the exam is published. After the author's file the runner adds its own layer (the student account, no way up, the agent) and
+checks the result (`docs/workspace/images.md`, "A base image of its own"). Nothing about the class's tools is installed on the server.
+
+What the server needs for that, and the configurator sets up:
+
+- **The agent**, `INSTALL_DIR/bin/cbe-agent` (a static program the installer ships), which the runner puts in every image it finishes. It is named by `agent_binary` in `runner.json`, and `cbe-portalctl doctor` fails
+  when it is missing. A server upgrade brings a new agent: images already built keep working, and a build asked for again (**Build again from scratch**) is made with the new one.
+- **Network at build time**: the build pulls the base and the packages the Containerfile installs; the containers made from the result have none. The base is stored in `cbe-runner`'s storage (`CONTAINER_STORAGE_DIR`): a
+  Python image with its libraries is several GB, and images stay until `podman rmi` removes them.
+- **The administrator's decisions**: `ALLOW_CUSTOM_BASE` and `BASE_REGISTRIES` above.
+
+A package that names a **course image** instead (`image: cbe/cpp20`) still works: that image is built once on the container host with `images/build.sh cpp20` from the source tree (`images/README.md`) and approved in `runner.json`
+(`images`). The C++ course as a package that brings its own base is `testdata/workspace/lab-listas-own-base` (it is also in the installer's `share/examples`).
+
+### Checking an image before the server does
+
+An author can build and check an `image/` folder on their own computer, without importing the exam:
+
+```sh
+cbe-portalctl image check lab-python/              # the package folder, its image/ folder, or the Containerfile
+cbe-portalctl image check lab-python/ --agent ./cbe-agent --rebuild
+```
+
+It does what the runner does: the Containerfile's rules, the build, the runner's finishing layer, the image's configuration (no volume, user 1000:1000, the agent as entrypoint) and the agent's self test in a container
+run as a student's is (no network, a read-only root, no capabilities). It applies the settings of this server when `INSTALL_DIR/etc/runner.json` is there (`custom_base`, `base_registries`). It needs Podman for the
+user who runs it, and ends `OK` (the server will accept the image) or `NOT ACCEPTED: why`, with exit status 1. `--keep` leaves the image in the user's storage to look inside (`podman run --rm -it --entrypoint /bin/sh ...`).
 
 ## Backups
 

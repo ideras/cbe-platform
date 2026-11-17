@@ -60,6 +60,9 @@ func (l Layout) Programs() []string {
 	programs := []string{"cbe-portal-server"}
 	if l.Workspace {
 		programs = append(programs, "cbe-runner", "cbe-quota-helperd")
+		if l.CustomBase {
+			programs = append(programs, "cbe-agent") // what the runner puts in the images of exams that bring a base of their own
+		}
 	}
 	return programs
 }

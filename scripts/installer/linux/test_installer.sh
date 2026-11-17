@@ -25,7 +25,7 @@ fi
 
 prefix=$work/opt
 as_root sh "$run" -- --prefix "$prefix" --no-configure --no-link >"$work/install.log" 2>&1 || { cat "$work/install.log"; fail "the install"; }
-for file in bin/cbe-portal-server bin/cbe-runner bin/cbe-quota-helperd bin/cbe-portalctl bin/examc uninstall.sh VERSION ARCH share/docs/deployment-linux.md share/examples/lab-listas/workspace.md; do
+for file in bin/cbe-portal-server bin/cbe-runner bin/cbe-quota-helperd bin/cbe-portalctl bin/cbe-agent bin/examc uninstall.sh VERSION ARCH share/docs/deployment-linux.md share/examples/lab-listas/workspace.md share/examples/lab-listas-own-base/image/Containerfile; do
   [ -e "$prefix/$file" ] || fail "$file was not installed"
 done
 [ -x "$prefix/bin/cbe-portalctl" ] && [ -x "$prefix/uninstall.sh" ] || fail "the programs are not executable"
@@ -33,6 +33,8 @@ done
 version=$(cat "$prefix/VERSION")
 "$prefix/bin/cbe-portalctl" version | grep -q "$version" || fail "cbe-portalctl does not report $version"
 "$prefix/bin/cbe-portal-server" -version | grep -q "$version" || fail "the server does not report $version"
+"$prefix/bin/cbe-agent" -version | grep -q "$version" || fail "the agent does not report $version"
+if command -v ldd >/dev/null 2>&1 && ldd "$prefix/bin/cbe-agent" >/dev/null 2>&1; then fail "the agent is not a static program: it could not run in every image"; fi
 "$prefix/bin/cbe-portalctl" sample-config | grep -q '^WORKSPACE_ENABLED=yes' || fail "sample-config"
 # A configuration that is wrong is refused with the line, before the machine is looked at (it needs no root and changes nothing).
 printf 'WORKSPACE_ENABLD=yes\n' > "$work/bad.conf"

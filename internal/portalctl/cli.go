@@ -42,7 +42,7 @@ const usage = `cbe-portalctl configures a CBE Portal server on this machine.
         Stop and remove the services. The data (database, screenshots, the students' folders, the volume) stays,
         unless --remove-data says that all of it is to be deleted too.
   cbe-portalctl sample-config                   Print a documented configuration file.
-  cbe-portalctl version
+` + imageUsage + `  cbe-portalctl version
 `
 
 // Main runs a command and returns the exit status: 0 done, 1 something stopped it, 2 the command or the configuration is wrong.
@@ -70,6 +70,8 @@ func Main(args []string, env Env) int {
 		return restart(rest, env)
 	case "unconfigure":
 		return unconfigure(rest, env)
+	case "image":
+		return image(rest, env)
 	}
 	fmt.Fprintf(env.Stderr, "cbe-portalctl: %q is not a command\n\n%s", command, usage)
 	return 2

@@ -95,10 +95,17 @@ and gives partial credit per operation. Two things to know about it: **the stude
 **Try your `grade` on your own solution and on a bad submission before the exam**, the way the platform will run it: import the exam in a test
 class, submit as a student, grade ([The day before](#the-day-before)).
 
-## Course images and an exam's own image
+## The image of an exam
 
-A workspace runs in a **course image**: one image for the course, with the compiler and tools (`cbe/cpp20`: g++ for C++20, make, cmake, gdb, flex, bison).
-The person who runs the server builds and approves course images; an exam names one in `image:`.
+A workspace runs in an **image**, and there are two ways to say which.
+
+- **Bring your own base (the way for a new class).** Give the package an `image/` folder with a `Containerfile` that starts `FROM` **any image** (`python:3.12-slim`,
+  `ubuntu:24.04`...) and installs what the class needs, and leave `image:` out of `workspace.md`. A neural-networks class gets Python and its libraries and no C++
+  compiler; a databases class gets what it installs. Nothing has to be prepared on the server: **the platform adds the student account, the agent and the rest** after your
+  last line, and checks the result before the exam can be published. Before you hand the package over you can check the image on your own computer with
+  `cbe-portalctl image check lab/` ([images.md](images.md), "A base image of its own"). A base that declares a `VOLUME` (the `postgres` and `redis` images) is refused.
+  `testdata/workspace/lab-listas-own-base` is a complete example: the C++ course as a package of its own.
+- **A course image of the server (`image: cbe/cpp20`).** One image for the course, built and approved by the person who runs the server, with the compiler and tools (g++ for C++20, make, cmake, gdb, flex, bison).
 
 - **The tool you need is not in the image, and others will want it too:** add a course image. Copy `images/cpp20/` to `images/<course>/`, change the
   packages and the labels, keep the user, the agent and the end of the Containerfile as they are, build it, and run `images/test.sh`. The steps and
