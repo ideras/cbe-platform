@@ -3,7 +3,9 @@ package runner
 import (
 	"archive/tar"
 	"bytes"
+	"crypto/sha256"
 	_ "embed"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"strings"
@@ -36,23 +38,42 @@ func finalizeContainerfile(base, agentSum string) string {
 	return b.String()
 }
 
-// finalizeContext is the build context of the last layer: its Containerfile, the script and the agent.
-func finalizeContext(base string, agent []byte, agentSum string) (io.Reader, error) {
-	var out bytes.Buffer
-	w := tar.NewWriter(&out)
-	for _, file := range []struct {
-		name string
-		mode int64
-		data []byte
-	}{
+// FinalizeFile is a file of the build context of the last layer.
+type FinalizeFile struct {
+	Name string
+	Mode int64
+	Data []byte
+}
+
+// AgentSum is the SHA-256 of an agent, as the image's label has it.
+func AgentSum(agent []byte) string {
+	sum := sha256.Sum256(agent)
+	return hex.EncodeToString(sum[:])
+}
+
+// FinalizeFiles are the files of the build context of the last layer: its Containerfile, the script and the agent. The runner builds them on top of the
+// author's image; `cbe-portalctl image check` builds the same files on an author's computer, so that what it says is what the runner will say.
+func FinalizeFiles(base string, agent []byte) []FinalizeFile {
+	return finalizeFiles(base, agent, AgentSum(agent))
+}
+
+func finalizeFiles(base string, agent []byte, agentSum string) []FinalizeFile {
+	return []FinalizeFile{
 		{"Containerfile", 0o644, []byte(finalizeContainerfile(base, agentSum))},
 		{"cbe-finalize.sh", 0o755, finalizeScript},
 		{"cbe-agent", 0o755, agent},
-	} {
-		if err := w.WriteHeader(&tar.Header{Name: file.name, Typeflag: tar.TypeReg, Mode: file.mode, Size: int64(len(file.data)), ModTime: time.Unix(0, 0)}); err != nil {
+	}
+}
+
+// finalizeContext is the build context of the last layer as a tar archive.
+func finalizeContext(base string, agent []byte, agentSum string) (io.Reader, error) {
+	var out bytes.Buffer
+	w := tar.NewWriter(&out)
+	for _, file := range finalizeFiles(base, agent, agentSum) {
+		if err := w.WriteHeader(&tar.Header{Name: file.Name, Typeflag: tar.TypeReg, Mode: file.Mode, Size: int64(len(file.Data)), ModTime: time.Unix(0, 0)}); err != nil {
 			return nil, err
 		}
-		if _, err := w.Write(file.data); err != nil {
+		if _, err := w.Write(file.Data); err != nil {
 			return nil, err
 		}
 	}

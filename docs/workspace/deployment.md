@@ -80,6 +80,7 @@ The unit runs the server with `NoNewPrivileges`, a read-only system, only its ow
 | `runtime_socket` | `unix:///run/user/1001/podman/podman.sock` | The container runtime. Only the runner opens it. |
 | `quota_socket`, `work_root`, `run_root`, `state_root` | see the file | The quota helper and the three folders above. |
 | `images` | `{"cbe/cpp20": "localhost/cbe/cpp20:latest"}` | **The approved images**: the name an exam uses, and the runtime's reference. An exam that names any other image is refused at import and again at `container.create`. |
+| `custom_base`, `base_registries`, `agent_binary` | `true`, `[]` (any registry), `""` | **Exams with a base image of their own** (`images.md`). `custom_base` false refuses them (the failure *policy*); `base_registries` lists the registries their `FROM`s may name; `agent_binary` is the static `cbe-agent` the runner puts in every image it finishes (the installer sets it to `/opt/cbe-portal/bin/cbe-agent`, and the configurator keys `ALLOW_CUSTOM_BASE` and `BASE_REGISTRIES` write the other two). |
 | `max`, `default` | cpu 2, memory 2048, disk 500; 1, 1024, 100 | The largest limits an exam may ask for, and what it gets for a limit it leaves out. |
 | `pids`, `inodes`, `tmp_mb`, `stop_seconds` | 256, 20000, 64, 5 | Fixed for every container. |
 | `grade_root` | `/data/cbe-platform/grading` | Where a grading run's copy of the hidden bundle is for as long as the run lasts. Private to the runner (`install.sh` makes it, mode 0700). |

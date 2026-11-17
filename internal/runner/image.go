@@ -51,6 +51,9 @@ var buildSecond = time.Second
 // hostCABundle is the certificate bundle the build lends to the Containerfile as ca.crt; a variable so that a test can point it elsewhere.
 var hostCABundle = "/etc/ssl/certs/ca-certificates.crt"
 
+// HostCABundle is the certificate bundle the build lends to a Containerfile as ca.crt (`cbe-portalctl image check` lends the same).
+func HostCABundle() string { return hostCABundle }
+
 var (
 	buildHashPattern = regexp.MustCompile(`^[0-9a-f]{16}$`)
 	// examTagPattern is what an exam's ID must be for its name to be part of an image's: image names are lowercase.

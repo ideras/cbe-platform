@@ -40,6 +40,10 @@ type Layout struct {
 	VolumeDevice string
 	HostMemoryMB int
 	StorageDir   string
+
+	// CustomBase says whether an exam may bring a base image of its own, and BaseRegistries which registries it may pull from (none: any).
+	CustomBase     bool
+	BaseRegistries []string
 }
 
 // NewLayout reads the configuration.
@@ -51,8 +55,23 @@ func NewLayout(v *conf.Values) Layout {
 		Extra: v.Get("SERVER_EXTRA_ARGS"), WorkDir: v.Get("WORK_DIR"), StartServices: v.Bool("START_SERVICES"),
 		CreateVolume: v.Bool("CREATE_XFS_VOLUME"), VolumeFile: v.Get("XFS_VOLUME_FILE"), VolumeSize: v.Get("XFS_VOLUME_SIZE"), VolumeDevice: v.Get("XFS_DEVICE"),
 		HostMemoryMB: v.Int("HOST_MEMORY_MB"), StorageDir: v.Get("CONTAINER_STORAGE_DIR"),
+		CustomBase: v.Bool("ALLOW_CUSTOM_BASE"), BaseRegistries: registries(v.Get("BASE_REGISTRIES")),
 	}
 }
+
+// registries is the list a BASE_REGISTRIES value comes to (never nil: the runner's settings say [] for any registry).
+func registries(value string) []string {
+	list := []string{}
+	for _, item := range strings.Split(value, ",") {
+		if item != "" {
+			list = append(list, item)
+		}
+	}
+	return list
+}
+
+// AgentBinary is the static agent the runner puts in every image it finishes: the installer puts it next to the other programs.
+func (l Layout) AgentBinary() string { return l.Bin("cbe-agent") }
 
 // Bin is a program of the installation.
 func (l Layout) Bin(name string) string { return path.Join(l.Install, "bin", name) }

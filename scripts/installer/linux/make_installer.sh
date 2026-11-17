@@ -3,7 +3,7 @@
 #
 #   scripts/installer/linux/make_installer.sh --version v0.17.0 --arch amd64 --bin-dir DIR --output DIR
 #
-# DIR holds the Linux programs built for ARCH: cbe-portal-server, cbe-runner, cbe-quota-helperd, cbe-portalctl and examc. What the installer holds is the
+# DIR holds the Linux programs built for ARCH: cbe-portal-server, cbe-runner, cbe-quota-helperd, cbe-portalctl, cbe-agent and examc. What the installer holds is the
 # layout of /opt/cbe-portal (bin, share) and the two scripts next to this one; install.sh and uninstall.sh are what it runs. See docs/deployment-linux.md.
 set -euo pipefail
 
@@ -35,7 +35,7 @@ fi
 stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
 mkdir -p "$stage/bin" "$stage/share/docs" "$stage/share/examples"
-for program in cbe-portal-server cbe-runner cbe-quota-helperd cbe-portalctl examc; do
+for program in cbe-portal-server cbe-runner cbe-quota-helperd cbe-portalctl cbe-agent examc; do
   [ -f "$bin_dir/$program" ] || { echo "$bin_dir/$program is missing" >&2; exit 1; }
   install -m 0755 "$bin_dir/$program" "$stage/bin/$program"
 done
@@ -44,6 +44,7 @@ for doc in TEACHER-GUIDE.md RELEASE.md deployment.md; do
   install -m 0644 "$repo/docs/workspace/$doc" "$stage/share/docs/$doc"
 done
 cp -R "$repo/testdata/workspace/lab-listas" "$stage/share/examples/lab-listas"
+cp -R "$repo/testdata/workspace/lab-listas-own-base" "$stage/share/examples/lab-listas-own-base"
 install -m 0755 "$here/install.sh" "$stage/install.sh"
 install -m 0755 "$here/uninstall.sh" "$stage/uninstall.sh"
 printf '%s\n' "$version" > "$stage/VERSION"

@@ -15,6 +15,30 @@ func parse(t *testing.T, text string) *Values {
 }
 
 // A key left out has its default, and a default may refer to other keys, so moving DATA_DIR moves what is under it.
+func TestRegistriesAreAListOfRegistriesInTheirNormalForm(t *testing.T) {
+	spec := Spec{Kind: Registries, Optional: true}
+	for in, want := range map[string]string{"docker.io": "docker.io", "docker.io, ghcr.io": "docker.io,ghcr.io", "docker.io,ghcr.io  localhost:5000": "docker.io,ghcr.io,localhost:5000", "": ""} {
+		if got, err := normalize(spec, in); err != nil || got != want {
+			t.Errorf("%q -> %q, %v; want %q", in, got, err, want)
+		}
+	}
+	for _, bad := range []string{"Docker.io", "docker.io/library", "https://docker.io", "docker.io:", "-x", "a b$"} {
+		if _, err := normalize(spec, bad); err == nil {
+			t.Errorf("%q was taken", bad)
+		}
+	}
+	// In a file: the keys are known, and a bad registry names its line.
+	if v, err := Parse(strings.NewReader("ALLOW_CUSTOM_BASE=no\nBASE_REGISTRIES=docker.io,ghcr.io\n"), "f"); err != nil || v.Bool("ALLOW_CUSTOM_BASE") || v.Get("BASE_REGISTRIES") != "docker.io,ghcr.io" {
+		t.Errorf("%v", err)
+	}
+	if _, err := Parse(strings.NewReader("BASE_REGISTRIES=Docker.io\n"), "f"); err == nil || !strings.Contains(err.Error(), "f:1: BASE_REGISTRIES") {
+		t.Errorf("a bad registry: %v", err)
+	}
+	if New().Bool("ALLOW_CUSTOM_BASE") != true || New().Get("BASE_REGISTRIES") != "" {
+		t.Error("the defaults: custom bases allowed, any registry")
+	}
+}
+
 func TestDefaultsFollowTheKeysTheyRefer(t *testing.T) {
 	v := New()
 	if got := v.Get("DATABASE_FILEPATH"); got != "/var/lib/cbe-portal/server/cbe-platform.db" {
