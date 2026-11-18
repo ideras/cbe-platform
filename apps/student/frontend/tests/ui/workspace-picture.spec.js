@@ -146,8 +146,7 @@ test('the editor behind the picture keeps its cursor and its scroll, and each ta
   await expect(editor).toBeFocused();
   expect(await where()).toEqual(before);
 
-  // Another file and back: the SVG is still shown as its source, as the student left it. (A trip to another tab does not keep the
-  // editor's scroll, for any file; that is not the picture's doing, so it is not checked here.)
+  // Another file and back: the SVG is still shown as its source, as the student left it, with its cursor and its scroll.
   await open(page, 'notes.txt');
   await expect(editorOf(page, 'notes.txt')).toBeVisible();
   await expect(page.getByRole('group', { name: /^Show .* as$/ })).toHaveCount(0);
@@ -155,11 +154,62 @@ test('the editor behind the picture keeps its cursor and its scroll, and each ta
   await expect(editor).toBeVisible();
   await expect(viewButton(page, 'Source')).toHaveAttribute('aria-pressed', 'true');
   await expect(pictureOf(page, 'tall.svg')).toBeHidden();
+  await expect.poll(where).toEqual(before);
   // Closed and opened again, it is a picture again.
   await page.getByRole('button', { name: 'Close tall.svg' }).click();
   await expect(page.getByRole('tab', { name: /tall\.svg/ })).toHaveCount(0);
   await open(page, 'tall.svg');
   await expect(pictureOf(page, 'tall.svg')).toBeVisible();
+});
+
+// Waits until the page has drawn twice: what a scroll set by a script says (its scroll event) has been told by then.
+const settle = page => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+
+test('each picture keeps its zoom and its place while another tab is in front, and a closed one opens at Fit again', async ({ page }) => {
+  await start(page);
+  await open(page, 'wide.svg');
+  const wideOne = pictureOf(page, 'wide.svg');
+  await expect(wideOne).toBeVisible();
+  const fit = await measure(wideOne);
+  await zoomGroup(page).getByRole('button', { name: '100 % Actual size' }).click();
+  await regionOf(page, 'wide.svg').evaluate(region => { region.scrollLeft = 900; });
+  await settle(page);
+  expect((await measure(wideOne)).left).toBe(900);
+
+  // A text file, and another picture at a zoom of its own, in front.
+  await open(page, 'notes.txt');
+  await expect(editorOf(page, 'notes.txt')).toBeVisible();
+  await open(page, 'automaton.svg');
+  const small = pictureOf(page, 'automaton.svg');
+  await expect(small).toBeVisible();
+  await zoomGroup(page).getByRole('button', { name: '+ Zoom in' }).click();
+  await expect(zoomGroup(page)).toContainText('150 %');
+
+  // Back: each picture as the student left it.
+  await page.getByRole('tab', { name: /wide\.svg/ }).click();
+  await expect(wideOne).toBeVisible();
+  await expect(zoomGroup(page)).toContainText('100 %');
+  await expect.poll(async () => (await measure(wideOne)).width).toBe(3000);
+  await expect.poll(async () => (await measure(wideOne)).left).toBe(900);
+  await page.getByRole('tab', { name: /automaton\.svg/ }).click();
+  await expect(small).toBeVisible();
+  await expect(zoomGroup(page)).toContainText('150 %');
+  // Through the source and a tab that is not a picture, too.
+  await page.getByRole('tab', { name: /wide\.svg/ }).click();
+  await viewButton(page, 'Source').click();
+  await page.getByRole('tab', { name: /notes\.txt/ }).click();
+  await page.getByRole('tab', { name: /wide\.svg/ }).click();
+  await viewButton(page, 'Picture').click();
+  await expect.poll(async () => (await measure(wideOne)).left).toBe(900);
+  await expect(zoomGroup(page)).toContainText('100 %');
+
+  // Closed and opened again, it starts afresh, at Fit; and nothing of it was written anywhere.
+  await page.getByRole('button', { name: 'Close wide.svg' }).click();
+  await open(page, 'wide.svg');
+  await expect(wideOne).toBeVisible();
+  await expect.poll(async () => (await measure(wideOne)).width).toBe(fit.width);
+  await expect(zoomGroup(page).getByRole('button', { name: 'Fit', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  expect(await page.evaluate(() => window.__storage)).toEqual([]);
 });
 
 test('a file made again in the terminal is drawn again, and one caught half written is a notice, never an error', async ({ page }) => {

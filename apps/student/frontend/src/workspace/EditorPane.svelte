@@ -16,12 +16,15 @@
   import PictureView from './PictureView.svelte';
 
   // The open files: a tab for each, and one CodeMirror editor that shows the state of the tab in front. Each tab keeps its own editor
-  // state, so its undo history, its cursor and its scroll survive a trip to another tab. The editor tells the model when the text
-  // changes; the model decides when it is written. Highlighting only, as in the exam's code answers: no autocompletion.
+  // state (its undo history and its cursor) and where it was scrolled, so all three survive a trip to another tab. The editor tells the
+  // model when the text changes; the model decides when it is written. Highlighting only, as in the exam's code answers: no autocompletion.
   let { model, tabs, activePath, readOnly, onClose } = $props();
   let host = $state(null);
   let view;
   const states = new Map(); // tab id -> the tab's editor state
+  // An editor state does not hold the scroll: CodeMirror shows a state given to it from the top. Where a tab was scrolled is kept apart, as
+  // CodeMirror's own snapshot of it, and given back with its state.
+  const scrolls = new Map(); // tab id -> the snapshot of its scroll when it went to the back
   const extensionsOf = new Map(); // tab id -> the language's extension, for a state made again
   const outside = Annotation.define();
   const access = new Compartment();
@@ -90,7 +93,10 @@
         text: () => (shownId === id ? view.state.doc.toString() : states.get(id)?.doc.toString() ?? ''),
         replace: text => {
           if (shownId === id) view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: text }, annotations: outside.of(true) });
-          else states.set(id, makeState({ id, path: model.tabs.find(item => item.id === id)?.path ?? tab.path }, text, extensionsOf.get(id) ?? []));
+          else {
+            states.set(id, makeState({ id, path: model.tabs.find(item => item.id === id)?.path ?? tab.path }, text, extensionsOf.get(id) ?? []));
+            scrolls.delete(id); // a snapshot is of the text it was taken in, and this is another
+          }
         },
       };
       buffers.set(tab.id, buffer);
@@ -109,19 +115,26 @@
     const state = await ensure(tab);
     if (ticket !== wanted) return;
     view.setState(state);
-    view.dispatch({ effects: [access.reconfigure(accessConfig(readOnly)), sizing.reconfigure(sizeTheme())] });
+    const scroll = scrolls.get(tab.id);
+    view.dispatch({ effects: [access.reconfigure(accessConfig(readOnly)), sizing.reconfigure(sizeTheme()), ...(scroll ? [scroll] : [])] });
     shownId = tab.id;
   }
   // What decides it are the tab's id and state, read through values of their own: `active` is a new object at every snapshot of the model
   // (a save, a tick, a terminal's output), and an effect that read it would redraw the whole editor and lose its scroll each time.
   const activeId = $derived(active?.id ?? null);
   const activeState = $derived(active?.state ?? null);
+  // Where the tab going to the back is scrolled is read before the page changes: a tab in front that is not text hides the editor, and a
+  // hidden editor has no scroll to read.
+  $effect.pre(() => { activeId; activeState; untrack(() => { if (shownId !== null && view) scrolls.set(shownId, view.scrollSnapshot()); }); });
   $effect(() => { activeId; activeState; if (view) untrack(show); });
 
   // An SVG file is shown as its picture, or as its source in the editor (docs/workspace/student-ide.md, "Editor"). The tab is the same
   // tab either way: its text, its saves and its conflicts are the model's, as for any file, and the editor keeps its state (cursor,
   // scroll, undo) behind the picture. Which of the two a tab shows is the student's choice, kept here while the tab is open.
   const views = new SvelteMap(); // tab id -> 'picture' | 'source'
+  // Where each tab's picture was (its zoom and its scroll), for when the tab comes to the front again: the picture is made anew for it.
+  const pictures = new Map(); // tab id -> { zoom, left, top }
+  const placeOf = id => { if (!pictures.has(id)) pictures.set(id, {}); return pictures.get(id); };
   const activeSvg = $derived(activePath !== null && isSvgPath(activePath));
   const activeVersion = $derived(active?.version ?? '');
   const activeSaved = $derived(active?.savedText ?? '');
@@ -154,6 +167,7 @@
   $effect(() => {
     const ids = new Set(tabs.map(tab => tab.id));
     for (const id of untrack(() => [...views.keys()])) if (!ids.has(id)) views.delete(id);
+    for (const map of [scrolls, pictures]) for (const id of [...map.keys()]) if (!ids.has(id)) map.delete(id);
     for (const id of [...states.keys()]) if (!ids.has(id)) {
       states.delete(id); extensionsOf.delete(id);
       const buffer = buffers.get(id);
@@ -234,7 +248,7 @@
       <div class="host" class:behind={pictureShown} bind:this={host}></div>
       {#if choosing || pictureShown}
         {#key activeId}
-          <div class="front" class:behind={!pictureShown}><PictureView bind:this={picture} name={basename(activePath)} text={pictureText} onSource={() => choose('source')} /></div>
+          <div class="front" class:behind={!pictureShown}><PictureView bind:this={picture} name={basename(activePath)} text={pictureText} place={placeOf(activeId)} onSource={() => choose('source')} /></div>
         {/key}
       {/if}
     </div>

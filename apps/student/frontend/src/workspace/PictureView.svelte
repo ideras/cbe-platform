@@ -9,11 +9,14 @@
   //
   // A file that is being written while it is read (dot writes it, the IDE reads it about 0.3 s after the change) is a picture that cannot
   // be drawn for a moment: that is a short notice, never an error, and the next change of the file draws it again.
-  let { name, text, onSource } = $props();
+  // place is where this tab's picture was when the tab went to the back ({ zoom, left, top }, kept by the editor pane while the tab is open):
+  // the picture comes back at that zoom and scrolled there. It is the object of the tab the view was made for, read once.
+  let { name, text, onSource, place: given = {} } = $props();
+  const place = untrack(() => given);
   let region = $state(null);
   let roomWidth = $state(0);
   let roomHeight = $state(0);
-  let zoom = $state(FIT);
+  let zoom = $state(place.zoom ?? FIT);
   const GAP = 12; // px around the picture
 
   const svg = $derived(looksLikeSvg(text));
@@ -53,12 +56,27 @@
     const across = (region.scrollLeft + x) / region.scrollWidth;
     const down = (region.scrollTop + y) / region.scrollHeight;
     zoom = next;
+    place.zoom = next;
     await tick();
     region.scrollLeft = across * region.scrollWidth - x;
     region.scrollTop = down * region.scrollHeight - y;
   }
   const step = (delta, anchor) => zoomTo(stepPictureZoom(zoom, scale, delta), anchor);
 
+  // The scroll is kept as the student moves the picture, and given back once the picture is drawn again (at its zoom, so that the room has
+  // its size). A region that is leaving the page says nothing.
+  let restored = false;
+  $effect(() => {
+    if (!shown || restored || !region) return;
+    restored = true;
+    const { left = 0, top = 0 } = place;
+    if (left || top) tick().then(() => { if (region) { region.scrollLeft = left; region.scrollTop = top; } });
+  });
+  function keepPlace() {
+    if (!restored || !region?.isConnected || region.clientWidth === 0) return;
+    place.left = region.scrollLeft;
+    place.top = region.scrollTop;
+  }
   // + − and 0 when the picture or its buttons have the keyboard, with Ctrl too (which would otherwise zoom the whole window).
   function keys(event) {
     if (event.altKey) return;
@@ -101,7 +119,7 @@
   <!-- The region takes the keyboard so that the arrow keys scroll a picture larger than the room (a scrolling region a keyboard cannot
        reach is an accessibility fault of its own). -->
   <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-  <div class="region" role="region" aria-label="Picture of {name}" tabindex="0" style:padding="{GAP}px" bind:this={region} bind:clientWidth={roomWidth} bind:clientHeight={roomHeight}>
+  <div class="region" role="region" aria-label="Picture of {name}" tabindex="0" style:padding="{GAP}px" onscroll={keepPlace} bind:this={region} bind:clientWidth={roomWidth} bind:clientHeight={roomHeight}>
     {#if broken}
       <div class="cannot" role="status">
         <p>This file cannot be drawn as a picture yet.</p>
