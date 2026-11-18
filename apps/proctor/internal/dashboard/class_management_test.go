@@ -180,12 +180,14 @@ func TestARosterFileTheServerRejectsListsItsProblemsAndCannotBeApplied(t *testin
 
 func TestAReplacementTheServerRefusesKeepsTheFileAndAnUnclearOneDropsIt(t *testing.T) {
 	f := newPublishFixture(t, examID)
-	mode := "refuse"
+	// The handler runs in the fake server's goroutine: what it and the test share goes through an atomic.
+	var refuse atomic.Bool
+	refuse.Store(true)
 	f.server.setReply(func(w http.ResponseWriter, r *http.Request, body []byte) bool {
 		if r.URL.Query().Get("dry_run") == "true" {
 			return changeAnswer(w, r, false)
 		}
-		if mode == "refuse" {
+		if refuse.Load() {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusConflict)
 			reply(w, map[string]string{"error": "the situation changed"})
@@ -201,7 +203,7 @@ func TestAReplacementTheServerRefusesKeepsTheFileAndAnUnclearOneDropsIt(t *testi
 	if _, err := f.ReplaceClassRoster(classID, true); err == nil || !definite(err) {
 		t.Fatalf("a refusal = %v", err)
 	}
-	mode = "boom"
+	refuse.Store(false)
 	_, err := f.ReplaceClassRoster(classID, true) // the file was kept, so this attempt is made
 	if err == nil || !strings.Contains(err.Error(), "look at its roster") || strings.Contains(err.Error(), secret) {
 		t.Fatalf("unclear failure = %v", err)

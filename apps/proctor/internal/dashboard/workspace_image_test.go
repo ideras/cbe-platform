@@ -76,10 +76,10 @@ func TestAWorkspacePackageIsPreviewedAndImportedWithItsImageBundle(t *testing.T)
 	f := newPublishFixture(t, "")
 	dir := copyPackage(t)
 	f.chosen = filepath.Join(dir, "workspace.md")
-	var sent []recorded
+	// What was sent is read from the fake server's own record of its requests, which is kept under its lock.
+	sent := func() []recorded { return f.server.seen("POST", "/admin/class/"+classID+"/workspace-exam") }
 	f.server.setReply(func(w http.ResponseWriter, r *http.Request, body []byte) bool {
 		if r.Method == "POST" && r.URL.Path == "/admin/class/"+classID+"/workspace-exam" {
-			sent = append(sent, recorded{r.Method, r.URL.Path, r.Header.Get("Content-Type"), r.Header.Get("Authorization"), body})
 			w.WriteHeader(http.StatusCreated)
 			reply(w, map[string]string{"exam_id": otherExam})
 			return true
@@ -103,7 +103,7 @@ func TestAWorkspacePackageIsPreviewedAndImportedWithItsImageBundle(t *testing.T)
 	if preview.Folder != filepath.Base(dir) {
 		t.Errorf("the folder: %q", preview.Folder)
 	}
-	if len(sent) != 0 {
+	if len(sent()) != 0 {
 		t.Fatal("previewing stored something")
 	}
 
@@ -113,7 +113,7 @@ func TestAWorkspacePackageIsPreviewedAndImportedWithItsImageBundle(t *testing.T)
 			t.Errorf("the PIN %q was taken", pin)
 		}
 	}
-	if len(sent) != 0 {
+	if len(sent()) != 0 {
 		t.Fatal("a refused PIN sent the exam")
 	}
 	// A package previewed for another class is not imported into this one.
@@ -124,10 +124,10 @@ func TestAWorkspacePackageIsPreviewedAndImportedWithItsImageBundle(t *testing.T)
 	if err != nil || result.ExamID != otherExam {
 		t.Fatalf("%+v %v", result, err)
 	}
-	if len(sent) != 1 || !strings.HasPrefix(sent[0].ContentType, "multipart/form-data") || sent[0].Authorization != "Bearer "+secret {
+	if sent := sent(); len(sent) != 1 || !strings.HasPrefix(sent[0].ContentType, "multipart/form-data") || sent[0].Authorization != "Bearer "+secret {
 		t.Fatalf("what was sent: %+v", sent)
 	}
-	got := parts(t, sent[0].ContentType, sent[0].Body)
+	got := parts(t, sent()[0].ContentType, sent()[0].Body)
 	if len(got) != 4 || len(got["starter"]) == 0 || len(got["grading"]) == 0 || len(got["image"]) == 0 {
 		t.Fatalf("the parts: %v", got)
 	}
@@ -139,8 +139,8 @@ func TestAWorkspacePackageIsPreviewedAndImportedWithItsImageBundle(t *testing.T)
 		t.Errorf("the document: %v", document)
 	}
 	// The package is used up: importing again would be the same exam twice.
-	if _, err := f.ImportWorkspaceExam(classID, "pin-1234"); err == nil || len(sent) != 1 {
-		t.Errorf("a second import: %v (%d sent)", err, len(sent))
+	if _, err := f.ImportWorkspaceExam(classID, "pin-1234"); err == nil || len(sent()) != 1 {
+		t.Errorf("a second import: %v (%d sent)", err, len(sent()))
 	}
 }
 
@@ -153,10 +153,8 @@ func TestAPackageWithoutAnImageOrGradingSendsOnlyWhatItHas(t *testing.T) {
 		}
 	}
 	f.chosen = filepath.Join(dir, "workspace.md")
-	var sent recorded
 	f.server.setReply(func(w http.ResponseWriter, r *http.Request, body []byte) bool {
 		if r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/workspace-exam") {
-			sent = recorded{ContentType: r.Header.Get("Content-Type"), Body: body}
 			w.WriteHeader(http.StatusCreated)
 			reply(w, map[string]string{"exam_id": otherExam})
 			return true
@@ -170,7 +168,11 @@ func TestAPackageWithoutAnImageOrGradingSendsOnlyWhatItHas(t *testing.T) {
 	if _, err := f.ImportWorkspaceExam(classID, "pin-1234"); err != nil {
 		t.Fatal(err)
 	}
-	got := parts(t, sent.ContentType, sent.Body)
+	post := f.server.seen("POST", "/admin/class/"+classID+"/workspace-exam")
+	if len(post) != 1 {
+		t.Fatalf("the import was sent %d times", len(post))
+	}
+	got := parts(t, post[0].ContentType, post[0].Body)
 	if len(got) != 2 || got["image"] != nil || got["grading"] != nil {
 		t.Errorf("the parts of a package with no image and no grading: %v", got)
 	}

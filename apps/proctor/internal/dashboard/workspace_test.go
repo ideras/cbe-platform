@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -32,10 +33,14 @@ func sessionsHandler(extra http.HandlerFunc) http.HandlerFunc {
 
 func TestTheWorkspaceRosterComesWithTheSessionsOfAWorkspaceExam(t *testing.T) {
 	var asked atomic.Int32
+	// The service polls the roster while the test changes it: the handler (in the server's goroutine) and the test take the lock.
+	var mu sync.Mutex
 	rosterToServe := workspaceRoster()
 	s, _ := start(t, sessionsHandler(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/admin/workspace/exam/"+examID+"/roster" {
 			asked.Add(1)
+			mu.Lock()
+			defer mu.Unlock()
 			reply(w, rosterToServe)
 			return
 		}
@@ -47,7 +52,9 @@ func TestTheWorkspaceRosterComesWithTheSessionsOfAWorkspaceExam(t *testing.T) {
 		t.Errorf("workspace = %+v", view)
 	}
 	// It is read again on every pass: what the student ticks shows.
+	mu.Lock()
 	rosterToServe.Students[0].TodoDone = 3
+	mu.Unlock()
 	wait(t, func() bool { w := s.Snapshot().Workspace; return w != nil && w.Students[0].TodoDone == 3 })
 	// Another exam clears it until its own roster is read.
 	if _, err := s.SelectExam(otherExam); err != nil {
