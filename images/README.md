@@ -43,7 +43,7 @@ seccomp profile of Podman allows it). Without `openat2` it still works, and foll
    not come from the archive (pip packages, models), download them in the build with the version and checksum written in the file.
 3. **Keep steps 2 and the end of the Containerfile as they are:** the user, the lock on root, the removal of setuid files, `COPY cbe-agent`,
    `USER 1000:1000`, `WORKDIR /work`, `ENTRYPOINT`.
-4. **Build it:** `images/build.sh <course>` (on the container host: `PODMAN='sudo -u cbe-runner env XDG_RUNTIME_DIR=/run/user/1001 podman'
+4. **Build it:** `images/build.sh <course>` (on the container host: `PODMAN="sudo -u cbe-runner env XDG_RUNTIME_DIR=/run/user/$(id -u cbe-runner) podman"
    images/build.sh <course>`, because the images belong to the `cbe-runner` user).
 5. **Check it:** `images/build.sh <course> --check` (reproducible), then `images/test.sh <course>` (the contract, with the hardening the runner uses).
    `test.sh` also runs the `cpp20` checks of the toolchain; for a new course, add what its exams need to the "terminals" section.

@@ -6,7 +6,7 @@
 #
 # The container host's images belong to the cbe-runner user, so on that host:
 #
-#   PODMAN='sudo -u cbe-runner env XDG_RUNTIME_DIR=/run/user/1001 podman' images/build.sh cpp20
+#   PODMAN="sudo -u cbe-runner env XDG_RUNTIME_DIR=/run/user/$(id -u cbe-runner) podman" images/build.sh cpp20
 #
 # The agent is built here (static, no cgo, no paths, no build ID) and handed to the build as a file, so the image holds exactly
 # the binary the tests ran. SOURCE_DATE_EPOCH (default 2000-01-01) stamps every file and the image itself.

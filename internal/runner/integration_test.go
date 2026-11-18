@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"net"
 	"os"
+	"os/user"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -499,10 +500,16 @@ func TestRealRunner(t *testing.T) {
 	})
 
 	t.Run("the exam server's account cannot reach the runtime or a student's files", func(t *testing.T) {
-		if _, err := os.Stat("/run/user/1001/podman/podman.sock"); err == nil {
+		// The runtime is the rootless Podman of the runner's account, whatever uid that account got.
+		account, err := user.Lookup("cbe-runner")
+		if err != nil {
+			t.Fatalf("the runner's account: %v", err)
+		}
+		runtimeSocket := "/run/user/" + account.Uid + "/podman/podman.sock"
+		if _, err := os.Stat(runtimeSocket); err == nil {
 			t.Error("the runtime's socket can be looked at by the exam server's account")
 		}
-		if conn, err := net.Dial("unix", "/run/user/1001/podman/podman.sock"); err == nil {
+		if conn, err := net.Dial("unix", runtimeSocket); err == nil {
 			conn.Close()
 			t.Error("the runtime's socket can be connected to")
 		}

@@ -2,7 +2,6 @@
   "socket": "/data/cbe-platform/ipc/runner.sock",
   "socket_group": "cbe-ipc",
   "secret_file": "/data/cbe-platform/ipc/runner.secret",
-  "runtime_socket": "unix:///run/user/1001/podman/podman.sock",
   "quota_socket": "/run/cbe-quota/helper.sock",
   "work_root": "/data/cbe-platform/work",
   "run_root": "/data/cbe-platform/run",
