@@ -485,7 +485,7 @@ func pass(name string, data map[string]any, format string, args ...any) result {
 
 func orchestrate(args []string) int {
 	flags := flag.NewFlagSet("check", flag.ExitOnError)
-	sock := flags.String("sock", "unix:///run/user/1001/podman/podman.sock", "runtime API socket")
+	sock := flags.String("sock", fmt.Sprintf("unix:///run/user/%d/podman/podman.sock", os.Getuid()), "runtime API socket (default: this account's rootless Podman)")
 	image := flags.String("image", "docker.io/library/alpine:3.20", "image used by every container")
 	workroot := flags.String("workroot", "/data/cbe-platform/work", "folder of the XFS quota volume")
 	only := flags.String("only", "", "comma-separated checks to run (default: all)")

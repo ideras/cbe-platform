@@ -19,7 +19,8 @@ type Config struct {
 	Socket      string `json:"socket"`
 	SocketGroup string `json:"socket_group"`
 	SecretFile  string `json:"secret_file"`
-	// RuntimeSocket is the container runtime's API, such as unix:///run/user/1001/podman/podman.sock; only the runner opens it.
+	// RuntimeSocket is the container runtime's API, such as unix:///run/user/<uid>/podman/podman.sock; only the runner opens it. Left out, it is
+	// the rootless Podman of the account the runner runs as (podmanSocket), which is the account that owns the containers.
 	RuntimeSocket string `json:"runtime_socket"`
 	// QuotaSocket is the quota helper's socket.
 	QuotaSocket string `json:"quota_socket"`
@@ -68,7 +69,7 @@ type Config struct {
 func DefaultConfig() Config {
 	return Config{
 		Socket: "/data/cbe-platform/ipc/runner.sock", SocketGroup: "cbe-ipc", SecretFile: "/data/cbe-platform/ipc/runner.secret",
-		RuntimeSocket: "unix:///run/user/1001/podman/podman.sock", QuotaSocket: "/run/cbe-quota/helper.sock",
+		RuntimeSocket: podmanSocket(os.Getuid()), QuotaSocket: "/run/cbe-quota/helper.sock",
 		WorkRoot: "/data/cbe-platform/work", RunRoot: "/data/cbe-platform/run", StateRoot: "/data/cbe-platform/runner",
 		Images:  map[string]string{"cbe/cpp20": "localhost/cbe/cpp20:latest"},
 		Max:     Resources{CPU: 2, MemoryMB: 2048, DiskMB: 500},
@@ -78,6 +79,10 @@ func DefaultConfig() Config {
 		BuildMaxSeconds: 900, BuildMemoryMB: 2048, CustomBase: true,
 	}
 }
+
+// podmanSocket is where the rootless Podman of the account uid listens (that account's podman.socket). No uid is assumed: the runner's account
+// has whatever id useradd gave it.
+func podmanSocket(uid int) string { return fmt.Sprintf("unix:///run/user/%d/podman/podman.sock", uid) }
 
 var idPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 

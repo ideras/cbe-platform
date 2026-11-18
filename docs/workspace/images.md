@@ -210,7 +210,7 @@ a student who logs in after a rebuild gets the new image.
 ## For the person who runs the server
 
 - **Runner settings** (`/etc/cbe-platform/runner.json`): `build_max_seconds`, `build_memory_mb`. API: `POST /v1/images/build` (`deployment.md`). The built images are in `cbe-runner`'s account:
-  `sudo -u cbe-runner env XDG_RUNTIME_DIR=/run/user/1001 podman images` shows them as `localhost/cbe-exam/<exam>:<hash>`.
+  `sudo -u cbe-runner env XDG_RUNTIME_DIR=/run/user/$(id -u cbe-runner) podman images` shows them as `localhost/cbe-exam/<exam>:<hash>`.
 - **They are not removed** when an exam is deleted or built again (decision P7-12). Each is the course image plus a layer or two (a few MB to tens of MB), but they add up over a year:
   `podman rmi localhost/cbe-exam/<exam>:<hash>`, once the exam is over. `podman image prune` takes the layers nothing uses any more.
 - **A build that was cancelled** (it took too long, or the runner stopped) leaves the builder's working container in this runtime (Podman 4.9); the runner removes it by name after the

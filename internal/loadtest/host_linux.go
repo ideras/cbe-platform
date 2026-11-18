@@ -18,7 +18,7 @@ type Host struct {
 	// Pids and Names say which processes to follow: a label and a pid, or a label and a program's name (the first process of that name).
 	Pids   map[string]int
 	Names  map[string]string
-	Groups map[string]string // a label and a control group's folder, such as /sys/fs/cgroup/user.slice/user-1001.slice
+	Groups map[string]string // a label and a control group's folder, such as /sys/fs/cgroup/user.slice/user-<uid>.slice
 	// Extra adds readings of the caller's own (the runner's statistics of the containers, for one).
 	Extra func() map[string]float64
 

@@ -26,7 +26,7 @@ type Docker struct {
 	cli *client.Client
 }
 
-// New connects to the runtime at host, such as unix:///run/user/1001/podman/podman.sock.
+// New connects to the runtime at host, such as unix:///run/user/<uid>/podman/podman.sock.
 func New(host string) (*Docker, error) {
 	cli, err := client.New(client.WithHost(host), client.WithAPIVersionNegotiation())
 	if err != nil {

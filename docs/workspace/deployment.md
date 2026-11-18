@@ -47,7 +47,7 @@ On the container host, after `docs/workspace/spike/setup-host.sh` (the `cbe-runn
 go build -o bin/cbe-runner ./cmd/cbe-runner
 go build -o bin/cbe-quota-helper ./cmd/cbe-quota-helper
 sudo deploy/workspace/install.sh bin       # accounts, folders, both services; safe to run again
-PODMAN='sudo -u cbe-runner env XDG_RUNTIME_DIR=/run/user/1001 podman' images/build.sh cpp20   # the course image into the runner's storage
+PODMAN="sudo -u cbe-runner env XDG_RUNTIME_DIR=/run/user/$(id -u cbe-runner) podman" images/build.sh cpp20   # the course image into the runner's storage
 ```
 
 The exam server is not started by `install.sh`: it may already be running somewhere else (the owner's own, on `:8080`). To run it as `cbe-server`:
@@ -77,7 +77,7 @@ The unit runs the server with `NoNewPrivileges`, a read-only system, only its ow
 | Key | Example | Meaning |
 |---|---|---|
 | `socket`, `socket_group`, `secret_file` | `/data/cbe-platform/ipc/runner.sock`, `cbe-ipc`, `…/runner.secret` | Where the API listens, who may connect, and the shared secret (made on first start). |
-| `runtime_socket` | `unix:///run/user/1001/podman/podman.sock` | The container runtime. Only the runner opens it. |
+| `runtime_socket` | `unix:///run/user/<uid>/podman/podman.sock` | The container runtime. Only the runner opens it. Left out (as `deploy/workspace/runner.json` does), it is the rootless Podman of the account the runner runs as, whatever uid `cbe-runner` got; `cbe-portalctl configure` writes that account's. |
 | `quota_socket`, `work_root`, `run_root`, `state_root` | see the file | The quota helper and the three folders above. |
 | `images` | `{"cbe/cpp20": "localhost/cbe/cpp20:latest"}` | **The approved images**: the name an exam uses, and the runtime's reference. An exam that names any other image is refused at import and again at `container.create`. |
 | `custom_base`, `base_registries`, `agent_binary` | `true`, `[]` (any registry), `""` | **Exams with a base image of their own** (`images.md`). `custom_base` false refuses them (the failure *policy*); `base_registries` lists the registries their `FROM`s may name; `agent_binary` is the static `cbe-agent` the runner puts in every image it finishes (the installer sets it to `/opt/cbe-portal/bin/cbe-agent`, and the configurator keys `ALLOW_CUSTOM_BASE` and `BASE_REGISTRIES` write the other two). |
@@ -135,8 +135,8 @@ Everything else is 404 or 405. A 401 means the secret was wrong.
 
 ```sh
 journalctl -u cbe-quota-helper                                   # the helper
-sudo -u cbe-runner env XDG_RUNTIME_DIR=/run/user/1001 journalctl --user -u cbe-runner     # the runner
-sudo -u cbe-runner env XDG_RUNTIME_DIR=/run/user/1001 podman ps  # the containers (names cbe-<exam>-<session>)
+sudo -u cbe-runner env XDG_RUNTIME_DIR=/run/user/$(id -u cbe-runner) journalctl --user -u cbe-runner     # the runner
+sudo -u cbe-runner env XDG_RUNTIME_DIR=/run/user/$(id -u cbe-runner) podman ps  # the containers (names cbe-<exam>-<session>)
 ```
 
 A session's workspace as the proctor would see it: `GET /admin/workspace/session/{id}` (state, restarts of the agent, the snapshots) and `GET /admin/workspace/snapshot/{id}/tar` for the files of one snapshot, with the admin token.
