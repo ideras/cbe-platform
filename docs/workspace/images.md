@@ -158,6 +158,12 @@ RUN --mount=type=bind,source=ca.crt,target=/run/host-ca.crt,ro \
 
 (That exact step was built for real against the Ubuntu snapshot: 105 seconds on a slow link, most of it the package index.)
 
+**A lab that draws pictures.** The student's IDE shows an `.svg` file as the picture it draws ([student-ide.md](student-ide.md), "SVG pictures"),
+and Graphviz is what writes one for an automaton or a tree (`dot -Tsvg automaton.gv -o automaton.svg`). `cbe/cpp20` does not have it: install
+`graphviz` in a step like the one above (`install -y --no-install-recommends graphviz fonts-liberation2`; the fonts are only recommended by the
+package, and `dot` measures its labels with them), or in the `image/Containerfile` of a base of its own. Ask the students for `-Tsvg`: PNG and
+PDF are not shown in the IDE (they are not text, and the workspace's file channel carries text only).
+
 ## Building it
 
 In the proctor application, an exam with an image shows **Image not built** and an **Image** button. The dialog has **Build the image**; the build goes on in the background (seconds

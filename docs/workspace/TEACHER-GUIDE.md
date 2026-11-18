@@ -115,6 +115,10 @@ A workspace runs in an **image**, and there are two ways to say which.
   what you need, and end as `USER 1000:1000`. The proctor builds it before publishing (the **Image** button on the exam), and the platform checks
   that it is still a course image (same user, agent and entrypoint). The exam **cannot be published until its image is built.** Only this exam's
   students and its grading containers get it. Rules, an example and the checks: [images.md](images.md).
+- **A lab whose students draw something** (the automaton of a lexer, a parse tree) has them write an **SVG**: the IDE shows an `.svg` file as its
+  picture, with zoom and its source a click away. Graphviz makes one (`dot -Tsvg automaton.gv -o automaton.svg`), so the image needs the
+  `graphviz` package (`cbe/cpp20` does not have it: one line in your `image/Containerfile`, see [images.md](images.md)). PNG and PDF files are
+  not shown (they are not text); ask for SVG.
 - **The network is off for students and graders always**, whatever the image was built with. A student cannot install anything during the exam;
   if they might need a library, put it in the image.
 - Pin versions in an image you write (`apt-get install name=version`, `pip install name==version`): the build warns about a package with no version, because a

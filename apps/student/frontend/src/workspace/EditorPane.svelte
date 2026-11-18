@@ -1,5 +1,6 @@
 <script>
   import { onMount, tick, untrack } from 'svelte';
+  import { SvelteMap } from 'svelte/reactivity';
   import { EditorState, Compartment, Annotation } from '@codemirror/state';
   import { EditorView, keymap, lineNumbers, highlightActiveLineGutter, highlightSpecialChars, drawSelection, dropCursor } from '@codemirror/view';
   import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
@@ -11,6 +12,8 @@
   import { loadLanguage } from '../languages.js';
   import { languageOf, basename, dirname } from './paths.js';
   import { ZOOMS, DEFAULT_ZOOM, stepZoom } from './sizes.js';
+  import { isSvgPath, looksLikeSvg } from './picture.js';
+  import PictureView from './PictureView.svelte';
 
   // The open files: a tab for each, and one CodeMirror editor that shows the state of the tab in front. Each tab keeps its own editor
   // state, so its undo history, its cursor and its scroll survive a trip to another tab. The editor tells the model when the text
@@ -34,6 +37,7 @@
 
   const active = $derived(tabs.find(tab => tab.path === activePath) ?? null);
   const showing = $derived(active?.state === 'ready');
+  let picture = $state(null);
   // Two tabs with the same name say which folder they are in.
   const label = tab => tabs.some(other => other.id !== tab.id && basename(other.path) === basename(tab.path)) ? `${basename(tab.path)} (${dirname(tab.path) || '/'})` : basename(tab.path);
 
@@ -64,7 +68,11 @@
       editorTheme('0'),
       sizing.of(sizeTheme()),
       EditorView.updateListener.of(update => {
-        if (update.docChanged && !update.transactions.some(t => t.annotation(outside))) model.editedById(tab.id);
+        if (update.docChanged && !update.transactions.some(t => t.annotation(outside))) {
+          model.editedById(tab.id);
+          // A student typing an SVG of their own stays in its source when the text starts to look like one.
+          if (!views.has(tab.id)) views.set(tab.id, 'source');
+        }
       }),
     ] });
   }
@@ -110,9 +118,42 @@
   const activeState = $derived(active?.state ?? null);
   $effect(() => { activeId; activeState; if (view) untrack(show); });
 
+  // An SVG file is shown as its picture, or as its source in the editor (docs/workspace/student-ide.md, "Editor"). The tab is the same
+  // tab either way: its text, its saves and its conflicts are the model's, as for any file, and the editor keeps its state (cursor,
+  // scroll, undo) behind the picture. Which of the two a tab shows is the student's choice, kept here while the tab is open.
+  const views = new SvelteMap(); // tab id -> 'picture' | 'source'
+  const activeSvg = $derived(activePath !== null && isSvgPath(activePath));
+  const activeVersion = $derived(active?.version ?? '');
+  const activeSaved = $derived(active?.savedText ?? '');
+  const activeDirty = $derived(active?.dirty ?? false);
+  const activeView = $derived(activeId === null ? undefined : views.get(activeId));
+  // What the picture draws: the editor's text, so that edits not yet saved show too; it is read again when the file changes (a dot that
+  // made it again, a reload), when it is saved and when the view changes, and from the tab's primitives only, never at every snapshot.
+  const pictureText = $derived.by(() => {
+    if (!activeSvg || activeState !== 'ready') return '';
+    const id = activeId;
+    const saved = activeSaved;
+    activeVersion; activeDirty; activeView;
+    return untrack(() => model.buffers.get(id)?.text() ?? saved);
+  });
+  const pictureLike = $derived(looksLikeSvg(pictureText));
+  // A file that looks like an SVG opens as a picture, and stays one when it is half written for a moment.
+  const pictureShown = $derived(activeSvg && activeState === 'ready' && (activeView === 'picture' || (activeView === undefined && pictureLike)));
+  const choosing = $derived(activeSvg && activeState === 'ready' && (pictureLike || activeView === 'picture'));
+  $effect(() => { if (pictureShown && untrack(() => !views.has(activeId))) views.set(activeId, 'picture'); });
+
+  // Showing the other view puts the keyboard in it.
+  async function choose(mode) {
+    if (activeId === null) return;
+    views.set(activeId, mode);
+    await tick();
+    if (mode === 'picture') picture?.focus(); else view?.focus();
+  }
+
   // What the model keeps are the tabs that exist: the state of one that was closed goes with it.
   $effect(() => {
     const ids = new Set(tabs.map(tab => tab.id));
+    for (const id of untrack(() => [...views.keys()])) if (!ids.has(id)) views.delete(id);
     for (const id of [...states.keys()]) if (!ids.has(id)) {
       states.delete(id); extensionsOf.delete(id);
       const buffer = buffers.get(id);
@@ -129,7 +170,13 @@
     return () => { window.removeEventListener('exam-text-size', resize); view.destroy(); view = null; };
   });
 
-  export function focus() { view?.focus(); }
+  // The keyboard goes to what the tab shows: its picture, or the editor. The pane is drawn from the model's snapshots, which come once a
+  // frame: a file just opened from the tree is not in it yet. When a picture is in front, or may be about to be, the keyboard goes where
+  // the next snapshot puts it (else it would go into an editor about to be hidden behind a picture, and from there to nowhere).
+  export function focus() {
+    if (!pictureShown && !isSvgPath(model.activePath ?? '')) { view?.focus(); return; }
+    requestAnimationFrame(() => tick().then(() => { if (pictureShown) picture?.focus(); else view?.focus(); }));
+  }
 
   function tabKeys(event, index) {
     const move = delta => { event.preventDefault(); const next = tabs[(index + delta + tabs.length) % tabs.length]; if (next) { model.activate(next.path); queueMicrotask(() => document.getElementById(`file-tab-${next.id}`)?.focus()); } };
@@ -153,11 +200,20 @@
       {/each}
       {#if tabs.length === 0}<span class="none">No file open. Open one from the file tree.</span>{/if}
     </div>
-    <!-- The names start with what is drawn on the buttons, as WCAG's "label in name" asks (a person who says "A plus" to a voice control must reach it). -->
-    <div class="zoom" role="group" aria-label="Code text size">
-      <button type="button" aria-label="A− Smaller code text" title="Smaller code text (Ctrl and −)" disabled={zoomIndex === 0} onclick={event => zoomClick(-1, event)}>A−</button>
-      <button type="button" aria-label="A+ Larger code text" title="Larger code text (Ctrl and +)" disabled={zoomIndex === ZOOMS.length - 1} onclick={event => zoomClick(1, event)}>A+</button>
-    </div>
+    {#if choosing}
+      <div class="views" role="group" aria-label="Show {basename(active.path)} as">
+        <button type="button" aria-pressed={pictureShown} onclick={() => choose('picture')}>Picture</button>
+        <button type="button" aria-pressed={!pictureShown} onclick={() => choose('source')}>Source</button>
+      </div>
+    {/if}
+    <!-- The names start with what is drawn on the buttons, as WCAG's "label in name" asks (a person who says "A plus" to a voice control must reach it).
+         They size the code text, so a picture, which has its own zoom, does not show them. -->
+    {#if !pictureShown}
+      <div class="zoom" role="group" aria-label="Code text size">
+        <button type="button" aria-label="A− Smaller code text" title="Smaller code text (Ctrl and −)" disabled={zoomIndex === 0} onclick={event => zoomClick(-1, event)}>A−</button>
+        <button type="button" aria-label="A+ Larger code text" title="Larger code text (Ctrl and +)" disabled={zoomIndex === ZOOMS.length - 1} onclick={event => zoomClick(1, event)}>A+</button>
+      </div>
+    {/if}
     {#if active}<button type="button" class="close-active" aria-label="Close {label(active)}" title="Close this file" onclick={() => onClose(active.path)}><Icon name="close" size={14} /></button>{/if}
   </div>
   <div class="panel" id="editor-panel" role="tabpanel" aria-labelledby={active ? `file-tab-${active.id}` : undefined}>
@@ -172,7 +228,16 @@
     {:else if active?.missing && active.state === 'ready'}
       <div class="notice" role="status">This file no longer exists. Your text is kept: save it (Ctrl+S) to put the file back.</div>
     {/if}
-    <div class="host" bind:this={host} hidden={!showing}></div>
+    <!-- The picture and the editor lie one over the other, and the one not shown keeps its place (the editor its scroll, the picture its zoom),
+         out of sight and out of reach. -->
+    <div class="stage" hidden={!showing}>
+      <div class="host" class:behind={pictureShown} bind:this={host}></div>
+      {#if choosing || pictureShown}
+        {#key activeId}
+          <div class="front" class:behind={!pictureShown}><PictureView bind:this={picture} name={basename(activePath)} text={pictureText} onSource={() => choose('source')} /></div>
+        {/key}
+      {/if}
+    </div>
     {#if active && active.state === 'loading'}<p class="message" role="status">Opening {basename(active.path)}…</p>{/if}
     {#if active && ['binary', 'toolarge', 'error'].includes(active.state)}<p class="message" role="status">{active.message}</p>{/if}
     {#if !active}<p class="message">Open a file from the file tree to edit it. Changes are saved as you type.</p>{/if}
@@ -184,10 +249,12 @@
   .tabs { display: flex; flex: 1 1 auto; align-items: stretch; gap: 1px; min-width: 0; overflow-x: auto; }
   .tab { display: inline-flex; align-items: center; flex: none; gap: .25rem; margin: 0; padding: .35rem .5rem .35rem .7rem; border: 0; border-bottom: 3px solid var(--transparent); border-radius: 0; background: var(--bg-secondary); box-shadow: none; color: var(--text-main); font-family: var(--font-mono); font-size: var(--text-sm); }
   .tab.front { background: var(--bg-raised); border-bottom-color: var(--action-primary); font-weight: 700; }
-  .zoom { display: flex; flex: none; align-items: stretch; }
-  .zoom button { margin: 0; padding: .25rem .5rem; border: 0; border-radius: 0; background: var(--transparent); box-shadow: none; color: var(--text-main); font-size: var(--text-sm); font-weight: 700; }
+  .zoom, .views { display: flex; flex: none; align-items: stretch; }
+  .views { border-left: 1px solid var(--border-subtle); border-right: 1px solid var(--border-subtle); }
+  .views button[aria-pressed="true"] { background: var(--bg-raised); box-shadow: inset 0 -3px 0 var(--action-primary); }
+  .zoom button, .views button { margin: 0; padding: .25rem .5rem; border: 0; border-radius: 0; background: var(--transparent); box-shadow: none; color: var(--text-main); font-size: var(--text-sm); font-weight: 700; }
   .zoom button:disabled { opacity: .45; }
-  .zoom button:focus-visible { outline: 2px solid var(--action-primary); outline-offset: -2px; }
+  .zoom button:focus-visible, .views button:focus-visible { outline: 2px solid var(--action-primary); outline-offset: -2px; }
   .tab:focus-visible, .close-active:focus-visible { outline: 2px solid var(--action-primary); outline-offset: -2px; }
   .close { display: inline-flex; padding: .1rem; border-radius: 4px; color: var(--text-muted); }
   .close:hover { color: var(--alert-text); background: var(--hover-fill); }
@@ -197,7 +264,11 @@
   .mark { display: inline-block; width: .8em; text-align: center; }
   .none { padding: .5rem .75rem; color: var(--text-muted); font-size: var(--text-sm); }
   .panel { position: relative; display: flex; flex-direction: column; min-height: 0; }
-  .host { flex: 1 1 0; min-height: 0; overflow: hidden; }
+  .stage { position: relative; flex: 1 1 0; min-height: 0; display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); }
+  .stage[hidden] { display: none; }
+  .stage > * { grid-area: 1 / 1; min-height: 0; min-width: 0; }
+  .host { overflow: hidden; }
+  .behind { visibility: hidden; }
   .host :global(.cm-editor) { height: 100%; }
   .host:focus-within { box-shadow: inset 0 0 0 2px var(--focus-halo); }
   .notice { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); padding: .45rem .75rem; background: var(--warn-fill); color: var(--warn-text); border-bottom: 1px solid var(--border-subtle); font-size: var(--text-sm); }
