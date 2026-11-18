@@ -105,6 +105,7 @@ A workspace runs in an **image**, and there are two ways to say which.
   last line, and checks the result before the exam can be published. Before you hand the package over you can check the image on your own computer with
   `cbe-portalctl image check lab/` ([images.md](images.md), "A base image of its own"). A base that declares a `VOLUME` (the `postgres` and `redis` images) is refused.
   `testdata/workspace/lab-listas-own-base` is a complete example: the C++ course as a package of its own.
+  **For a class that has several exams with the same image**, ask the administrator to install it once (`cbe-portalctl image install nn-2026 DIR`): your exams then say `image: nn-2026` and carry no `image/` folder.
 - **A course image of the server (`image: cbe/cpp20`).** One image for the course, built and approved by the person who runs the server, with the compiler and tools (g++ for C++20, make, cmake, gdb, flex, bison).
 
 - **The tool you need is not in the image, and others will want it too:** add a course image. Copy `images/cpp20/` to `images/<course>/`, change the

@@ -89,16 +89,25 @@ func ValidID(id string) bool { return idPattern.MatchString(id) }
 
 var imageNamePattern = regexp.MustCompile(`^[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*$`)
 
+// ValidImageName says whether name is the name of a course image: lower case words joined by /, ., _ or -, with no tag and no digest (`cbe/cpp20`).
+func ValidImageName(name string) bool { return len(name) <= 128 && imageNamePattern.MatchString(name) }
+
 // LoadConfig reads a JSON file over the defaults. A key that is not a setting is an error, so a typo is not silently ignored.
 func LoadConfig(path string) (Config, error) {
-	cfg := DefaultConfig()
 	if path == "" {
+		cfg := DefaultConfig()
 		return cfg, cfg.Validate()
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return cfg, err
+		return DefaultConfig(), err
 	}
+	return ParseConfig(data, path)
+}
+
+// ParseConfig is LoadConfig for a file that has been read: source names it in the errors.
+func ParseConfig(data []byte, path string) (Config, error) {
+	cfg := DefaultConfig()
 	var overlay Config
 	decoder := json.NewDecoder(strings.NewReader(string(data)))
 	decoder.DisallowUnknownFields()

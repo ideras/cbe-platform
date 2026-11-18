@@ -31,6 +31,8 @@ type Podman func(ctx context.Context, args []string, stdout, stderr io.Writer) e
 func Command(prefix ...string) Podman {
 	return func(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		cmd := exec.CommandContext(ctx, prefix[0], append(append([]string{}, prefix[1:]...), args...)...)
+		// Every path the runtime is given is absolute: where the program runs from is nobody's business (and another account may not be able to enter it).
+		cmd.Dir = "/"
 		cmd.Stdout, cmd.Stderr = stdout, stderr
 		return cmd.Run()
 	}
@@ -50,6 +52,13 @@ type Options struct {
 	CABundle string
 	// Rebuild builds without the cache. Keep leaves the two images in the storage, to look inside.
 	Rebuild, Keep bool
+	// Name keeps the image that is accepted, under the names Name:<its id> and Name:latest (`cbe-portalctl image install`): Name is a repository such as
+	// localhost/cbe-course/nn-2026. Labels are put on the finished image. Without a Name, nothing is kept unless Keep is set.
+	Name   string
+	Labels map[string]string
+	// Readable makes the folders of the build, and the files in them, readable by other accounts: the runtime that builds is another account's
+	// (the runner's) when the server's administrator installs an image.
+	Readable bool
 	// Out is where the progress goes, with what the builds print.
 	Out io.Writer
 }
@@ -67,8 +76,10 @@ type Result struct {
 	Problem  string
 	Warnings []string
 	Checks   []SelfCheck
-	// Image is the finished image (kept only with Options.Keep).
-	Image string
+	// Image is the finished image (kept only with Options.Keep or Options.Name: with a Name, its Name:latest), ImageID its ID and Tags the names it was given.
+	Image   string
+	ImageID string
+	Tags    []string
 }
 
 // Check does it. An error is something that stopped the check (no Podman, no agent, no folder); an image that is not accepted is a Result with a Problem.
@@ -135,21 +146,34 @@ func Check(ctx context.Context, o Options) (Result, error) {
 		return Result{}, err
 	}
 	defer os.RemoveAll(work)
+	if o.Readable {
+		if err := os.Chmod(work, 0o755); err != nil {
+			return Result{}, err
+		}
+	}
 	id := make([]byte, 5)
 	if _, err := rand.Read(id); err != nil {
 		return Result{}, err
 	}
 	authors := "localhost/cbe-check/" + hex.EncodeToString(id) + ":author"
 	finished := "localhost/cbe-check/" + hex.EncodeToString(id) + ":finished"
+	kept := ""
 	defer func() {
-		if !o.Keep {
-			var ignored bytes.Buffer
-			_ = o.Podman(context.Background(), []string{"rmi", "--force", finished, authors}, &ignored, &ignored)
+		if o.Keep {
+			return
 		}
+		var ignored bytes.Buffer
+		if kept != "" {
+			// The image has its names now: only the check's are taken off. (rmi --force would take with it the images that are made on the author's image: this one.)
+			_ = o.Podman(context.Background(), []string{"untag", kept, finished}, &ignored, &ignored)
+			_ = o.Podman(context.Background(), []string{"untag", authors, authors}, &ignored, &ignored)
+			return
+		}
+		_ = o.Podman(context.Background(), []string{"rmi", "--force", finished, authors}, &ignored, &ignored)
 	}()
 
 	context1 := filepath.Join(work, "author")
-	if err := copyTree(folder, context1); err != nil {
+	if err := copyTree(folder, context1, o.Readable); err != nil {
 		return Result{}, err
 	}
 	if o.CABundle != "" {
@@ -179,7 +203,16 @@ func Check(ctx context.Context, o Options) (Result, error) {
 		_ = os.Chmod(filepath.Join(context2, f.Name), fs.FileMode(f.Mode))
 	}
 	say("\nFinishing the image: the student account, no way up, the agent\n")
-	if err := o.Podman(ctx, []string{"build", "--format", "docker", "--tag", finished, context2}, out, out); err != nil {
+	finishing := []string{"build", "--format", "docker"}
+	labels := make([]string, 0, len(o.Labels))
+	for key, value := range o.Labels {
+		labels = append(labels, key+"="+value)
+	}
+	sort.Strings(labels)
+	for _, label := range labels {
+		finishing = append(finishing, "--label", label)
+	}
+	if err := o.Podman(ctx, append(finishing, "--tag", finished, context2), out, out); err != nil {
 		return fail(result, "the runner could not finish the image (the base has to be a Linux image with /bin/sh): "+err.Error()), nil
 	}
 	if o.Keep {
@@ -231,6 +264,19 @@ func Check(ctx context.Context, o Options) (Result, error) {
 		return fail(result, "the image does not keep the contract of a workspace image: "+self.Failed()), nil
 	}
 	result.OK = true
+	if o.Name != "" {
+		short := strings.TrimPrefix(info.ID, "sha256:")
+		if len(short) > 12 {
+			short = short[:12]
+		}
+		names := []string{o.Name + ":" + short, o.Name + ":latest"}
+		if err := o.Podman(ctx, append([]string{"tag", finished}, names...), out, out); err != nil {
+			return Result{}, fmt.Errorf("naming the image: %w", err)
+		}
+		kept = names[0]
+		result.Image, result.ImageID, result.Tags = names[1], info.ID, names
+		say("  named       %s", strings.Join(names, ", "))
+	}
 	return result, nil
 }
 
@@ -276,7 +322,7 @@ func fileExists(path string) bool {
 
 // copyTree copies the regular files and folders of a build context. A link is refused, as the server's compiler refuses it: what the build sees must be
 // what the package holds.
-func copyTree(from, to string) error {
+func copyTree(from, to string, readable bool) error {
 	return filepath.WalkDir(from, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -298,7 +344,11 @@ func copyTree(from, to string) error {
 			if err != nil {
 				return err
 			}
-			return os.WriteFile(target, data, info.Mode().Perm())
+			perm := info.Mode().Perm()
+			if readable {
+				perm |= 0o044
+			}
+			return os.WriteFile(target, data, perm)
 		}
 		return fmt.Errorf("%s is not a regular file or folder: a build context holds no links", path)
 	})
