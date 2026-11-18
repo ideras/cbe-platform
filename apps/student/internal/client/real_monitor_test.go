@@ -1,6 +1,7 @@
 package client
 
 import (
+	"fmt"
 	"testing"
 	"time"
 )
@@ -84,7 +85,13 @@ func TestRealServerIntegratedHeartbeatFocusAnswersAndReconnect(t *testing.T) {
 func TestRealServerShowsTheStudentsOriginalSoundLevelToTheProctor(t *testing.T) {
 	server := setupRealServer(t)
 	exam := server.create(t, 60, 10) // no volume given: the server's default applies
-	stop := server.start(t, exam, fastPolicyWith(100))
+	// The application reports the student's own level once, in the first heartbeat after it corrects the sound; every heartbeat after that
+	// reports what the sound is now, the exam's volume, and the server keeps only the latest. With the fast policy's heartbeat every 40 ms
+	// that level is on the server for about 40 ms, and the test has to read it in that time: a slow runner misses it (it did, on darwin x64,
+	// and it sees 80). The heartbeats of this test are far apart, so what the first one carried stays on the server while the test reads it.
+	policy := fastPolicyWith(60000)
+	policy.HeartbeatMillis = 10000
+	stop := server.start(t, exam, policy)
 	defer stop()
 	control := &fakeSound{volume: 20, muted: true}
 	s := realClientWith(t, server.base, func(o *Options) {
@@ -112,6 +119,10 @@ func TestRealServerShowsTheStudentsOriginalSoundLevelToTheProctor(t *testing.T) 
 		return len(list.Sessions) == 1 && list.Sessions[0].Presence.Volume != nil
 	})
 	if p := list.Sessions[0].Presence; *p.Volume != 20 || p.Muted == nil || !*p.Muted {
-		t.Fatalf("proctor sees %d muted=%v instead of the student's own setting", *p.Volume, p.Muted)
+		muted := "unknown"
+		if p.Muted != nil {
+			muted = fmt.Sprint(*p.Muted)
+		}
+		t.Fatalf("proctor sees volume %d, muted %s; the student's own setting was volume 20, muted true", *p.Volume, muted)
 	}
 }
