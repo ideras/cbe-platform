@@ -20,10 +20,22 @@ are P4-1 to P4-13 in `DECISIONS.md`.
   kept by the server.
 - **Files**: a tree; new file, new folder, rename and delete (which asks first) act on the selected item; the tree follows what the
   terminal and the programs do to the files within about 0.3 s.
-- **Editor**: one tab per open file, a dot on a file with unsaved changes, saved as the student types. A file that is not text, or over
+- **Editor**: one tab per open file, a dot on a file with unsaved changes, saved as the student types; a tab brought back to the front
+  is where it was left (cursor and scroll). A file that is not text, or over
   1 MiB, is named and not opened. It has all the room the window leaves, and its own **A−** and **A+** (the size of the code only,
   seven steps from 85 % to 200 %, also Ctrl and + − 0), on top of the toolbar's A− and A+ (which size the whole workspace, files,
   buttons and terminals too).
+- **SVG pictures** (SVG-1..SVG-5 in [DECISIONS.md](DECISIONS.md)): an `.svg` file whose text starts as an SVG (what `dot -Tsvg automaton.gv -o
+  automaton.svg` writes) opens as the **picture** it draws, with **Picture** and **Source** in the tab row to switch to its XML in the editor
+  and back. The tab is the same either way (saved, reloaded and in conflict as any file), and each view keeps its place behind the other
+  and while another tab is in front (the picture its zoom and scroll; a tab closed and opened again starts at Fit).
+  The picture starts at **Fit** (as large as the room allows, never larger than its own size), and **−**, **+** and **100 %** zoom it in
+  steps of its own size (50 % to 400 %; also + − 0 on the picture, and Ctrl and the wheel); a picture larger than the room scrolls, with
+  the arrow keys too. It has a white ground, as the exam's pictures do. A file made again in the terminal is drawn again by itself; one
+  caught half written says "This file cannot be drawn as a picture yet", with a button to its source, until the next change. Edits made in
+  Source show in the picture before they are saved. An SVG the student is typing stays in Source until they ask for the picture. The
+  picture is an `<img>` from a `data:` address, so nothing in the file runs or is fetched (a test with a script, handlers, a frame and
+  addresses elsewhere holds this). **PNG and PDF are not shown** (they are not text, and the workspace's file channel carries text only).
 - **Terminals**: up to four, plus a tab for the last Run and the last Check. Run and Check save every file first. **They take no room
   until one is wanted** (P5-12): Run, Check, or the **Terminal** button (which opens a terminal if there is none) show the panel, about a
   third of the room under the editor; **⌄** in the panel's tab row, or the Terminal button again, hides it, and the terminals go on
@@ -81,11 +93,14 @@ which reads the code for any of those APIs.
 | Where | What |
 |---|---|
 | `apps/student/frontend/tests/workspace-*.test.js`, `paste-guard.test.js` | The model (36), paths, the tree's rows, the paste guard, the no-storage check. Run with the others by `npm test`. |
-| `tests/ui/workspace.spec.js` (Playwright, 42) | The whole page against the in-memory stand-in (`tests/fake-workspace-server.js` and the workspace part of `tests/fake-api.js`): editing and autosave, Ctrl+S, Run and Check, terminals, the tree's operations, conflicts, TODO, Save, the drop and the return of the connection (also with a 30-second drop on a fake clock), pastes, keyboard, no terminal, lock and unlock, no storage, accessibility (axe), sizes, text size (the toolbar's and the editor's), the terminal panel's showing and hiding, F6, that an autosave (or a tick, a Run, a file changed elsewhere) does not draw the editor again, move its scroll or move what is around it, and that the arrow keys and a click land on the right line after any change of the text size. Run in Chromium (`npm run test:ui`) and in WebKit. |
+| `apps/student/frontend/tests/workspace-picture.test.js` | Which files are pictures, whether a text starts as an SVG, the `data:` address (a `#`, a `%`, accents, 1 MiB), Fit and the zoom steps, and that the picture is an `<img>` and never the SVG put into the page. |
+| `tests/ui/workspace-picture.spec.js` (Playwright, 15) | SVG files: the picture and its source, each keeping its place behind the other and while another tab is in front, a file made again in the terminal, a half-written one (a notice, no error), **that nothing in an SVG runs or is fetched**, Fit, the zoom and the scroll (buttons, keys, Ctrl and the wheel), the window's size, the white ground, other files as before, unsaved edits in the picture, an SVG being typed, the connection lost, that ticks, Run and other files do not draw the picture again or move it, the keyboard, axe, no storage. Run in Chromium and in WebKit. |
+| `tests/ui/workspace.spec.js` (Playwright, 43) | The whole page against the in-memory stand-in (`tests/fake-workspace-server.js` and the workspace part of `tests/fake-api.js`): editing and autosave, a tab's cursor and scroll after a trip to another tab, Ctrl+S, Run and Check, terminals, the tree's operations, conflicts, TODO, Save, the drop and the return of the connection (also with a 30-second drop on a fake clock), pastes, keyboard, no terminal, lock and unlock, no storage, accessibility (axe), sizes, text size (the toolbar's and the editor's), the terminal panel's showing and hiding, F6, that an autosave (or a tick, a Run, a file changed elsewhere) does not draw the editor again, move its scroll or move what is around it, and that the arrow keys and a click land on the right line after any change of the text size. Run in Chromium (`npm run test:ui`) and in WebKit. |
 | `apps/student/internal/client/workspace_test.go` | The connection: token, requests and ids, output batching and order, input frames, a dropped connection and the requests waiting on it, 423, 401, the end of the exam, another window, the exam's lock, and the service's own way of telling a workspace from a question exam. |
 | `apps/student/internal/client/real_workspace_test.go` | A student finishing the example package through the real client, run against the real server and a container by phase D of `deploy/workspace/test-server.sh`. |
 
 ## What it does not do (v1)
 
 No search across files, no split editor, no drag-and-drop in the tree, no language server or autocompletion (highlighting only, as in the
-exam's code answers), no binary or very large files, no graphical programs, no installing packages.
+exam's code answers), no binary or very large files (so no PNG or PDF picture: an SVG is text, and is shown), no graphical programs, no
+installing packages.

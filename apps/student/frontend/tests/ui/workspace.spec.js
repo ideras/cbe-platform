@@ -730,6 +730,30 @@ test('nor do the other changes the page shows: a TODO tick, a terminal opening, 
   expect(after.same).toBe(after.lines);
 });
 
+test('a trip to another tab keeps each file\'s cursor and scroll, also through a file that is not text', async ({ page }) => {
+  await start(page, { files: { ...project, 'big.txt': bigFile, 'photo.png': '\u0089PNG\r\n\u001a\n\0\0\0\rIHDR' } }, { width: 1366, height: 768 });
+  const editor = await openFile(page, 'big.txt');
+  await editor.click();
+  await page.keyboard.press('Control+Home');
+  for (let i = 0; i < 120; i += 1) await page.keyboard.press('ArrowDown');
+  for (let i = 0; i < 10; i += 1) await page.keyboard.press('ArrowUp');
+  const where = () => page.evaluate(() => ({ line: Number(document.querySelector('.cm-activeLineGutter')?.textContent), scroll: Math.round(document.querySelector('.cm-scroller').scrollTop) }));
+  const before = await where();
+  expect(before.line).toBe(111);
+  expect(before.scroll).toBeGreaterThan(1000);
+  // Another text file, scrolled to the top: it is shown from where it was, and so is big.txt when it comes back.
+  await openFile(page, 'notes.txt');
+  await expect(page.getByRole('textbox', { name: 'Editor for notes.txt' })).toBeVisible();
+  expect((await where()).scroll).toBe(0);
+  await page.getByRole('tab', { name: /big\.txt/ }).click();
+  await expect.poll(where).toEqual(before);
+  // A file that is not text hides the editor while it is in front.
+  await page.getByRole('treeitem', { name: 'photo.png', exact: true }).click();
+  await expect(page.getByText('This file is not text, so it cannot be shown or edited here.')).toBeVisible();
+  await page.getByRole('tab', { name: /big\.txt/ }).click();
+  await expect.poll(where).toEqual(before);
+});
+
 // ---- the cursor after a change of the text size ----
 // CodeMirror keeps the height it believes each line has, and moves the cursor up and down by it. It measures the lines again only when
 // its content changes height or its theme changes: with the code shorter than the editor (a tall window), a size that came from the
