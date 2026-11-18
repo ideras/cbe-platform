@@ -22,6 +22,12 @@ type recorded struct {
 }
 
 // adminServer is a fake exam server for the exam, roster and publishing routes. Handlers set what it answers.
+//
+// A handler runs in the HTTP server's goroutine, not the test's, and a round trip over the socket is not an ordering the Go memory model
+// knows: a test that waits for the response is not ordered with the handler that sent it. So whatever a handler and the test both touch (what
+// it answers with, a note of what it saw) goes through a mutex or an atomic, or through this type's own record (seen, setReply, setCurrent).
+// A plain variable captured by a handler and changed by the test is a data race, and the race detector found one on macOS arm64 in CI
+// (run 44228313900), once in a while, as such races are.
 type adminServer struct {
 	mu          sync.Mutex
 	requests    []recorded
@@ -701,34 +707,44 @@ func TestDeletingTheMonitoredExamStopsMonitoringIt(t *testing.T) {
 
 func TestDeleteRefusalsAndUnclearOutcomesAreExplained(t *testing.T) {
 	f := newPublishFixture(t, examID)
+	// What the fake server answers, changed by the test between requests: the handler runs in the server's goroutine, so both take the lock.
+	var mu sync.Mutex
 	status, words := http.StatusConflict, "the exam is published or students are still working in it, so it cannot be deleted"
+	answer := func(newStatus int, newWords string) {
+		mu.Lock()
+		defer mu.Unlock()
+		status, words = newStatus, newWords
+	}
 	f.server.setReply(func(w http.ResponseWriter, r *http.Request, body []byte) bool {
 		if r.Method != "DELETE" {
 			return false
 		}
+		mu.Lock()
+		code, text := status, words
+		mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(status)
-		reply(w, map[string]string{"error": words})
+		w.WriteHeader(code)
+		reply(w, map[string]string{"error": text})
 		return true
 	})
 	_, err := f.DeleteExam(otherExam, 4, true)
 	if err == nil || !strings.Contains(err.Error(), "published or students are still working in it") || !strings.Contains(err.Error(), "Close admission") || strings.Contains(err.Error(), "own words") {
 		t.Fatalf("a refused exam = %v", err)
 	}
-	words = "the exam's submissions are not the ones you confirmed deleting; look at the exam again"
+	answer(http.StatusConflict, "the exam's submissions are not the ones you confirmed deleting; look at the exam again")
 	if _, err := f.DeleteExam(otherExam, 4, true); err == nil || !strings.Contains(err.Error(), "submissions changed") || !strings.Contains(err.Error(), "nothing was deleted") {
 		t.Fatalf("submissions that moved = %v", err)
 	}
-	words = "the server's own words"
+	answer(http.StatusConflict, "the server's own words")
 	_, err = f.DeleteClass(classID, true)
 	if err == nil || !strings.Contains(err.Error(), "still has exams") || !strings.Contains(err.Error(), "Delete its exams first") || strings.Contains(err.Error(), "taken cannot be deleted") {
 		t.Fatalf("a class with exams = %v", err)
 	}
-	status = http.StatusInternalServerError
+	answer(http.StatusInternalServerError, "the server's own words")
 	if _, err := f.DeleteExam(otherExam, 4, true); err == nil || !strings.Contains(err.Error(), "Look at the exam list") {
 		t.Fatalf("an unclear failure = %v", err)
 	}
-	status = http.StatusNotFound
+	answer(http.StatusNotFound, "the server's own words")
 	if _, err := f.DeleteExam(otherExam, 4, true); err == nil || !strings.Contains(err.Error(), "does not have that exam or class") {
 		t.Fatalf("an exam that is already gone = %v", err)
 	}
@@ -820,30 +836,37 @@ func TestAdministratorActionsNeedAConnection(t *testing.T) {
 func TestExamPINIsReadOnDemandFromTheServerAndAnInvalidAnswerIsRefused(t *testing.T) {
 	f := newPublishFixture(t, examID)
 	wait(t, func() bool { v := f.Snapshot(); return v.Loaded && !v.Stale })
+	// The handler runs in the fake server's goroutine, so what it and the test share (what it was asked, what it answers) goes through the lock.
+	var mu sync.Mutex
 	var asked []string
 	var answer any
+	serve := func(value any) { mu.Lock(); defer mu.Unlock(); answer = value }
+	askedSoFar := func() []string { mu.Lock(); defer mu.Unlock(); return append([]string(nil), asked...) }
 	f.server.setReply(func(w http.ResponseWriter, r *http.Request, body []byte) bool {
 		if r.Method != "GET" || !strings.HasSuffix(r.URL.Path, "/pin") {
 			return false
 		}
+		mu.Lock()
 		asked = append(asked, r.URL.Path+" "+r.Header.Get("Authorization"))
-		reply(w, answer)
+		value := answer
+		mu.Unlock()
+		reply(w, value)
 		return true
 	})
-	if _, err := f.ExamPIN("nope"); err == nil || len(asked) != 0 {
-		t.Fatalf("a malformed exam ID was sent: %v %v", err, asked)
+	if _, err := f.ExamPIN("nope"); err == nil || len(askedSoFar()) != 0 {
+		t.Fatalf("a malformed exam ID was sent: %v %v", err, askedSoFar())
 	}
-	answer = map[string]any{"exam_id": unusedExam, "pin": "  271 828 世界  "}
+	serve(map[string]any{"exam_id": unusedExam, "pin": "  271 828 世界  "})
 	pin, err := f.ExamPIN(unusedExam)
-	if err != nil || pin != "  271 828 世界  " || !reflect.DeepEqual(asked, []string{"/admin/exam/" + unusedExam + "/pin Bearer " + secret}) {
-		t.Fatalf("pin = %q, %v; asked %v", pin, err, asked)
+	if err != nil || pin != "  271 828 世界  " || !reflect.DeepEqual(askedSoFar(), []string{"/admin/exam/" + unusedExam + "/pin Bearer " + secret}) {
+		t.Fatalf("pin = %q, %v; asked %v", pin, err, askedSoFar())
 	}
 	for name, wrong := range map[string]any{
 		"another exam":  map[string]any{"exam_id": examID, "pin": "1234"},
 		"no PIN":        map[string]any{"exam_id": unusedExam, "pin": ""},
 		"not an object": []string{"1234"},
 	} {
-		answer = wrong
+		serve(wrong)
 		if pin, err := f.ExamPIN(unusedExam); err == nil || pin != "" {
 			t.Errorf("%s accepted: %q", name, pin)
 		}

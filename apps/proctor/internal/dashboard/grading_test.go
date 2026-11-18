@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -20,9 +21,13 @@ func gradedRoster() WorkspaceRoster {
 
 // The roster carries each student's grade, advisory until it is confirmed; a grade that makes no sense is an error.
 func TestTheRosterCarriesEachStudentsGrade(t *testing.T) {
+	// The service polls the roster while the test changes it: the handler (in the server's goroutine) and the test take the lock.
+	var mu sync.Mutex
 	served := gradedRoster()
 	s, _ := start(t, sessionsHandler(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/roster") {
+			mu.Lock()
+			defer mu.Unlock()
 			reply(w, served)
 			return
 		}
@@ -33,7 +38,9 @@ func TestTheRosterCarriesEachStudentsGrade(t *testing.T) {
 	if grade == nil || grade.State != "done" || *grade.Points != 16 || *grade.Max != 40 || grade.Confirmed {
 		t.Fatalf("grade = %+v", grade)
 	}
+	mu.Lock()
 	served.Students[0].Grade.Confirmed = true
+	mu.Unlock()
 	wait(t, func() bool { g := s.Snapshot().Workspace.Students[0].Grade; return g != nil && g.Confirmed })
 	for name, bad := range map[string]*WorkspaceGrade{
 		"an unknown state":                 {GradingID: 1, State: "great"},
