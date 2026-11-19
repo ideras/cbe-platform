@@ -13,14 +13,10 @@ func TestTheRuntimeIsTheRunnersOwnPodmanUnlessTheSettingsNameAnother(t *testing.
 	if got := DefaultConfig().RuntimeSocket; got != own {
 		t.Errorf("the default runtime is %s, want this account's %s", got, own)
 	}
-	// The settings that deploy/workspace/install.sh copies leave the runtime out, so the runner finds its own; and every key in them is a setting.
-	data, err := os.ReadFile("../../deploy/workspace/runner.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	cfg, err := ParseConfig(data, "deploy/workspace/runner.json")
+	// Settings that leave the runtime out get this account's own.
+	cfg, err := ParseConfig([]byte(`{"socket": "/data/cbe-portal/ipc/runner.sock", "work_root": "/data/cbe-portal/work", "images": {"cbe/cpp20": "localhost/cbe-course/cbe/cpp20:latest"}}`), "runner.json")
 	if err != nil || cfg.RuntimeSocket != own {
-		t.Errorf("deploy/workspace/runner.json: the runtime is %q (%v), want %s", cfg.RuntimeSocket, err, own)
+		t.Errorf("settings without a runtime: the runtime is %q (%v), want %s", cfg.RuntimeSocket, err, own)
 	}
 	// Settings that name one (cbe-portalctl configure writes the runner account's) keep it.
 	cfg, err = ParseConfig([]byte(`{"runtime_socket": "unix:///run/user/1234/podman/podman.sock"}`), "runner.json")

@@ -29,6 +29,7 @@ import (
 //	CBE_E2E_PLAIN_PACKAGE  the same for testdata/workspace/lab-listas: an exam with no image folder, in the same class
 //	CBE_E2E_SUBMISSIONS    testdata/workspace/lab-image-submissions
 //	CBE_E2E_BASE_DIGEST    the digest of the course image on this host, which the build log must record
+//	CBE_E2E_BASE_IMAGE     the course image's repository as the runner names it (localhost/cbe-course/cbe/cpp20), which the log's pinned FROM names
 //	CBE_E2E_APT            1 to also build a library from the Ubuntu archive snapshot over HTTPS (needs the network; a few minutes)
 //
 // First, through the exam server and the proctor's routes: an exam whose package has image/ is refused a publication until it is built, is
@@ -145,7 +146,7 @@ func phaseImage(t *testing.T, r *rig) {
 		if built.Build.BaseDigest != want || !strings.Contains(log, "digest "+want) || !strings.Contains(log, "pinned by this build") {
 			t.Errorf("the base digest is %q (the course image's is %q); log:\n%s", built.Build.BaseDigest, want, log)
 		}
-		for _, say := range []string{"STEP 1/", "FROM localhost/cbe/cpp20@" + want, "COPY --from=build", "Verified: made from cbe/cpp20", "Tagged localhost/cbe-exam/" + imageExam + ":" + built.Build.Hash} {
+		for _, say := range []string{"STEP 1/", "FROM " + env(t, "CBE_E2E_BASE_IMAGE") + "@" + want, "COPY --from=build", "Verified: made from cbe/cpp20", "Tagged localhost/cbe-exam/" + imageExam + ":" + built.Build.Hash} {
 			if !strings.Contains(log, say) {
 				t.Errorf("the log does not say %q", say)
 			}

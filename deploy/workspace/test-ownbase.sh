@@ -9,16 +9,17 @@
 #   deploy/workspace/test-ownbase.sh                   the bases that are on the host (docker.io/library/alpine:3.20 and ubuntu:24.04): no network
 #   CBE_OWNBASE_NET=1 deploy/workspace/test-ownbase.sh also pulls python:3.12-slim and redis:7-alpine (needs the network; a few minutes)
 #
-# Needs deploy/workspace/install.sh to have been run (the accounts, the quota helper, the folders). It uses sudo.
+# Needs a server set up by the installer and cbe-portalctl configure for workspace exams (host.sh reads it). It runs only while the server is
+# quiet, and uses sudo.
 set -euo pipefail
 repo=$(cd "$(dirname "$0")/../.." && pwd)
-RUNNER=cbe-runner
-RUID=$(id -u "$RUNNER")
-BASE=/data/cbe-platform
-work=$(mktemp -d)
-images_before=$(sudo -n -u "$RUNNER" env HOME="/home/$RUNNER" XDG_RUNTIME_DIR="/run/user/$RUID" podman images -a --format '{{.ID}}' | sort)
+# shellcheck source=host.sh
+. "$repo/deploy/workspace/host.sh"
 # shellcheck source=private-runner.sh
 . "$repo/deploy/workspace/private-runner.sh"
+require_quiet "$0"
+work=$(mktemp -d)
+images_before=$(runtime images -a --format '{{.ID}}' | sort)
 cleanup() {
   private_runner_stop || true
   # Every image the run made or pulled (the exams' images, the pending ones, the bases it pulled) goes, and only those: by ID, against what was there before.
@@ -33,7 +34,7 @@ cp -r "$repo/testdata" "$work/testdata"
 chmod -R a+rX "$work"; chmod a+rx "$work"
 private_runner_start "$work"
 echo "the private runner is up ($PR_TAG)"
-sudo -n -u cbe-server env CBE_RUNNER_SOCKET="$PR_SOCKET" CBE_RUNNER_SECRET_FILE="$PR_SECRET" CBE_OWNBASE_NET="${CBE_OWNBASE_NET:-}" \
+sudo -n -u "$SERVER" env CBE_RUNNER_SOCKET="$PR_SOCKET" CBE_RUNNER_SECRET_FILE="$PR_SECRET" CBE_OWNBASE_NET="${CBE_OWNBASE_NET:-}" \
   bash -c "cd '$work/internal/runner' && ../../runner.test -test.run '^TestRealOwnBase\$' -test.v -test.timeout 30m"
 echo "== what the run left"
 left=$(runtime ps -a --format '{{.Names}}' | sort | comm -13 <(echo "$PR_BEFORE") -)
