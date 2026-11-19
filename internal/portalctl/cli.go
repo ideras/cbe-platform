@@ -35,34 +35,29 @@ type Env struct {
 	reader *bufio.Reader
 }
 
-const usage = `cbe-portalctl configures a CBE Portal server on this machine.
-
-  cbe-portalctl configure   [--config FILE] [--yes] [--dry-run] [--interactive]
-        Make this machine the server the configuration describes: accounts, folders, the XFS volume for workspace exams, the services.
-        With no --config it uses the answers saved by the last run, or asks (at a terminal). Safe to run again: what is done is left.
-  cbe-portalctl doctor      [--config FILE]     Check that this machine can be configured; change nothing.
-  cbe-portalctl status                          The services, and where the server is.
-  cbe-portalctl restart     [--force]           Restart the services (refused while students are working, unless --force).
-  cbe-portalctl unconfigure [--remove-data] [--yes] [--dry-run]
-        Stop and remove the services. The data (database, screenshots, the students' folders, the volume) stays,
-        unless --remove-data says that all of it is to be deleted too.
-  cbe-portalctl sample-config                   Print a documented configuration file.
-` + imageUsage + `  cbe-portalctl version
-`
-
 // Main runs a command and returns the exit status: 0 done, 1 something stopped it, 2 the command or the configuration is wrong.
 func Main(args []string, env Env) int {
-	if len(args) == 0 || args[0] == "help" || args[0] == "-h" || args[0] == "--help" {
-		fmt.Fprint(env.Stdout, usage)
+	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" && (len(args) == 1 || args[1] == "help" || strings.HasPrefix(args[1], "-")) {
+		printOverview(env.Stdout)
 		return 0
+	}
+	if args[0] == "help" {
+		// help COMMAND is COMMAND --help: the command writes its own help, with its options.
+		return Main(append(append([]string{}, args[1:]...), "--help"), env)
 	}
 	command, rest := args[0], args[1:]
 	env.reader = bufio.NewReader(env.Stdin)
 	switch command {
 	case "version":
+		if code, ok := noOperands(newFlags("version", env), rest, env); !ok {
+			return code
+		}
 		fmt.Fprintf(env.Stdout, "cbe-portalctl %s\n", env.Version)
 		return 0
 	case "sample-config":
+		if code, ok := noOperands(newFlags("sample-config", env), rest, env); !ok {
+			return code
+		}
 		fmt.Fprint(env.Stdout, conf.Sample())
 		return 0
 	case "configure":
@@ -78,8 +73,13 @@ func Main(args []string, env Env) int {
 	case "image":
 		return image(rest, env)
 	}
-	fmt.Fprintf(env.Stderr, "cbe-portalctl: %q is not a command\n\n%s", command, usage)
-	return 2
+	var top []string // the words that can come first: "image check" is typed as image, then check
+	for _, name := range commandNames() {
+		if word, _, _ := strings.Cut(name, " "); len(top) == 0 || top[len(top)-1] != word {
+			top = append(top, word)
+		}
+	}
+	return unknownCommand(env, command, top, "")
 }
 
 func newFlags(name string, env Env) *flag.FlagSet {
@@ -147,12 +147,12 @@ func of(source string) string {
 
 func configure(args []string, env Env) int {
 	fs := newFlags("configure", env)
-	file := fs.String("config", "", "the configuration file")
+	file := fs.String("config", "", "read the configuration from `FILE` (default: the answers the last run saved)")
 	yes := fs.Bool("yes", false, "do not ask before changing the machine")
 	dry := fs.Bool("dry-run", false, "say what would be done, and change nothing")
-	interactive := fs.Bool("interactive", false, "ask about the basic settings, starting from the file or the defaults")
-	if err := fs.Parse(args); err != nil {
-		return 2
+	interactive := fs.Bool("interactive", false, "ask the basic questions, starting from the file or the defaults")
+	if code, ok := noOperands(fs, args, env); !ok {
+		return code
 	}
 	v, source, err := load(env, *file)
 	if err != nil {
@@ -243,9 +243,9 @@ func saveConfig(env Env, ctx *Ctx, v *conf.Values) error {
 
 func doctor(args []string, env Env) int {
 	fs := newFlags("doctor", env)
-	file := fs.String("config", "", "the configuration file")
-	if err := fs.Parse(args); err != nil {
-		return 2
+	file := fs.String("config", "", "check for the configuration in `FILE` (default: the answers the last run saved)")
+	if code, ok := noOperands(fs, args, env); !ok {
+		return code
 	}
 	v, source, err := load(env, *file)
 	if err != nil {
@@ -278,6 +278,9 @@ func savedLayout(env Env) (*Ctx, error) {
 }
 
 func status(args []string, env Env) int {
+	if code, ok := noOperands(newFlags("status", env), args, env); !ok {
+		return code
+	}
 	ctx, err := savedLayout(env)
 	if err != nil {
 		fmt.Fprintf(env.Stderr, "error: %v\n", err)
@@ -285,26 +288,55 @@ func status(args []string, env Env) int {
 	}
 	l := ctx.L
 	fmt.Fprintf(env.Stdout, "cbe-portal %s\n  program   %s\n  data      %s\n  server    http://%s\n", env.Version, l.Install, l.Data, l.Bind)
-	down := false
-	for _, s := range Status(ctx) {
-		state := "stopped"
-		if s.Active {
-			state = "running"
-		} else {
-			down = true
+	// down: something is not running; unread: something could not be asked about, which is not the same and is said differently, but is
+	// not a "running" either.
+	down, unread, needsRoot := false, false, false
+	unknown := func(err error) string {
+		unread = true
+		if errors.Is(err, ErrNeedsRoot) {
+			needsRoot = true
+			return "unknown (needs root)"
 		}
-		fmt.Fprintf(env.Stdout, "  %-44s %s%s\n", s.Unit, state, map[bool]string{true: ", at boot", false: ""}[s.Enabled])
+		return "unknown: " + strings.Join(strings.Fields(err.Error()), " ") // one line: what systemctl or podman said may have several
+	}
+	for _, s := range Status(ctx) {
+		var state string
+		switch {
+		case s.Err != nil:
+			state = unknown(s.Err)
+		case s.Active:
+			state = "running"
+		case s.State == "inactive":
+			state, down = "stopped", true
+		default:
+			// failed, activating (a service that is restarted after it failed), deactivating: systemd's own word says more than "stopped".
+			state, down = s.State, true
+		}
+		if s.Enabled {
+			state += ", at boot"
+		}
+		fmt.Fprintf(env.Stdout, "  %-44s %s\n", s.Unit, state)
 	}
 	if l.Workspace {
 		if ok, why := volumeReady(ctx, l.WorkDir); ok {
-			fmt.Fprintf(env.Stdout, "  students' volume                             %s: xfs, project quotas\n", l.WorkDir)
+			fmt.Fprintf(env.Stdout, "  %-44s %s: xfs, project quotas\n", "students' volume", l.WorkDir)
 		} else {
-			fmt.Fprintf(env.Stdout, "  students' volume                             NOT READY: %s\n", why)
+			fmt.Fprintf(env.Stdout, "  %-44s NOT READY: %s\n", "students' volume", why)
 			down = true
 		}
-		fmt.Fprintf(env.Stdout, "  student workspaces running                   %d\n", RunningContainers(ctx))
+		count := ""
+		if n, err := RunningContainers(ctx); err != nil {
+			count = unknown(err)
+		} else {
+			count = fmt.Sprint(n)
+		}
+		fmt.Fprintf(env.Stdout, "  %-44s %s\n", "student workspaces running", count)
 	}
-	if down {
+	if needsRoot {
+		fmt.Fprint(env.Stderr, "\n")
+		fill(env.Stderr, fmt.Sprintf("The runner's service and the students' containers belong to the account %s, and only root can ask about them: run \"sudo cbe-portalctl status\".", l.RunnerUser), "", "")
+	}
+	if down || unread {
 		return 1
 	}
 	return 0
@@ -312,9 +344,9 @@ func status(args []string, env Env) int {
 
 func restart(args []string, env Env) int {
 	fs := newFlags("restart", env)
-	force := fs.Bool("force", false, "restart even while students are working")
-	if err := fs.Parse(args); err != nil {
-		return 2
+	force := fs.Bool("force", false, "restart even while students are working, or when they cannot be counted")
+	if code, ok := noOperands(fs, args, env); !ok {
+		return code
 	}
 	ctx, err := savedLayout(env)
 	if err != nil {
@@ -336,10 +368,10 @@ func restart(args []string, env Env) int {
 func unconfigure(args []string, env Env) int {
 	fs := newFlags("unconfigure", env)
 	removeData := fs.Bool("remove-data", false, "also delete the data: the database, the screenshots, the students' folders, the volume and the accounts")
-	yes := fs.Bool("yes", false, "do not ask")
+	yes := fs.Bool("yes", false, "do not ask before deleting the data")
 	dry := fs.Bool("dry-run", false, "say what would be done, and change nothing")
-	if err := fs.Parse(args); err != nil {
-		return 2
+	if code, ok := noOperands(fs, args, env); !ok {
+		return code
 	}
 	ctx, err := savedLayout(env)
 	if err != nil {

@@ -299,6 +299,102 @@ func TestStatusAndRestart(t *testing.T) {
 	}
 }
 
+// The runner is a user service of its own account, and only root can ask that account (runuser): without root its state and the student
+// workspaces are unknown, and are never said to be stopped or 0 (found on a real server where status, run without sudo, said the runner
+// that was running was stopped).
+func TestStatusWithoutRootSaysTheRunnerIsUnknownNotStopped(t *testing.T) {
+	f := machine()
+	f.Install("/root/cbe.conf", workspaceConfig, 0o644)
+	if code, s := command(f, "", false, "configure", "--config", "/root/cbe.conf", "--yes"); code != 0 {
+		t.Fatalf("%s\n%s", s.out.String(), s.err.String())
+	}
+	f.Containers = "a\nb\n" // students are working: a count of 0 would be a lie
+	f.Root = false
+	before := len(f.Calls)
+	code, s := command(f, "", false, "status")
+	out := s.out.String()
+	if code != 1 {
+		t.Errorf("exit %d: a state that could not be read is not \"everything runs\"", code)
+	}
+	for _, want := range []string{
+		"cbe-runner.service (user cbe-runner)         unknown (needs root)\n",
+		"student workspaces running                   unknown (needs root)\n",
+		"cbe-server.service                           running, at boot\n",
+		"cbe-quota-helper.service                     running, at boot\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the status lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "stopped") || strings.Contains(out, "running                   0") {
+		t.Errorf("a state that could not be read is shown as stopped or 0:\n%s", out)
+	}
+	if !strings.Contains(s.err.String(), `run "sudo cbe-portalctl status"`) {
+		t.Errorf("a person is not told how to see the runner: %s", s.err.String())
+	}
+	for _, call := range f.Calls[before:] {
+		if strings.HasPrefix(call, "[cbe-runner]") {
+			t.Errorf("as another user, status tried to speak as the runner's account: %s", call)
+		}
+	}
+	// As root it is all there.
+	f.Root = true
+	code, s = command(f, "", false, "status")
+	if code != 0 || !strings.Contains(s.out.String(), "cbe-runner.service (user cbe-runner)         running, at boot") || !strings.Contains(s.out.String(), "student workspaces running                   2") || s.err.Len() != 0 {
+		t.Errorf("as root: exit %d\n%s\n%s", code, s.out.String(), s.err.String())
+	}
+}
+
+// As root, a question that fails (the runner's user manager does not answer, the runtime does not) is said with its reason; a service that
+// is stopped is still said to be stopped.
+func TestStatusSaysWhyAStateCouldNotBeRead(t *testing.T) {
+	f := machine()
+	f.Install("/root/cbe.conf", workspaceConfig, 0o644)
+	if code, s := command(f, "", false, "configure", "--config", "/root/cbe.conf", "--yes"); code != 0 {
+		t.Fatalf("%s\n%s", s.out.String(), s.err.String())
+	}
+	f.Failures["systemctl --user is-active"] = errors.New("Failed to connect to bus: No such file or directory")
+	f.Failures["podman ps"] = errors.New("podman: cannot open the storage")
+	if _, err := f.Run("systemctl", "stop", "cbe-server.service"); err != nil {
+		t.Fatal(err)
+	}
+	code, s := command(f, "", false, "status")
+	out := s.out.String()
+	for _, want := range []string{
+		"cbe-runner.service (user cbe-runner)         unknown: Failed to connect to bus",
+		"student workspaces running                   unknown: podman: cannot open the storage",
+		"cbe-server.service                           stopped, at boot",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the status lacks %q:\n%s", want, out)
+		}
+	}
+	if code != 1 || strings.Contains(s.err.String(), "sudo") {
+		t.Errorf("exit %d; as root there is nothing to say about sudo: %s", code, s.err.String())
+	}
+}
+
+// Restart protects the students' connections: when the workspaces cannot be counted, it does not take that as "nobody is working".
+func TestRestartRefusesWhenTheWorkspacesCannotBeCounted(t *testing.T) {
+	f := machine()
+	f.Install("/root/cbe.conf", workspaceConfig, 0o644)
+	if code, s := command(f, "", false, "configure", "--config", "/root/cbe.conf", "--yes"); code != 0 {
+		t.Fatalf("%s\n%s", s.out.String(), s.err.String())
+	}
+	f.Failures["podman ps"] = errors.New("podman: cannot open the storage")
+	before := len(f.Calls)
+	code, s := command(f, "", false, "restart")
+	if code != 1 || !strings.Contains(s.err.String(), "the student workspaces could not be counted (podman: cannot open the storage)") || !strings.Contains(s.err.String(), "--force") {
+		t.Errorf("exit %d: %s", code, s.err.String())
+	}
+	if strings.Contains(strings.Join(f.Calls[before:], "\n"), "restart") {
+		t.Errorf("a service was restarted: %v", f.Calls[before:])
+	}
+	if code, s = command(f, "", false, "restart", "--force"); code != 0 {
+		t.Errorf("--force: exit %d %s", code, s.err.String())
+	}
+}
+
 func TestSampleConfigVersionAndUsage(t *testing.T) {
 	f := machine()
 	if code, s := command(f, "", false, "sample-config"); code != 0 || !strings.Contains(s.out.String(), "WORKSPACE_ENABLED=yes") {
@@ -307,11 +403,118 @@ func TestSampleConfigVersionAndUsage(t *testing.T) {
 	if code, s := command(f, "", false, "version"); code != 0 || s.out.String() != "cbe-portalctl v0.17.0\n" {
 		t.Errorf("version: %d %q", code, s.out.String())
 	}
-	if code, s := command(f, "", false, "nope"); code != 2 || !strings.Contains(s.err.String(), `"nope" is not a command`) {
+	if code, s := command(f, "", false, "nope"); code != 2 || !strings.Contains(s.err.String(), `"nope" is not a command`) || !strings.Contains(s.err.String(), `Run "cbe-portalctl help"`) {
 		t.Errorf("nope: %d %s", code, s.err.String())
 	}
-	if code, s := command(f, "", false); code != 0 || !strings.Contains(s.out.String(), "cbe-portalctl configure") {
-		t.Errorf("usage: %d", code)
+	// A slip of the keyboard is answered with the command that was meant.
+	if code, s := command(f, "", false, "stauts"); code != 2 || !strings.Contains(s.err.String(), "(did you mean status?)") {
+		t.Errorf("stauts: %d %s", code, s.err.String())
+	}
+	for _, args := range [][]string{nil, {"help"}, {"-h"}, {"--help"}} {
+		code, s := command(f, "", false, args...)
+		if code != 0 || s.err.Len() != 0 {
+			t.Errorf("%v: exit %d %s", args, code, s.err.String())
+		}
+		for _, name := range commandNames() {
+			if !strings.Contains(s.out.String(), "  "+name+" ") {
+				t.Errorf("%v: the list of commands lacks %s:\n%s", args, name, s.out.String())
+			}
+		}
+		for _, want := range []string{"Usage: cbe-portalctl COMMAND [OPTIONS]", "Run as root (sudo):", "Exit status:", `"cbe-portalctl help COMMAND"`} {
+			if !strings.Contains(s.out.String(), want) {
+				t.Errorf("%v: the overview lacks %q:\n%s", args, want, s.out.String())
+			}
+		}
+	}
+}
+
+// Every command in the list has its help, the same by "help COMMAND" and by "COMMAND --help": how it is called, what it does, and its
+// options with what they take and their defaults. Asking for help does nothing else, even for a command that changes the machine.
+func TestEveryCommandHasItsHelp(t *testing.T) {
+	for _, name := range commandNames() {
+		if name == "help" {
+			continue
+		}
+		f := machine()
+		before := len(f.Calls)
+		code, viaHelp := command(f, "", false, append([]string{"help"}, strings.Fields(name)...)...)
+		if code != 0 || viaHelp.err.Len() != 0 {
+			t.Errorf("help %s: exit %d %s", name, code, viaHelp.err.String())
+		}
+		if len(f.Calls) != before {
+			t.Errorf("help %s ran programs: %v", name, f.Calls[before:])
+		}
+		code, viaFlag := command(f, "", false, append(strings.Fields(name), "--help")...)
+		if code != 0 || viaFlag.out.String() != viaHelp.out.String() {
+			t.Errorf("%s --help: exit %d, and it is not what help %s says:\n%s", name, code, name, viaFlag.out.String())
+		}
+		h, _ := helpFor(name)
+		if out := viaHelp.out.String(); !strings.HasPrefix(out, usage("Usage: ", h)+"\n") {
+			t.Errorf("help %s does not start with its usage line:\n%s", name, out)
+		}
+	}
+	_, s := command(machine(), "", false, "help", "configure")
+	for _, want := range []string{"Options:\n  --config FILE ", "the answers the last run saved", "--dry-run ", "Run it as root, unless with --dry-run.", "Examples:\n  cbe-portalctl sample-config > cbe.conf"} {
+		if !strings.Contains(s.out.String(), want) {
+			t.Errorf("help configure lacks %q:\n%s", want, s.out.String())
+		}
+	}
+	_, s = command(machine(), "", false, "help", "image", "check")
+	for _, want := range []string{"--podman COMMAND", "(default: podman)", "(default: /opt/cbe-portal/bin/cbe-agent)", "--keep "} {
+		if !strings.Contains(s.out.String(), want) {
+			t.Errorf("help image check lacks %q:\n%s", want, s.out.String())
+		}
+	}
+	_, s = command(machine(), "", false, "help", "status")
+	if !strings.Contains(s.out.String(), "sudo journalctl _SYSTEMD_USER_UNIT=cbe-runner.service") || strings.Contains(s.out.String(), "Options:") {
+		t.Errorf("help status says where the logs are, and has no options:\n%s", s.out.String())
+	}
+	if code, s := command(machine(), "", false, "help", "nope"); code != 2 || !strings.Contains(s.err.String(), `"nope" is not a command`) {
+		t.Errorf("help nope: exit %d %s", code, s.err.String())
+	}
+}
+
+// The help fits in a terminal of 80 columns, so that no line of it is broken in the middle of a word.
+func TestTheHelpFitsIn80Columns(t *testing.T) {
+	outputs := map[string]string{}
+	_, s := command(machine(), "", false, "help")
+	outputs["help"] = s.out.String()
+	_, s = command(machine(), "", false, "image", "--help")
+	outputs["image --help"] = s.out.String()
+	for _, name := range commandNames() {
+		_, s := command(machine(), "", false, append([]string{"help"}, strings.Fields(name)...)...)
+		outputs["help "+name] = s.out.String()
+	}
+	for which, out := range outputs {
+		for _, line := range strings.Split(out, "\n") {
+			if len(line) > helpWidth {
+				t.Errorf("%s: a line of %d columns:\n%s", which, len(line), line)
+			}
+		}
+	}
+}
+
+// A wrong option or operand is said, with how the command is called and where its help is, and changes nothing (exit status 2).
+func TestAWrongOptionSaysHowTheCommandIsCalled(t *testing.T) {
+	for _, args := range [][]string{{"status", "extra"}, {"configure", "--bogus"}, {"restart", "now"}, {"version", "-x"}} {
+		f := machine()
+		code, s := command(f, "", false, args...)
+		h, _ := helpFor(args[0])
+		if code != 2 || !strings.Contains(s.err.String(), usage("usage: ", h)) || !strings.Contains(s.err.String(), `Run "cbe-portalctl help `+args[0]+`"`) || s.out.Len() != 0 {
+			t.Errorf("%v: exit %d\nout: %s\nerr: %s", args, code, s.out.String(), s.err.String())
+		}
+	}
+	// The flag package's words are put as the help puts the options.
+	if _, s := command(machine(), "", false, "restart", "-bogus"); !strings.Contains(s.err.String(), "cbe-portalctl restart: --bogus is not an option\n") || strings.Contains(s.err.String(), "flag provided") {
+		t.Errorf("restart -bogus: %s", s.err.String())
+	}
+	if _, s := command(machine(), "", false, "doctor", "--config"); !strings.Contains(s.err.String(), "cbe-portalctl doctor: --config needs a value\n") {
+		t.Errorf("doctor --config: %s", s.err.String())
+	}
+	// What follows -- is an operand, even when it starts with a dash.
+	code, s := command(machine(), "", false, "image", "check", "--", "--keep")
+	if code != 1 || !strings.Contains(s.err.String(), "--keep") {
+		t.Errorf("image check -- --keep: exit %d %s", code, s.err.String())
 	}
 }
 
