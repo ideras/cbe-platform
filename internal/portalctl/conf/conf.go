@@ -189,6 +189,17 @@ func unknownKey(name string) error {
 	return fmt.Errorf("%s is not a setting", name)
 }
 
+// Closest is the candidate a mistyped word was most likely meant to be (at most two edits away), or "" when none is that close.
+func Closest(word string, candidates []string) string {
+	best, distance := "", 3
+	for _, candidate := range candidates {
+		if d := levenshtein(word, candidate); d < distance {
+			best, distance = candidate, d
+		}
+	}
+	return best
+}
+
 func levenshtein(a, b string) int {
 	prev := make([]int, len(b)+1)
 	for j := range prev {

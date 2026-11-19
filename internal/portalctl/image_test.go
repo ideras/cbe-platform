@@ -63,16 +63,28 @@ func TestImageCheckWithNoContainerRuntimeIsAnErrorThatSaysSo(t *testing.T) {
 }
 
 func TestImageCheckUsage(t *testing.T) {
-	for _, args := range [][]string{{"image"}, {"image", "bogus"}, {"image", "check"}, {"image", "check", "a", "b"}, {"image", "install"}, {"image", "install", "nn-2026"}, {"image", "list", "extra"}} {
+	// A wrong call says what is wrong and how that command is called; "image" alone, or a word that is not one of its commands, lists them.
+	for _, c := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"image"}, "image install   Build a class image"},
+		{[]string{"image", "bogus"}, `"image bogus" is not a command`},
+		{[]string{"image", "chek"}, "(did you mean image check?)"},
+		{[]string{"image", "check"}, "usage: cbe-portalctl image check [--agent FILE]"},
+		{[]string{"image", "check", "a", "b"}, "it takes one DIR"},
+		{[]string{"image", "install"}, "usage: cbe-portalctl image install NAME DIR"},
+		{[]string{"image", "install", "nn-2026"}, "it takes a NAME and a DIR"},
+		{[]string{"image", "list", "extra"}, "usage: cbe-portalctl image list\n"},
+	} {
 		var out, errs bytes.Buffer
-		if code := Main(args, Env{Sys: sys.NewFake(), Stdin: strings.NewReader(""), Stdout: &out, Stderr: &errs, Exe: "/opt/cbe-portal/bin/cbe-portalctl"}); code != 2 || !strings.Contains(errs.String(), "cbe-portalctl image check") {
-			t.Errorf("%v: exit %d\n%s", args, code, errs.String())
+		if code := Main(c.args, Env{Sys: sys.NewFake(), Stdin: strings.NewReader(""), Stdout: &out, Stderr: &errs, Exe: "/opt/cbe-portal/bin/cbe-portalctl"}); code != 2 || !strings.Contains(errs.String(), c.want) {
+			t.Errorf("%v: exit %d, and it lacks %q\n%s", c.args, code, c.want, errs.String())
 		}
 	}
 	var out bytes.Buffer
-	Main([]string{"help"}, Env{Sys: sys.NewFake(), Stdout: &out, Stderr: &out})
-	if !strings.Contains(out.String(), "cbe-portalctl image check") {
-		t.Error("the usage does not list the image command")
+	if code := Main([]string{"image", "--help"}, Env{Sys: sys.NewFake(), Stdout: &out, Stderr: &out}); code != 0 || !strings.Contains(out.String(), "image check     Check an exam's own base image") {
+		t.Errorf("image --help: exit %d\n%s", code, out.String())
 	}
 }
 

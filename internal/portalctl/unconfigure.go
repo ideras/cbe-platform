@@ -1,6 +1,7 @@
 package portalctl
 
 import (
+	"errors"
 	"fmt"
 	"path"
 	"strings"
@@ -356,22 +357,45 @@ func deleteAccount(c *Ctx, name string, removeHome bool) error {
 
 // ----- the services as they are
 
-// ServiceState is what Status says of one service.
+// ServiceState is what Status says of one service. State is what systemd says (active, inactive, failed, activating ...); when the
+// question could not be asked at all, State is "" and Err says why. A question that failed is never a stopped service.
 type ServiceState struct {
 	Unit            string
+	State           string
 	Active, Enabled bool
+	Err             error
 }
+
+// ErrNeedsRoot is why the runner's services and containers cannot be read: they belong to the runner's account, and only root can speak
+// to another account's user manager and container runtime (runuser).
+var ErrNeedsRoot = errors.New("only root can ask the runner's account")
 
 // Status reads the state of the services.
 func Status(c *Ctx) []ServiceState {
 	state := func(unit string, user bool) ServiceState {
+		s := ServiceState{Unit: unit}
+		if user && !c.Sys.IsRoot() {
+			s.Err = ErrNeedsRoot
+			return s
+		}
 		ctl := c.systemctl
 		if user {
 			ctl = c.userctl
 		}
-		active, _ := ctl("is-active", unit)
+		// is-active and is-enabled end with a status that is not 0 for a service that is stopped or disabled, and still say its state; only
+		// an answer that says nothing is a question that failed.
+		active, err := ctl("is-active", unit)
+		s.State = strings.TrimSpace(active)
+		if s.State == "" {
+			if err == nil {
+				err = errors.New("systemctl said nothing")
+			}
+			s.Err = err
+			return s
+		}
 		enabled, _ := ctl("is-enabled", unit)
-		return ServiceState{Unit: unit, Active: strings.TrimSpace(active) == "active", Enabled: strings.TrimSpace(enabled) == "enabled"}
+		s.Active, s.Enabled = s.State == "active", strings.TrimSpace(enabled) == "enabled"
+		return s
 	}
 	var out []ServiceState
 	if c.L.Workspace {
@@ -383,24 +407,32 @@ func Status(c *Ctx) []ServiceState {
 	return append(out, state(serverUnit, false))
 }
 
-// RunningContainers is how many containers the runner's runtime has running, which is how many students are in their workspaces.
-func RunningContainers(c *Ctx) int {
+// RunningContainers is how many containers the runner's runtime has running, which is how many students are in their workspaces. An error
+// says the runtime could not be asked (ErrNeedsRoot when this program does not run as root): the count is then not known, and is not 0.
+func RunningContainers(c *Ctx) (int, error) {
 	u, ok := c.Sys.Lookup(c.L.RunnerUser)
 	if !c.L.Workspace || !ok {
-		return 0
+		return 0, nil
+	}
+	if !c.Sys.IsRoot() {
+		return 0, ErrNeedsRoot
 	}
 	out, err := c.Sys.RunAs(c.L.RunnerUser, c.userEnv(u.UID, u.Home), "podman", "ps", "-q")
 	if err != nil {
-		return 0
+		return 0, err
 	}
-	return len(strings.Fields(out))
+	return len(strings.Fields(out)), nil
 }
 
 // Restart restarts the services, so that they run what is written now (a new program, a changed unit, new settings). Students' containers
 // are the runtime's, and go on; but the connections of the students are cut for a moment, so a restart with containers running is refused
-// unless force is said.
+// unless force is said, and so is one when the containers cannot be counted.
 func Restart(c *Ctx, force bool) error {
-	if n := RunningContainers(c); n > 0 && !force {
+	n, err := RunningContainers(c)
+	if err != nil && !force {
+		return fmt.Errorf("the student workspaces could not be counted (%v), so it is not known whether students are working: a restart cuts their connections for a moment. Say --force to do it anyway", err)
+	}
+	if n > 0 && !force {
 		return fmt.Errorf("%d student workspace(s) are running: a restart cuts their connections for a moment (the containers and the files are safe, and the application reconnects). Say --force to do it now", n)
 	}
 	if _, err := c.systemctl("daemon-reload"); err != nil {
@@ -417,6 +449,6 @@ func Restart(c *Ctx, force bool) error {
 			return err
 		}
 	}
-	_, err := c.systemctl("restart", serverUnit)
+	_, err = c.systemctl("restart", serverUnit)
 	return err
 }

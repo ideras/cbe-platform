@@ -99,6 +99,8 @@ make server
 
 Output: `build/cbe-portal-server`. The server builds with CGO disabled and does not need the desktop toolchain.
 
+`make portalctl` builds `build/cbe-portalctl`, the program that configures and runs a Linux server ([the Linux guide](docs/deployment-linux.md)); `scripts/installer/linux/build.sh` builds the whole installer.
+
 ### Student app
 
 ```sh

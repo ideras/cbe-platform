@@ -58,6 +58,7 @@ sudo cbe-portalctl configure              # asks a few questions, shows the plan
 sudo cbe-portalctl configure --config cbe.conf --yes      # unattended
 sudo cbe-portalctl configure --config cbe.conf --dry-run  # says what it would do, changes nothing (no root needed)
 cbe-portalctl sample-config > cbe.conf    # a documented file to start from
+cbe-portalctl help configure              # every command has its help: what it does, its options, whether it needs root
 ```
 
 The configuration file is parsed, never run: one `KEY=VALUE` on a line, `#` for comments, `${NAME}` for the value of another key. A key that does not exist, a value that is not what its key takes, or keys that
@@ -119,15 +120,18 @@ A file at a place a link must go (a unit from an older installation) is kept bes
 
 ```sh
 sudo cat /data/cbe-platform/server/admin-token     # the proctor's token: give it to the proctor application (Server connection) with the server's address
-cbe-portalctl status                               # the services, the volume, how many students are in their workspaces
+sudo cbe-portalctl status                          # the services, the volume, how many students are in their workspaces
 sudo journalctl -u cbe-server -f                   # the server's log (the quota helper: -u cbe-quota-helper)
 sudo journalctl _SYSTEMD_USER_UNIT=cbe-runner.service -f      # the runner's log
 ```
 
+`status` runs as any user, but the runner is a user service of its own account and only root can ask that account: without `sudo` the runner
+and the number of student workspaces are shown as `unknown (needs root)`, never as stopped or 0. Exit status 0 means everything was checked and runs.
+
 ## Upgrading
 
 Run the installer of the new version. It replaces the programs, keeps `etc/` and the data, writes the units anew, and says that the services still run the old version: **when no class is working**,
-`sudo cbe-portalctl restart` (it refuses while students are in their workspaces, unless `--force`; the students' containers and files are safe, and the application reconnects). The server upgrades its own
+`sudo cbe-portalctl restart` (it refuses while students are in their workspaces, or when they cannot be counted, unless `--force`; the students' containers and files are safe, and the application reconnects). The server upgrades its own
 database on its first start (and keeps a copy of the old one).
 
 ## Uninstalling

@@ -67,16 +67,15 @@ func serverForImages(env Env) (*Ctx, error) {
 
 func imageInstall(args []string, env Env) int {
 	fs := newFlags("image install", env)
-	agent := fs.String("agent", "", "the static cbe-agent to put in the image (default: INSTALL_DIR/bin/cbe-agent)")
+	agent := fs.String("agent", "", "the static cbe-agent `FILE` to put in the image (default: INSTALL_DIR/bin/cbe-agent)")
 	replace := fs.Bool("replace", false, "build NAME again although it is installed, and use the new image from now on")
-	restart := fs.Bool("restart", false, "restart the runner when the new name needs it (refused while students are working)")
-	rest, ok := operands(fs, args)
+	restart := fs.Bool("restart", false, "when the new name needs it, restart the services as cbe-portalctl restart does (refused while students are working)")
+	rest, code, ok := parseArgs(fs, args, env)
 	if !ok {
-		return 2
+		return code
 	}
 	if len(rest) != 2 {
-		fmt.Fprintf(env.Stderr, "usage:\n%s", imageUsage)
-		return 2
+		return usageError(env, "image install", "it takes a NAME and a DIR")
 	}
 	name, dir := rest[0], rest[1]
 	if !runner.ValidImageName(name) {
@@ -168,10 +167,8 @@ func imageInstall(args []string, env Env) int {
 }
 
 func imageList(args []string, env Env) int {
-	fs := newFlags("image list", env)
-	if err := fs.Parse(args); err != nil || fs.NArg() != 0 {
-		fmt.Fprintf(env.Stderr, "usage:\n%s", imageUsage)
-		return 2
+	if code, ok := noOperands(newFlags("image list", env), args, env); !ok {
+		return code
 	}
 	c, err := serverForImages(env)
 	if err != nil {
