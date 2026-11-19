@@ -7,7 +7,7 @@ WAILS := go run github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.29
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -X main.version=$(VERSION)
 
-.PHONY: test vet server examc agent student student-windows proctor desktop desktop-test script-test student-client-test student-ui-test proctor-client-test proctor-ui-test demo-setup demo-server demo-student demo-proctor
+.PHONY: test vet server portalctl examc agent student student-windows proctor desktop desktop-test script-test student-client-test student-ui-test proctor-client-test proctor-ui-test demo-setup demo-server demo-student demo-proctor
 
 test:
 	go test -race ./...
@@ -32,6 +32,12 @@ student-ui-test:
 server:
 	mkdir -p build
 	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o build/cbe-portal-server ./cmd/server
+
+# cbe-portalctl configures and runs a Linux server (docs/deployment-linux.md); the installer ships it, built the same way
+# (scripts/installer/linux/build.sh). Run from build/ it uses the installation in /opt/cbe-portal: build/cbe-portalctl status.
+portalctl:
+	mkdir -p build
+	CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags "$(LDFLAGS)" -o build/cbe-portalctl ./cmd/cbe-portalctl
 
 # examc checks an exam written in Markdown: build/examc exam.md (or -json to print what the proctor would import, or
 # -fill answers.json to print the exam with those answers filled in). Given a folder that holds workspace.md it checks a
