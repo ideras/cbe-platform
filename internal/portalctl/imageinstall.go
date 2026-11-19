@@ -67,7 +67,7 @@ func serverForImages(env Env) (*Ctx, error) {
 
 func imageInstall(args []string, env Env) int {
 	fs := newFlags("image install", env)
-	agent := fs.String("agent", "", "the static cbe-agent `FILE` to put in the image (default: INSTALL_DIR/bin/cbe-agent)")
+	agent := fs.String("agent", "", "the static cbe-agent `FILE` to put in the image (default: the server's agent_binary, else the cbe-agent next to this program)")
 	replace := fs.Bool("replace", false, "build NAME again although it is installed, and use the new image from now on")
 	restart := fs.Bool("restart", false, "when the new name needs it, restart the services as cbe-portalctl restart does (refused while students are working)")
 	rest, code, ok := parseArgs(fs, args, env)
@@ -110,13 +110,16 @@ func imageInstall(args []string, env Env) int {
 	}
 	// Building an image for a class is the administrator's own act: custom_base is about what an exam brings, so it does not apply; base_registries does.
 	cfg.CustomBase = true
+	file, from, err := agentFor(env, *agent, cfg.AgentBinary, l.RunnerConfig())
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "error: %v\n", err)
+		return 1
+	}
 	options := imagecheck.Options{
-		Dir: dir, Agent: *agent, Config: &cfg, Podman: podman, Out: env.Stdout, Readable: true,
+		Dir: dir, Agent: file, AgentFrom: from, Config: &cfg, Podman: podman, Out: env.Stdout, Readable: true, Epoch: epochFromEnvironment(),
 		Name: courseRepository + name, Labels: map[string]string{courseLabel: name},
 	}
-	if options.Agent == "" {
-		options.Agent = l.AgentBinary()
-	}
+	options.Release, options.ReleaseOf = releaseHere(env, l.Install)
 	if _, err := os.Stat(runner.HostCABundle()); err == nil {
 		options.CABundle = runner.HostCABundle()
 	}

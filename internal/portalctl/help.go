@@ -110,16 +110,21 @@ Run it as root.`,
 	{"Workspace images", []commandHelp{
 		{
 			Name:    "image check",
-			Args:    "[--agent FILE] [--runner-config FILE] [--podman COMMAND] [--rebuild] [--keep] DIR",
-			Summary: "Check an exam's own base image before the server builds it",
-			Text: `Check an exam's own base image on this computer before the server builds it. It builds the package's image/Containerfile, finishes it as the server does (the student account, the agent, no way to gain privileges), and runs the agent's self test in a container made as a student's is.
+			Args:    "[--agent FILE] [--runner-config FILE] [--podman COMMAND] [--rebuild] [--reproducible] [--keep] DIR",
+			Summary: "Check an image before the server or image install builds it",
+			Text: `Check an exam's own base image, or a class image, on this computer before the server or image install builds it. It builds the image/Containerfile, finishes it as the server does (the student account, the agent, no way to gain privileges), and runs the agent's self test in a container made as a student's is.
 
 DIR is the exam package's folder, its image/ folder, or the Containerfile. It needs Podman for the user who runs it (no root) and the agent. When INSTALL_DIR/etc/runner.json is there, this server's settings apply too: whether an exam may bring its own base (custom_base) and from which registries (base_registries).
 
-Exit status 0: the server will accept the image. 1: it will not (the line NOT ACCEPTED says why), or the check could not be made.`,
+The agent is the file named with --agent; else, when a server is installed here, the one its runner uses (agent_binary in INSTALL_DIR/etc/runner.json); else the cbe-agent next to this program (make agent puts one beside build/cbe-portalctl). PATH is not searched. Before anything is built, it must be a static Linux program for this machine, and cbe-agent itself. The Containerfile does not copy it: the runner adds it after the last line.
+
+Every image, and every file in it, is dated SOURCE_DATE_EPOCH (from the environment; default 2000-01-01), so that the same files give the same image. --reproducible proves it: it builds everything twice from nothing and compares the two images, which takes twice as long.
+
+Exit status 0: the server will accept the image. 1: it will not (the line NOT ACCEPTED says why), the two builds of --reproducible differ (NOT REPRODUCIBLE), or the check could not be made.`,
 			Examples: []string{
 				"cbe-portalctl image check lab-python/",
 				"cbe-portalctl image check lab-python/ --agent ./cbe-agent --rebuild",
+				"cbe-portalctl image check images/cpp20/ --reproducible",
 			},
 		},
 		{
@@ -128,7 +133,7 @@ Exit status 0: the server will accept the image. 1: it will not (the line NOT AC
 			Summary: "Build a class image and approve it on this server",
 			Text: `Install a class image on this server: build DIR once, as image check does but in the runner's storage, and approve it as NAME in the runner's settings, so that every exam of the class can say "image: NAME".
 
-NAME is lower-case words joined by / . _ or - (cbe/cpp20, nn-2026), with no tag. DIR is a folder with the image's Containerfile, or the Containerfile, as for image check.
+NAME is lower-case words joined by / . _ or - (cbe/cpp20, nn-2026), with no tag. DIR is a folder with the image's Containerfile, or the Containerfile, as for image check. The agent is the server's (agent_binary in its runner settings) unless --agent names another, and it is checked as image check checks it.
 
 A new NAME is used once the runner restarts: run cbe-portalctl restart, or add --restart, which does it now unless students are working. Installing a NAME again needs --replace and no restart: the workspaces created from then on use the new image.
 

@@ -47,8 +47,11 @@ On the container host, after `docs/workspace/spike/setup-host.sh` (the `cbe-runn
 go build -o bin/cbe-runner ./cmd/cbe-runner
 go build -o bin/cbe-quota-helper ./cmd/cbe-quota-helper
 sudo deploy/workspace/install.sh bin       # accounts, folders, both services; safe to run again
-PODMAN="sudo -u cbe-runner env XDG_RUNTIME_DIR=/run/user/$(id -u cbe-runner) podman" images/build.sh cpp20   # the course image into the runner's storage
 ```
+
+The course image `cbe/cpp20` was built here by `images/build.sh`, which is gone: `cbe-portalctl` is now the one program that builds images (decision D-CB-9), and
+`sudo cbe-portalctl image install cbe/cpp20 images/cpp20` needs a server that `cbe-portalctl configure` set up ([deployment-linux.md](../deployment-linux.md)). This manual
+setup, from before the installer, has no way of its own to build it.
 
 The exam server is not started by `install.sh`: it may already be running somewhere else (the owner's own, on `:8080`). To run it as `cbe-server`:
 

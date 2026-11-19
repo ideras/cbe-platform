@@ -47,10 +47,12 @@ examc:
 	cd shared/examdoc && CGO_ENABLED=0 go build -trimpath -o ../../build/examc ./cmd/examc
 
 # cbe-agent is the first process of a student's container and cbe-agent-cli drives it without the exam server (workspace exams,
-# docs/workspace/agent-protocol.md). Both are Linux programs. The course images are built with images/build.sh.
+# docs/workspace/agent-protocol.md). Both are Linux programs. The agent is built as the installer builds it (static, no symbols, no build ID), so
+# one of the same release is the same file; build/cbe-portalctl image check and image install use build/cbe-agent when no server is installed
+# here (decision D-CB-9).
 agent:
 	mkdir -p build
-	CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags "$(LDFLAGS)" -o build/cbe-agent ./cmd/cbe-agent
+	CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags "-s -w -buildid= $(LDFLAGS)" -o build/cbe-agent ./cmd/cbe-agent
 	CGO_ENABLED=0 GOOS=linux go build -trimpath -o build/cbe-agent-cli ./cmd/cbe-agent-cli
 
 student:

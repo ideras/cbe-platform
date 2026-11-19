@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"exam-platform/internal/agenttest"
 	"exam-platform/internal/portalctl/conf"
 	"exam-platform/internal/portalctl/sys"
 )
@@ -24,13 +25,23 @@ func values(t *testing.T, text string) *conf.Values {
 	return v
 }
 
-// machine is a machine the installer has been run on: the programs are in /opt/cbe-portal/bin.
+// machine is a machine the installer has been run on: the programs are in /opt/cbe-portal/bin, and the agent is a real one (doctor looks at it).
 func machine() *sys.Fake {
 	f := sys.NewFake()
-	for _, program := range []string{"cbe-portal-server", "cbe-runner", "cbe-quota-helperd", "cbe-agent"} {
+	for _, program := range []string{"cbe-portal-server", "cbe-runner", "cbe-quota-helperd"} {
 		f.Install("/opt/cbe-portal/bin/"+program, "binary", 0o755)
 	}
+	f.Install("/opt/cbe-portal/bin/cbe-agent", string(installedAgent(f.Arch())), 0o755)
 	return f
+}
+
+// installedAgent is the agent the installer puts in /opt/cbe-portal/bin, for a machine of arch.
+func installedAgent(arch string) []byte {
+	data, err := agenttest.Build("cbe-agent", arch)
+	if err != nil {
+		panic(err)
+	}
+	return data
 }
 
 func run(t *testing.T, f *sys.Fake, v *conf.Values, opts Options) (Result, string, error) {

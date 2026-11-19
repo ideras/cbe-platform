@@ -1,18 +1,23 @@
-# Course image cbe/cpp20: a C++20 toolchain, and the agent as its first process. See images/README.md for the contract every
-# course image keeps, and images/build.sh, which builds this file with the agent and checks that a rebuild gives the same image.
+# Course image cbe/cpp20: a C++20 toolchain. See images/README.md for the contract every course image keeps. On the server:
+#
+#   sudo cbe-portalctl image install cbe/cpp20 images/cpp20     build it, finish it with the agent, approve it as cbe/cpp20
+#   cbe-portalctl image check images/cpp20 --reproducible       build it twice from nothing and say whether the two images are the same
+#
+# The agent is not copied here: the runner's last layer adds it after this file's last line (the student account, the agent, USER, WORKDIR
+# and ENTRYPOINT), as it does for every image (decision D-CB-9).
 
 # The base is pinned by digest (the manifest list of ubuntu:24.04 on 2026-11-13), and every package comes from a dated snapshot of
 # the Ubuntu archive, so a rebuild next year gives the same toolchain. To update either, change it here and rebuild.
 FROM docker.io/library/ubuntu:24.04@sha256:2198e4c65076e9cb0b3d695219df667c0e3b0072da64ca3c2648aca17dcecaf5
 
 ARG APT_SNAPSHOT=20261105T000000Z
-# The build date every file and every account record is stamped with (the default is 2000-01-01); build.sh passes it as well.
+# The build date every file and every account record is stamped with (the default is 2000-01-01); cbe-portalctl passes it as well.
 ARG SOURCE_DATE_EPOCH=946684800
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# 1. The toolchain. The base image has no CA certificates to reach the snapshot over HTTPS, so build.sh lends its own bundle for this
-#    one step, as a bind mount that leaves nothing in the image.
+# 1. The toolchain. The base image has no CA certificates to reach the snapshot over HTTPS, so the build lends the host's bundle
+#    (ca.crt, as the server and cbe-portalctl do) for this one step, as a bind mount that leaves nothing in the image.
 RUN --mount=type=bind,source=ca.crt,target=/run/host-ca.crt,ro \
     set -eux; \
     rm -f /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list; \
@@ -42,20 +47,11 @@ RUN set -eux; \
     for account in root student; do chage -d "$(( SOURCE_DATE_EPOCH / 86400 ))" "$account"; done; \
     rm -rf /var/log/lastlog /var/log/faillog /var/cache/ldconfig/aux-cache
 
-# These two change with every build of the agent, so they come after the steps that take long.
-ARG AGENT_SHA256=unknown
-ARG AGENT_VERSION=dev
-COPY --chmod=0755 cbe-agent /usr/local/bin/cbe-agent
-
 ENV LANG=C.UTF-8 TERM=xterm-256color
+# The agent's labels (io.cbe.agent.sha256 and io.cbe.agent.version) and the name the image is installed as (io.cbe.course) are put on by
+# the runner's last layer and by image install.
 LABEL org.opencontainers.image.title="cbe/cpp20" \
-      io.cbe.course="cpp20" \
-      io.cbe.agent.sha256="${AGENT_SHA256}" \
-      io.cbe.agent.version="${AGENT_VERSION}" \
       io.cbe.apt-snapshot="${APT_SNAPSHOT}"
 
-# The agent is the first process, and it runs as the student. The socket goes to /run/cbe, which the runner mounts from the host;
-# the files are in /work, which it mounts too. A read-only root and a tmpfs at /tmp are what the runner starts it with.
-USER 1000:1000
-WORKDIR /work
-ENTRYPOINT ["/usr/local/bin/cbe-agent"]
+# The runner's last layer makes the agent the first process, running as the student. The socket goes to /run/cbe, which the runner mounts
+# from the host; the files are in /work, which it mounts too. A read-only root and a tmpfs at /tmp are what the runner starts it with.

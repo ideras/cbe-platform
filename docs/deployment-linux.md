@@ -163,13 +163,17 @@ checks the result (`docs/workspace/images.md`, "A base image of its own"). Nothi
 What the server needs for that, and the configurator sets up:
 
 - **The agent**, `INSTALL_DIR/bin/cbe-agent` (a static program the installer ships), which the runner puts in every image it finishes. It is named by `agent_binary` in `runner.json`, and `cbe-portalctl doctor` fails
-  when it is missing. A server upgrade brings a new agent: images already built keep working, and a build asked for again (**Build again from scratch**) is made with the new one.
+  when it is missing or cannot go in an image (not a static Linux program for this machine, or not `cbe-agent`). A server upgrade brings a new agent: images already built keep working, and a build asked for again
+  (**Build again from scratch**) is made with the new one.
 - **Network at build time**: the build pulls the base and the packages the Containerfile installs; the containers made from the result have none. The base is stored in `cbe-runner`'s storage (`CONTAINER_STORAGE_DIR`): a
   Python image with its libraries is several GB, and images stay until `podman rmi` removes them.
 - **The administrator's decisions**: `ALLOW_CUSTOM_BASE` and `BASE_REGISTRIES` above.
 
-A package that names a **course image** instead (`image: cbe/cpp20`) still works: that image is built once on the container host with `images/build.sh cpp20` from the source tree (`images/README.md`) and approved in `runner.json`
-(`images`). The C++ course as a package that brings its own base is `testdata/workspace/lab-listas-own-base` (it is also in the installer's `share/examples`).
+A package that names a **course image** instead (`image: cbe/cpp20`) still works: that image is installed once with `sudo cbe-portalctl image install cbe/cpp20 images/cpp20` from the source tree (`images/README.md`,
+and the next section). The C++ course as a package that brings its own base is `testdata/workspace/lab-listas-own-base` (it is also in the installer's `share/examples`).
+
+`cbe-portalctl` is the one program that builds, checks and installs images (decision D-CB-9). Every image gets its agent the same way, in the runner's last layer: a Containerfile never copies `cbe-agent`, and `image
+check` refuses one that does.
 
 ### An image for a whole class: `image install`
 
@@ -189,7 +193,8 @@ says **`image: nn-2026`** in its `workspace.md` and needs no `image/` folder. A 
 - **Installing the same name again needs `--replace`, and no restart**: `:latest` moves to the new image (the old one stays under its id until `podman rmi`), and the workspaces created from then on use it; students already
   working keep the container they have. Use it to rebuild a class image, for example to update a package.
 - **`base_registries` applies; `custom_base` does not**: that setting is about what an exam brings, and this is the administrator's own act. A failed check installs nothing and changes no setting.
-- It needs the server configured for workspace exams, root, and the agent (`INSTALL_DIR/bin/cbe-agent`, or `--agent`). It does not remove images: `podman rmi` (as `cbe-runner`) and the line in `runner.json` do.
+- It needs the server configured for workspace exams, and root. The agent is the server's own (`agent_binary` in `runner.json`), unless `--agent FILE` names another; it is checked before anything is built, as
+  `image check` checks it (below), and the image is labelled with its hash and its version. It does not remove images: `podman rmi` (as `cbe-runner`) and the line in `runner.json` do.
 
 ### Checking an image before the server does
 
@@ -198,11 +203,21 @@ An author can build and check an `image/` folder on their own computer, without 
 ```sh
 cbe-portalctl image check lab-python/              # the package folder, its image/ folder, or the Containerfile
 cbe-portalctl image check lab-python/ --agent ./cbe-agent --rebuild
+cbe-portalctl image check images/cpp20 --reproducible   # build it twice from nothing: are the two images the same?
 ```
 
 It does what the runner does: the Containerfile's rules, the build, the runner's finishing layer, the image's configuration (no volume, user 1000:1000, the agent as entrypoint) and the agent's self test in a container
 run as a student's is (no network, a read-only root, no capabilities). It applies the settings of this server when `INSTALL_DIR/etc/runner.json` is there (`custom_base`, `base_registries`). It needs Podman for the
 user who runs it, and ends `OK` (the server will accept the image) or `NOT ACCEPTED: why`, with exit status 1. `--keep` leaves the image in the user's storage to look inside (`podman run --rm -it --entrypoint /bin/sh ...`).
+
+**The agent** it puts in the image is the one named with `--agent`; else, when a server is installed on this computer, the server's own (`agent_binary` in `INSTALL_DIR/etc/runner.json`); else the `cbe-agent`
+next to `cbe-portalctl` (`make agent portalctl` puts both in `build/`). `PATH` is not searched: the agent is the first process of every student's container, and one that happens to be on `PATH` is not one anybody
+chose. Before anything is built it must be a static Linux program for this machine's architecture, and `cbe-agent` itself (not another program named by mistake); its version is asked (`-version`, as `nobody` when
+run as root) and an agent of another release than the server's is a warning.
+
+**Reproducible images.** Every image, and every file in it, is dated with `SOURCE_DATE_EPOCH` (from the environment; 2000-01-01 by default), and a Containerfile that declares `ARG SOURCE_DATE_EPOCH` gets it too.
+`--reproducible` builds everything twice from nothing (no cache) and compares the two images: the same image ID means every layer is the same, so the same files built next year give the same image. When they differ
+it names the layers that do and the step of the Containerfile that made each (a date, a log, a download that is not pinned), and ends `NOT REPRODUCIBLE`, with exit status 1. It takes twice as long as a check.
 
 ## Backups
 
