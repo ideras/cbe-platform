@@ -50,6 +50,11 @@ func imageCheck(args []string, env Env) int {
 	if len(rest) != 1 {
 		return usageError(env, "image check", "it takes one DIR: the package folder, its image/ folder or the Containerfile")
 	}
+	// What is checked comes before what it is checked with: a folder that is not there is said first.
+	if _, _, err := imagecheck.Locate(rest[0]); err != nil {
+		fmt.Fprintf(env.Stderr, "error: %v\n", err)
+		return 1
+	}
 
 	options := imagecheck.Options{Dir: rest[0], Podman: imagecheck.Command(strings.Fields(*podman)...), Rebuild: *rebuild, Reproducible: *reproducible, Keep: *keep,
 		Epoch: epochFromEnvironment(), Out: env.Stdout}

@@ -108,7 +108,7 @@ func Check(ctx context.Context, o Options) (Result, error) {
 	}
 	say := func(format string, args ...any) { fmt.Fprintf(out, format+"\n", args...) }
 
-	folder, file, err := locate(o.Dir)
+	folder, file, err := Locate(o.Dir)
 	if err != nil {
 		return Result{}, err
 	}
@@ -513,8 +513,8 @@ func registriesText(c *runner.Config) string {
 	return strings.Join(c.BaseRegistries, ", ")
 }
 
-// locate finds the folder of the build context and its Containerfile: a package folder (image/Containerfile), an image folder, or the file itself.
-func locate(dir string) (folder, file string, err error) {
+// Locate finds the folder of the build context and its Containerfile: a package folder (image/Containerfile), an image folder, or the file itself.
+func Locate(dir string) (folder, file string, err error) {
 	if dir == "" {
 		return "", "", errors.New("name the package folder, its image/ folder or the Containerfile")
 	}

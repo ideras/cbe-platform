@@ -110,6 +110,10 @@ func imageInstall(args []string, env Env) int {
 	}
 	// Building an image for a class is the administrator's own act: custom_base is about what an exam brings, so it does not apply; base_registries does.
 	cfg.CustomBase = true
+	if _, _, err := imagecheck.Locate(dir); err != nil {
+		fmt.Fprintf(env.Stderr, "error: %v\n", err)
+		return 1
+	}
 	file, from, err := agentFor(env, *agent, cfg.AgentBinary, l.RunnerConfig())
 	if err != nil {
 		fmt.Fprintf(env.Stderr, "error: %v\n", err)

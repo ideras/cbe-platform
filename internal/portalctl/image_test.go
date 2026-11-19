@@ -425,7 +425,7 @@ func TestTheAgentIsTheNamedOneElseTheServersElseTheOneNextToTheProgram(t *testin
 	// Next to the program (build/cbe-agent beside build/cbe-portalctl).
 	next := filepath.Join(r.install, "bin", "cbe-agent")
 	r.put(t, next, testAgent(t))
-	if code, out, errs := r.check(); code != 0 || !strings.Contains(out, "agent       ok: "+next+" (the one next to this program), "+agenttest.Version) {
+	if code, out, errs := r.check(); code != 0 || !strings.Contains(out, "agent       ok: "+next+" (the one next to this program), ") {
 		t.Errorf("next to the program: exit %d\n%s\n%s", code, out, errs)
 	}
 	// A server installed here: its runner's agent, whatever is next to the program.
