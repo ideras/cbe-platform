@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"exam-platform/internal/imagecheck"
+	"exam-platform/internal/imagetest"
 	"exam-platform/internal/portalctl/conf"
 	"exam-platform/internal/portalctl/sys"
 )
@@ -30,6 +31,8 @@ type Env struct {
 	// Podman is how the container runtime is run by the `image` commands: nil is the real one (the person's own for `image check`, the runner account's for
 	// the commands that change the server). Tests give a fake.
 	Podman imagecheck.Podman
+	// Runner is the runner `image test` talks to: nil is the real one (its socket and secret, from its settings). Tests give a fake.
+	Runner imagetest.Runner
 
 	// reader is what is read from Stdin, made once: a second reader on the same input would not have what the first has already taken in.
 	reader *bufio.Reader

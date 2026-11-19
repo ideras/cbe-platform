@@ -196,6 +196,26 @@ says **`image: nn-2026`** in its `workspace.md` and needs no `image/` folder. A 
 - It needs the server configured for workspace exams, and root. The agent is the server's own (`agent_binary` in `runner.json`), unless `--agent FILE` names another; it is checked before anything is built, as
   `image check` checks it (below), and the image is labelled with its hash and its version. It does not remove images: `podman rmi` (as `cbe-runner`) and the line in `runner.json` do.
 
+### Trying an installed image: `image test`
+
+```sh
+sudo cbe-portalctl image test cbe/cpp20 images/cpp20              # NAME, and its folder for the course's own checks
+sudo cbe-portalctl image install cbe/cpp20 images/cpp20 --replace --test   # the same, once it is installed
+```
+
+It asks the runner for a workspace made from the installed image, the way the exam server asks for a student's (a `/work` of 20 MB, 256 MB of memory,
+no network, a read-only root), and drives the agent in it through the runner: the agent itself (PID 1, uid 1000, its heartbeat), the student's account
+(no capabilities, no sudo, no setuid file), files, terminals, the course's own checks, the limits (a full `/work` is `QUOTA`, the memory limit kills the
+program and not the workspace, a fork storm stops at the process limit) and a stop. It ends `OK` or `NOT PASSED` with the checks that failed (exit
+status 1), and removes the workspace whatever happened, Ctrl+C included. Its session is `image-test-<random>` of the exam `image-test`, which is never one
+of the server's, so it can run while a class works; it takes one workspace's memory for about a minute.
+
+**The course's own checks** are the file `checks` in the image's folder (`images/cpp20/checks` compiles and runs C++20, builds with make and cmake, runs
+gdb, flex and bison). A check starts with a line `# check: what it checks`; its lines, up to the next, run in a terminal in `/work` with `sh -e`, and it
+passes when they end with status 0. Without DIR only the checks every image must pass are run. `image install --test` reads the file before it builds,
+and needs `--restart` for a new name (the runner makes workspaces only of the names it read when it started). It needs root, which reads the runner's
+secret, as `image install` does. It replaced `images/test.sh` (decision D-CB-10).
+
 ### Checking an image before the server does
 
 An author can build and check an `image/` folder on their own computer, without importing the exam:

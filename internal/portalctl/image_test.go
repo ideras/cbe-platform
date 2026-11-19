@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -12,6 +14,7 @@ import (
 	"testing"
 
 	"exam-platform/internal/agenttest"
+	"exam-platform/internal/imagetest"
 	"exam-platform/internal/portalctl/sys"
 	"exam-platform/internal/runner"
 )
@@ -159,6 +162,8 @@ type classImage struct {
 	runtime *fakeRuntime
 	dir     string
 	agent   string
+	// runner is the runner image test talks to (nil: the real one, from the runner's settings).
+	runner imagetest.Runner
 }
 
 func newClassImage(t *testing.T, containerfile string) *classImage {
@@ -183,7 +188,7 @@ func newClassImage(t *testing.T, containerfile string) *classImage {
 
 func (c *classImage) run(args ...string) (int, string, string) {
 	var out, errs bytes.Buffer
-	code := Main(args, Env{Sys: c.f, Stdin: strings.NewReader(""), Stdout: &out, Stderr: &errs, Exe: "/opt/cbe-portal/bin/cbe-portalctl", Version: "test", Podman: c.runtime.run})
+	code := Main(args, Env{Sys: c.f, Stdin: strings.NewReader(""), Stdout: &out, Stderr: &errs, Exe: "/opt/cbe-portal/bin/cbe-portalctl", Version: "test", Podman: c.runtime.run, Runner: c.runner})
 	return code, out.String(), errs.String()
 }
 
@@ -499,5 +504,106 @@ func TestDoctorLooksAtTheAgentAsAnImageBuildWould(t *testing.T) {
 		if !strings.Contains(s.out.String(), test.want) || (code == 0) != (name == "the right one") {
 			t.Errorf("%s: exit %d\n%s", name, code, s.out.String())
 		}
+	}
+}
+
+// ----- image test (decision D-CB-10)
+
+// refusingRunner is a runner that approves no image: it says what image test asks before it makes a workspace (the test itself, with a
+// runner and an agent, is internal/imagetest's).
+type refusingRunner struct{ asked []string }
+
+var errNotExpected = errors.New("not expected: the image is not approved")
+
+func (r *refusingRunner) Ping(context.Context) error { return nil }
+func (r *refusingRunner) ImageInspect(_ context.Context, name string) (runner.ImageStatus, error) {
+	r.asked = append(r.asked, name)
+	return runner.ImageStatus{Name: name}, nil
+}
+func (r *refusingRunner) Create(context.Context, runner.CreateRequest) (runner.Status, error) {
+	return runner.Status{}, errNotExpected
+}
+func (r *refusingRunner) Seed(context.Context, string, io.Reader) (runner.Status, error) {
+	return runner.Status{}, errNotExpected
+}
+func (r *refusingRunner) Start(context.Context, string) (runner.Status, error) {
+	return runner.Status{}, errNotExpected
+}
+func (r *refusingRunner) Stop(context.Context, string) (runner.Status, error) {
+	return runner.Status{}, errNotExpected
+}
+func (r *refusingRunner) Status(context.Context, string) (runner.Status, error) {
+	return runner.Status{}, errNotExpected
+}
+func (r *refusingRunner) Remove(context.Context, string) error { return nil }
+func (r *refusingRunner) ConnectAgent(context.Context, string) (net.Conn, error) {
+	return nil, errNotExpected
+}
+
+func TestImageTestIsCalledWithANameAndMaybeTheImagesFolder(t *testing.T) {
+	c := newClassImage(t, pythonFile)
+	for _, args := range [][]string{{"image", "test"}, {"image", "test", "a", "b", "c"}} {
+		if code, _, errs := c.run(args...); code != 2 || !strings.Contains(errs, "it takes a NAME, and the image's DIR for the course's own checks") || !strings.Contains(errs, "usage: cbe-portalctl image test NAME [DIR]") {
+			t.Errorf("%v: exit %d\n%s", args, code, errs)
+		}
+	}
+	if code, _, errs := c.run("image", "test", "NN 2026"); code != 2 || !strings.Contains(errs, "is not the name of a course image") {
+		t.Errorf("a bad name: exit %d\n%s", code, errs)
+	}
+	// A folder with no checks file is said, rather than a test without the course's checks that looks like one with them.
+	if code, _, errs := c.run("image", "test", "nn-2026", c.dir); code != 1 || !strings.Contains(errs, "has no file checks, the course's own checks") {
+		t.Errorf("no checks file: exit %d\n%s", code, errs)
+	}
+	if err := os.WriteFile(filepath.Join(c.dir, "image", "checks"), []byte("ls\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, errs := c.run("image", "test", "nn-2026", c.dir); code != 1 || !strings.Contains(errs, "there is no check in it") {
+		t.Errorf("a checks file that is wrong: exit %d\n%s", code, errs)
+	}
+	c.f.Root = false
+	if code, _, errs := c.run("image", "test", "nn-2026"); code != 1 || !strings.Contains(errs, "run it as root") {
+		t.Errorf("not root: exit %d\n%s", code, errs)
+	}
+}
+
+func TestImageTestTalksToTheRunnerWithItsSecret(t *testing.T) {
+	c := newClassImage(t, pythonFile)
+	// The real runner is reached with the secret its settings name: here there is none.
+	if code, _, errs := c.run("image", "test", "nn-2026"); code != 1 || !strings.Contains(errs, "the runner's secret (") {
+		t.Errorf("no secret: exit %d\n%s", code, errs)
+	}
+	r := &refusingRunner{}
+	c.runner = r
+	if code, _, errs := c.run("image", "test", "nn-2026"); code != 1 || !strings.Contains(errs, "error: the test of nn-2026: the runner does not approve nn-2026") || strings.Join(r.asked, " ") != "nn-2026" {
+		t.Errorf("an image the runner does not approve: exit %d\n%s %v", code, errs, r.asked)
+	}
+}
+
+func TestInstallTestsTheImageWhenItIsAskedTo(t *testing.T) {
+	c := newClassImage(t, pythonFile)
+	r := &refusingRunner{}
+	c.runner = r
+	// A new name is not one the runner makes workspaces of until it restarts: --test without --restart is refused before anything is built.
+	if code, _, errs := c.install("nn-2026", c.dir, "--test"); code != 1 || !strings.Contains(errs, "add --restart") || len(c.runtime.called("build")) != 0 {
+		t.Errorf("a new name: exit %d\n%s", code, errs)
+	}
+	// A checks file that is wrong is said before the build, not after it.
+	checks := filepath.Join(c.dir, "image", "checks")
+	if err := os.WriteFile(checks, []byte("# check: nothing\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, errs := c.install("nn-2026", c.dir, "--test", "--restart"); code != 1 || !strings.Contains(errs, `the check "nothing" has no command`) || len(c.runtime.called("build")) != 0 {
+		t.Errorf("a wrong checks file: exit %d\n%s", code, errs)
+	}
+	if err := os.WriteFile(checks, []byte("# check: the tool\ntrue\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, out, errs := c.install("nn-2026", c.dir); code != 0 {
+		t.Fatalf("install: exit %d\n%s\n%s", code, out, errs)
+	}
+	// Installed again (no restart needed), it is tried once it is installed: here the runner refuses it, and the command says so.
+	code, out, errs := c.install("nn-2026", c.dir, "--replace", "--test")
+	if code != 1 || !strings.Contains(out, "Installed nn-2026") || !strings.Contains(errs, "the test of nn-2026") || strings.Join(r.asked, " ") != "nn-2026" {
+		t.Errorf("--replace --test: exit %d\n%s\n%s", code, out, errs)
 	}
 }

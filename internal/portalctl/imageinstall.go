@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"exam-platform/internal/imagecheck"
+	"exam-platform/internal/imagetest"
 	"exam-platform/internal/runner"
 )
 
@@ -70,6 +71,7 @@ func imageInstall(args []string, env Env) int {
 	agent := fs.String("agent", "", "the static cbe-agent `FILE` to put in the image (default: the server's agent_binary, else the cbe-agent next to this program)")
 	replace := fs.Bool("replace", false, "build NAME again although it is installed, and use the new image from now on")
 	restart := fs.Bool("restart", false, "when the new name needs it, restart the services as cbe-portalctl restart does (refused while students are working)")
+	test := fs.Bool("test", false, "once it is installed, try it in a student's workspace as image test does, with the checks file of DIR")
 	rest, code, ok := parseArgs(fs, args, env)
 	if !ok {
 		return code
@@ -103,6 +105,11 @@ func imageInstall(args []string, env Env) int {
 		fmt.Fprintf(env.Stderr, "error: %s is approved already (%s): --replace builds it again, and the workspaces created from then on use the new image\n", name, previous)
 		return 1
 	}
+	changed := !installed || previous != reference
+	if *test && changed && !*restart {
+		fmt.Fprintf(env.Stderr, "error: --test tries %s in a workspace, and the runner makes workspaces only of the names it approved when it started: add --restart, which makes it read the new name\n", name)
+		return 1
+	}
 	podman, err := runnerPodman(env, l)
 	if err != nil {
 		fmt.Fprintf(env.Stderr, "error: %v\n", err)
@@ -110,9 +117,18 @@ func imageInstall(args []string, env Env) int {
 	}
 	// Building an image for a class is the administrator's own act: custom_base is about what an exam brings, so it does not apply; base_registries does.
 	cfg.CustomBase = true
-	if _, _, err := imagecheck.Locate(dir); err != nil {
+	folder, _, err := imagecheck.Locate(dir)
+	if err != nil {
 		fmt.Fprintf(env.Stderr, "error: %v\n", err)
 		return 1
+	}
+	// The course's own checks are read now: a mistake in them is said before a build of many minutes, not after.
+	var checks []imagetest.Check
+	if *test {
+		if checks, _, err = imagetest.ReadChecks(folder); err != nil {
+			fmt.Fprintf(env.Stderr, "error: %v\n", err)
+			return 1
+		}
 	}
 	file, from, err := agentFor(env, *agent, cfg.AgentBinary, l.RunnerConfig())
 	if err != nil {
@@ -139,7 +155,6 @@ func imageInstall(args []string, env Env) int {
 		return 1
 	}
 
-	changed := !installed || previous != reference
 	if changed {
 		images[name] = reference
 		settings["images"] = images
@@ -157,20 +172,25 @@ func imageInstall(args []string, env Env) int {
 	if installed && previous != reference {
 		fmt.Fprintf(env.Stdout, "It was %s before.\n", previous)
 	}
-	if !changed {
+	switch {
+	case !changed:
 		fmt.Fprintf(env.Stdout, "The runner uses the new image for the workspaces created from now on; no restart is needed. Students already working keep the container they have.\n")
-		return 0
-	}
-	if !*restart {
+	case !*restart:
+		// --test was refused before the build: the runner could not make a workspace of the new name.
 		fmt.Fprintf(env.Stdout, "The runner reads its settings when it starts: run `cbe-portalctl restart` when no class is working (or say --restart next time), and exams can say `image: %s`.\n", name)
 		return 0
+	default:
+		if err := Restart(c, false); err != nil {
+			fmt.Fprintf(env.Stderr, "error: the image is installed, and the runner was not restarted: %v\n(run `cbe-portalctl restart` when it can be)\n", err)
+			return 1
+		}
+		fmt.Fprintf(env.Stdout, "The runner was restarted: exams can say `image: %s`.\n", name)
 	}
-	if err := Restart(c, false); err != nil {
-		fmt.Fprintf(env.Stderr, "error: the image is installed, and the runner was not restarted: %v\n(run `cbe-portalctl restart` when it can be)\n", err)
-		return 1
+	if !*test {
+		return 0
 	}
-	fmt.Fprintf(env.Stdout, "The runner was restarted: exams can say `image: %s`.\n", name)
-	return 0
+	fmt.Fprintln(env.Stdout)
+	return testImage(ctx, env, cfg, name, checks)
 }
 
 func imageList(args []string, env Env) int {

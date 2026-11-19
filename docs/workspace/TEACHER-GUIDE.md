@@ -109,8 +109,8 @@ A workspace runs in an **image**, and there are two ways to say which.
 - **A course image of the server (`image: cbe/cpp20`).** One image for the course, built and approved by the person who runs the server, with the compiler and tools (g++ for C++20, make, cmake, gdb, flex, bison).
 
 - **The tool you need is not in the image, and others will want it too:** add a course image. Copy `images/cpp20/` to `images/<course>/`, change the
-  packages and the labels, keep the user, the agent and the end of the Containerfile as they are, build it, and run `images/test.sh`. The steps and
-  the contract every image keeps are in [`images/README.md`](../../images/README.md). The server's owner approves it (the runner's list).
+  packages, the labels and its `checks`, keep the student's account as it is, and check it with `cbe-portalctl image check`. The steps and the contract
+  every image keeps are in [`images/README.md`](../../images/README.md). The server's owner installs it (`cbe-portalctl image install ... --test`).
 - **Only this exam needs a library or a file:** give the package an `image/` folder with a `Containerfile` that starts `FROM cbe/cpp20`, install
   what you need, and end as `USER 1000:1000`. The proctor builds it before publishing (the **Image** button on the exam), and the platform checks
   that it is still a course image (same user, agent and entrypoint). The exam **cannot be published until its image is built.** Only this exam's

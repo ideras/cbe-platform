@@ -17,8 +17,8 @@ Containerfile, and the agent is added by the runner's last layer, as it is to ev
 
 ## The contract every course image keeps
 
-The runner, the quota helper and the agent depend on these. The runner's last layer makes 1, 2 and 4 true and `cbe-portalctl image check` checks
-them all (the agent's self test).
+The runner, the quota helper and the agent depend on these. The runner's last layer makes 1, 2 and 4 true, `cbe-portalctl image check` checks
+them all (the agent's self test), and `cbe-portalctl image test` tries them in a workspace the runner makes.
 
 1. **The user is `student`, uid 1000, gid 1000** (decision P0-30). The quota helper creates each student's `/work` folder owned by the host
    user that container uid 1000 maps to, so an image with another uid makes `/work` read-only to the student. Ubuntu's base image already has
@@ -51,9 +51,12 @@ seccomp profile of Podman allows it). Without `openat2` it still works, and foll
    not come from the archive (pip packages, models), download them in the build with the version and checksum written in the file.
 3. **Keep step 2 as it is:** the user, the lock on root, the removal of setuid files. Do not copy the agent, and do not set `USER`, `WORKDIR` or
    `ENTRYPOINT`: the runner's last layer does.
-4. **Check it** on any computer with Podman: `cbe-portalctl image check images/<course>`, and once `--reproducible`.
-5. **Install it** on the server, which builds it in the runner's storage and approves it: `sudo cbe-portalctl image install cbe/<course>
-   images/<course> --restart` (`docs/deployment-linux.md`, "An image for a whole class").
+4. **Write its checks**, `images/<course>/checks`: the commands that show the course's tools work (cpp20's compile and run C++20, build with make
+   and cmake, run gdb, flex and bison). A check starts with a line `# check: what it checks`; its lines run in a terminal in `/work` with
+   `sh -e`, and it passes when they end with status 0.
+5. **Check it** on any computer with Podman: `cbe-portalctl image check images/<course>`, and once `--reproducible`.
+6. **Install it** on the server, which builds it in the runner's storage, approves it and tries it: `sudo cbe-portalctl image install
+   cbe/<course> images/<course> --restart --test` (`docs/deployment-linux.md`, "An image for a whole class").
 
 ## Building and checking
 
@@ -61,6 +64,7 @@ seccomp profile of Podman allows it). Without `openat2` it still works, and foll
 cbe-portalctl image check images/cpp20                   # build it, finish it, check it; nothing is kept
 cbe-portalctl image check images/cpp20 --reproducible    # build it twice from nothing; say whether the two images are identical
 sudo cbe-portalctl image install cbe/cpp20 images/cpp20  # on the server: build it in the runner's storage and approve it as cbe/cpp20
+sudo cbe-portalctl image test cbe/cpp20 images/cpp20     # on the server: try it in a student's workspace, with its checks
 ```
 
 The agent put in the image is the one named with `--agent`; else the installed server's (`agent_binary` in its `runner.json`); else the
@@ -69,10 +73,12 @@ It is checked before anything is built (a static Linux program for this machine,
 stamped with `SOURCE_DATE_EPOCH` (default 2000-01-01). The base image has no CA certificates, so for the one step that downloads packages over
 HTTPS the build lends the host's bundle as a bind mount that leaves nothing in the image.
 
-`images/test.sh` starts an image as the runner will and tests it from outside, through the agent's socket. It is from the setup before the
-installer (its paths, and the name `cbe/<course>:latest`, are that setup's), and a `cbe-portalctl` command is to replace it.
+`image test` asks the runner for a workspace made from the installed image, as the exam server does for a student, and drives its agent
+through the runner: the agent (PID 1, uid 1000, its heartbeat), the student (no network, a read-only root, no capabilities, no sudo, no
+setuid file), files, terminals, the course's own `checks`, the limits (a full `/work` is `QUOTA`, the memory limit kills the program and not
+the workspace, a fork storm stops at the process limit) and a stop. The workspace is removed at the end, whatever happened.
 
-## How the runner starts an image (Phase 3, and what `test.sh` already does)
+## How the runner starts an image (Phase 3, and what `image test` gets)
 
 ```text
 podman run -d --name cbe-<exam>-<session> \
@@ -88,5 +94,5 @@ The limits come from the exam's `resources`, within the server's maximums. The a
 ## Updating an image
 
 Change the Containerfile (a new snapshot date to take newer packages, a new digest to take a newer base), check it with `--reproducible`,
-and install it again on the server (`image install ... --replace`). An exam that is running keeps the container it has; a new exam gets the
+and install it again on the server (`image install ... --replace --test`). An exam that is running keeps the container it has; a new exam gets the
 new image.
