@@ -460,7 +460,9 @@ func TestEveryCommandHasItsHelp(t *testing.T) {
 		}
 	}
 	_, s = command(machine(), "", false, "help", "image", "check")
-	for _, want := range []string{"--podman COMMAND", "(default: podman)", "(default: /opt/cbe-portal/bin/cbe-agent)", "--keep "} {
+	// The default agent is a path of the computer the check runs on (image check runs on an author's Windows or macOS too): its separators are that system's.
+	agent := "(default: " + filepath.Join("/opt/cbe-portal", "bin", "cbe-agent") + ")"
+	for _, want := range []string{"--podman COMMAND", "(default: podman)", agent, "--keep "} {
 		if !strings.Contains(s.out.String(), want) {
 			t.Errorf("help image check lacks %q:\n%s", want, s.out.String())
 		}
