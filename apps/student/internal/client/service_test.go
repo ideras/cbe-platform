@@ -297,7 +297,7 @@ func loginClient(t *testing.T, s *Service, f *fixture) View {
 }
 func waitView(t *testing.T, s *Service, condition func(View) bool) View {
 	t.Helper()
-	until := time.Now().Add(3 * time.Second)
+	until := time.Now().Add(waitLimit)
 	for time.Now().Before(until) {
 		v := s.Snapshot()
 		if condition(v) {
@@ -624,7 +624,7 @@ func TestRequestsNameTheApplicationRelease(t *testing.T) {
 	f := newFixture(t)
 	s := newClient(t, f, func(o *Options) { o.Version = "v0.16.0-test" })
 	loginClient(t, s, f)
-	until := time.Now().Add(3 * time.Second)
+	until := time.Now().Add(waitLimit)
 	for {
 		f.mu.Lock()
 		var agents []string

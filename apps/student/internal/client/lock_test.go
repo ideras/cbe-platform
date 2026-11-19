@@ -371,7 +371,7 @@ func containsEvent(kinds []string, kind string) bool {
 // waitUntil waits until the check says yes.
 func waitUntil(t *testing.T, check func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(waitLimit)
 	for time.Now().Before(deadline) {
 		if check() {
 			return

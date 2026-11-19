@@ -116,7 +116,7 @@ func TestCalcEvaluateWithNeuralMode(t *testing.T) {
 	if err != nil || failed.Ok || failed.Code != calc.CodeDimMismatch {
 		t.Fatalf("dot = %+v, %v", failed, err)
 	}
-	until := time.Now().Add(3 * time.Second)
+	until := time.Now().Add(waitLimit)
 	for {
 		f.mu.Lock()
 		var details []map[string]any
@@ -199,7 +199,7 @@ func TestCalcEventsFlowOnTheirOwnQueue(t *testing.T) {
 	if err := s.CalcClosed("scientific", 1500); err != nil {
 		t.Fatal(err)
 	}
-	until := time.Now().Add(3 * time.Second)
+	until := time.Now().Add(waitLimit)
 	for {
 		f.mu.Lock()
 		kinds := []string{}
@@ -263,7 +263,7 @@ func TestTheFullLogQueueRefusesEvaluations(t *testing.T) {
 	}
 	// Drain and resume: no event was dropped.
 	close(release)
-	until := time.Now().Add(5 * time.Second)
+	until := time.Now().Add(waitLimit)
 	for {
 		queued := s.tools.queued()
 		if queued == 0 {
@@ -395,7 +395,7 @@ func TestCalcEvaluateIntFollowsThePanel(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The details reproduce the result; the queue sends asynchronously, so poll until the last one arrives.
-	until := time.Now().Add(3 * time.Second)
+	until := time.Now().Add(waitLimit)
 	for {
 		f.mu.Lock()
 		var last map[string]any
@@ -443,7 +443,7 @@ func TestCalcConvertFractionLogsTheView(t *testing.T) {
 	if err != nil || !result.Ok || result.Binary != "1010.101" || result.Octal != "12.5" || result.Hex != "A.A" {
 		t.Fatalf("10.625 = %+v, %v", result, err)
 	}
-	until := time.Now().Add(3 * time.Second)
+	until := time.Now().Add(waitLimit)
 	for {
 		f.mu.Lock()
 		found := false
@@ -479,7 +479,7 @@ func TestCalcInspectAnswersAndLogs(t *testing.T) {
 	if view, err = s.CalcInspect("0x412A0000", "binary16", calc.DirectionDecode, 32, true); err != nil || view.Ok || view.Code != calc.CodeBitWidth {
 		t.Fatalf("a wide pattern = %+v, %v, want a BIT_WIDTH result", view, err)
 	}
-	until := time.Now().Add(3 * time.Second)
+	until := time.Now().Add(waitLimit)
 	for {
 		f.mu.Lock()
 		found, foundFailure := false, false
@@ -534,7 +534,7 @@ func TestCalcTabChangedIsLoggedWithoutTheInput(t *testing.T) {
 	if err := s.CalcTabChanged("keypad", "ieee754"); err != nil {
 		t.Fatal(err)
 	}
-	until := time.Now().Add(3 * time.Second)
+	until := time.Now().Add(waitLimit)
 	for {
 		f.mu.Lock()
 		var detail map[string]any
