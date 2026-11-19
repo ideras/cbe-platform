@@ -13,3 +13,18 @@ export const MAX_SHARE = 0.75;
 export const DEFAULT_SHARE = 0.35;
 export const SHARE_STEP = 0.05;
 export const clampShare = share => Number.isFinite(share) ? Math.max(MIN_SHARE, Math.min(MAX_SHARE, share)) : DEFAULT_SHARE;
+
+// The share of the workspace's width that the column of the instructions and the files takes, once the student has changed it (a splitter, or the
+// Wider button). Until then it is null: the usual width of the page's CSS (15 to 21rem), and the editor keeps at least 24rem whatever the share.
+export const MIN_SIDE = 0.15;
+export const MAX_SIDE = 0.7;
+export const WIDE_SIDE = 0.5; // what the Wider button gives
+export const SIDE_STEP = 0.025;
+export const clampSide = share => Number.isFinite(share) ? Math.max(MIN_SIDE, Math.min(MAX_SIDE, share)) : null;
+
+// The share of that column's height that the instructions and the TODO list take, above the files.
+export const MIN_INSTRUCTIONS = 0.15;
+export const MAX_INSTRUCTIONS = 0.85;
+export const DEFAULT_INSTRUCTIONS = 0.4;
+export const INSTRUCTIONS_STEP = 0.05;
+export const clampInstructions = share => Number.isFinite(share) ? Math.max(MIN_INSTRUCTIONS, Math.min(MAX_INSTRUCTIONS, share)) : DEFAULT_INSTRUCTIONS;

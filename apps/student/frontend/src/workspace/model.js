@@ -1,5 +1,5 @@
 import { dirname, basename, join, isInside, moved, sortEntries } from './paths.js';
-import { DEFAULT_ZOOM, DEFAULT_SHARE, stepZoom, clampShare } from './sizes.js';
+import { DEFAULT_ZOOM, DEFAULT_SHARE, stepZoom, clampShare, WIDE_SIDE, clampSide, DEFAULT_INSTRUCTIONS, clampInstructions } from './sizes.js';
 
 // The state and the rules of a student's workspace: the files they have open, what is saved and what is not, the terminals, the TODO
 // ticks. It knows nothing of the page; the components show its snapshot and call its methods. Everything it does to the workspace is
@@ -42,6 +42,11 @@ export class WorkspaceModel {
     // the text size is an index of ZOOMS, the share the part of the room the terminals take. Neither is written anywhere.
     this.terminalZoom = DEFAULT_ZOOM;
     this.terminalShare = DEFAULT_SHARE;
+    // The column of the instructions and the files: its share of the width (null: the usual width) and the instructions' share of its height. Kept
+    // here, like the terminals' sizes, for as long as the page is open: nothing of the workspace is written to the student's computer.
+    this.sideShare = null;
+    this.sideBeforeWide = null;
+    this.instructionsShare = DEFAULT_INSTRUCTIONS;
     this.todo = {};
     this.lastSave = null;
     this.lastSubmit = null;
@@ -73,6 +78,7 @@ export class WorkspaceModel {
       folders: new Map([...this.folders].map(([path, folder]) => [path, { ...folder }])), expanded: new Set(this.expanded),
       tabs: this.tabs.map(tab => ({ ...tab })), activePath: this.activePath,
       terminals: this.terminals.map(term => ({ ...term })), activeTerm: this.activeTerm, terminalZoom: this.terminalZoom, terminalShare: this.terminalShare,
+      sideShare: this.sideShare, sideWide: this.sideShare !== null && this.sideShare >= WIDE_SIDE, instructionsShare: this.instructionsShare,
       todo: { ...this.todo }, lastSave: this.lastSave, lastSubmit: this.lastSubmit,
       unsaved: this.tabs.some(tab => tab.dirty),
     };
@@ -587,6 +593,33 @@ export class WorkspaceModel {
     const next = clampShare(share);
     if (Math.abs(next - this.terminalShare) < 0.0005) return;
     this.terminalShare = next;
+    this.changed();
+  }
+
+  // The column of the instructions and the files: a share of the width between the limits of sizes.js, or null for the usual width. A width that
+  // is not wide is the one the Wider button goes back to.
+  setSideShare(share) {
+    const next = clampSide(share);
+    if (next === this.sideShare || (next !== null && this.sideShare !== null && Math.abs(next - this.sideShare) < 0.0005)) return;
+    this.sideShare = next;
+    if (next === null || next < WIDE_SIDE) this.sideBeforeWide = next;
+    this.changed();
+  }
+  // The Wider button: half the window at once, and then back to the last width that was not wide (the usual width, when the student had not
+  // changed it).
+  toggleSideWide() {
+    if (this.sideShare !== null && this.sideShare >= WIDE_SIDE) this.sideShare = this.sideBeforeWide;
+    else {
+      this.sideBeforeWide = this.sideShare;
+      this.sideShare = WIDE_SIDE;
+    }
+    this.changed();
+  }
+  // The share of the column's height that the instructions take, above the files.
+  setInstructionsShare(share) {
+    const next = clampInstructions(share);
+    if (Math.abs(next - this.instructionsShare) < 0.0005) return;
+    this.instructionsShare = next;
     this.changed();
   }
 

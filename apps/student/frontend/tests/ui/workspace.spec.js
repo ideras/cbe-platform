@@ -902,6 +902,152 @@ test('the splitter and the terminal text size touch nothing outside the page, an
   expect(await page.evaluate(() => window.__storage.length)).toBe(0);
 });
 
+// ----- the column of the instructions and the files: wider and narrower, and the instructions taller or shorter (found before an evaluation, 2026-11-19:
+// an exam's instructions with a wide table did not fit the column) -----
+
+// A table with a cell that cannot be broken (a regular expression), which is what made the real one wider than the column.
+const wideInstructions = '<p>Read every exercise.</p><table><thead><tr><th>Regla</th><th>Token</th><th>Qué reconoce</th></tr></thead><tbody>' +
+  [['ID', '<code>[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)*</code>'], ['NUM', '<code>[0-9]+(\\.[0-9]+)?([eE][+-]?[0-9]+)?</code>']]
+    .map(([token, what], i) => `<tr><td>${i + 1}</td><td>${token}</td><td>${what}</td></tr>`).join('') + '</tbody></table>';
+const width = async (page, selector) => (await page.locator(selector).boundingBox()).width;
+const rem = page => page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).fontSize));
+const height = async (page, selector) => (await page.locator(selector).boundingBox()).height;
+
+test('a splitter gives the instructions and the files more of the width, with the pointer and the keys, and the editor keeps its room', async ({ page }) => {
+  await start(page, { instructions: wideInstructions }, { width: 1280, height: 800 });
+  const splitter = page.getByRole('separator', { name: 'Resize the instructions and the files' });
+  await expect(splitter).toBeVisible();
+  const usual = await width(page, '.side');
+  const r = await rem(page);
+  expect(usual).toBeLessThanOrEqual(21 * r + 1); // the usual column: 15 to 21rem
+  const valueIs = value => expect(splitter).toHaveAttribute('aria-valuenow', String(value));
+
+  // Dragging to the right widens the column, and the editor gives up the room.
+  const editorBefore = await width(page, '.main');
+  const handle = await splitter.boundingBox();
+  const x = handle.x + handle.width / 2;
+  const y = handle.y + handle.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + 300, y, { steps: 8 });
+  await page.mouse.up();
+  await expect.poll(() => width(page, '.side')).toBeGreaterThan(usual + 250);
+  expect(await width(page, '.main')).toBeLessThan(editorBefore - 250);
+
+  // Dragging far to the right stops where the editor still has its 24rem.
+  const moved = await splitter.boundingBox();
+  await page.mouse.move(moved.x + moved.width / 2, y);
+  await page.mouse.down();
+  await page.mouse.move(1270, y, { steps: 8 });
+  await page.mouse.up();
+  await valueIs(70);
+  expect(await width(page, '.main')).toBeGreaterThanOrEqual(24 * r - 1);
+
+  // The keys: Home and End are the ends, the arrows a step, Enter (or a double click) the usual width.
+  await splitter.focus();
+  await page.keyboard.press('End');
+  await valueIs(15);
+  expect(await width(page, '.side')).toBeGreaterThanOrEqual(15 * r - 1); // never narrower than 15rem
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  await valueIs(20);
+  await page.keyboard.press('PageUp');
+  await expect.poll(async () => Number(await splitter.getAttribute('aria-valuenow'))).toBeGreaterThanOrEqual(27);
+  await page.keyboard.press('Enter');
+  await expect.poll(() => width(page, '.side')).toBeLessThanOrEqual(usual + 1);
+  await page.keyboard.press('Home');
+  await valueIs(70);
+  await splitter.dblclick();
+  await expect.poll(() => width(page, '.side')).toBeLessThanOrEqual(usual + 1);
+  // The editor works as before, and nothing is written to the computer.
+  const editor = await openSrc(page);
+  await expect(editor).toContainText('push_front');
+  expect(await page.evaluate(() => window.__storage.length)).toBe(0);
+});
+
+test('Wider gives the instructions and the files half of the window, and a second press gives the editor its room back', async ({ page }) => {
+  await start(page, { instructions: wideInstructions }, { width: 1280, height: 800 });
+  const wider = page.getByRole('button', { name: 'Wider instructions' });
+  await expect(wider).toHaveAttribute('aria-pressed', 'false');
+  const usual = await width(page, '.side');
+  const panes = await width(page, '.panes');
+  // Long instructions scrolled to their end still have the button at the top of their panel.
+  await page.locator('.todo-box').evaluate(box => { box.scrollTop = box.scrollHeight; });
+  await expect.poll(() => page.locator('.todo-box').evaluate(box => box.scrollTop)).toBeGreaterThan(50);
+  const panel = await page.locator('.todo-box').boundingBox();
+  const button = await wider.boundingBox();
+  expect(button.y).toBeGreaterThanOrEqual(panel.y);
+  expect(button.y + button.height).toBeLessThan(panel.y + 3 * button.height);
+  await page.locator('.todo-box').evaluate(box => { box.scrollTop = 0; });
+  // The table of the instructions is squeezed by the usual column (its long cells broken over many lines), and has its room in the wide one.
+  const table = page.getByRole('region', { name: 'Instructions and TODO list' }).locator('table');
+  const squeezed = await table.boundingBox();
+  await wider.click();
+  await expect(wider).toHaveAttribute('aria-pressed', 'true');
+  await expect.poll(async () => Math.abs((await width(page, '.side')) / panes - 0.5)).toBeLessThan(0.03);
+  await expect.poll(async () => (await table.boundingBox()).width).toBeGreaterThan(squeezed.width + 150);
+  expect((await table.boundingBox()).height).toBeLessThan(squeezed.height);
+  await wider.click();
+  await expect(wider).toHaveAttribute('aria-pressed', 'false');
+  await expect.poll(() => width(page, '.side')).toBeLessThanOrEqual(usual + 1);
+  await expect.poll(async () => Math.abs((await table.boundingBox()).width - squeezed.width)).toBeLessThan(2);
+  // From a width the student chose, Wider and back return to it.
+  const splitter = page.getByRole('separator', { name: 'Resize the instructions and the files' });
+  await splitter.focus();
+  await page.keyboard.press('End');
+  await page.keyboard.press('ArrowRight');
+  await expect(splitter).toHaveAttribute('aria-valuenow', '18');
+  await wider.click();
+  await expect(splitter).toHaveAttribute('aria-valuenow', '50');
+  await wider.click();
+  await expect(splitter).toHaveAttribute('aria-valuenow', '18');
+});
+
+test('a splitter between the instructions and the files shares the height of the column', async ({ page }) => {
+  await start(page, { instructions: wideInstructions }, { width: 1280, height: 800 });
+  const splitter = page.getByRole('separator', { name: 'Resize the instructions', exact: true });
+  await expect(splitter).toBeVisible();
+  await expect(splitter).toHaveAttribute('aria-valuenow', '40');
+  const usual = { instructions: await height(page, '.todo-box'), files: await height(page, '.tree-box') };
+
+  // Dragging down gives the instructions room, and the files lose it.
+  const handle = await splitter.boundingBox();
+  const x = handle.x + handle.width / 2;
+  const y = handle.y + handle.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x, y + 150, { steps: 8 });
+  await page.mouse.up();
+  await expect.poll(() => height(page, '.todo-box')).toBeGreaterThan(usual.instructions + 120);
+  expect(await height(page, '.tree-box')).toBeLessThan(usual.files - 120);
+  await expect(page.getByRole('treeitem', { name: 'Makefile' })).toBeVisible();
+
+  // The keys: down is more for the instructions, up less; Home and End the ends; Enter or a double click the usual share.
+  await splitter.focus();
+  await page.keyboard.press('Home');
+  await expect(splitter).toHaveAttribute('aria-valuenow', '85');
+  await page.keyboard.press('ArrowUp');
+  await expect(splitter).toHaveAttribute('aria-valuenow', '80');
+  await page.keyboard.press('End');
+  await expect(splitter).toHaveAttribute('aria-valuenow', '15');
+  await page.keyboard.press('ArrowDown');
+  await expect(splitter).toHaveAttribute('aria-valuenow', '20');
+  await page.keyboard.press('Enter');
+  await expect(splitter).toHaveAttribute('aria-valuenow', '40');
+  await expect.poll(async () => Math.abs((await height(page, '.todo-box')) - usual.instructions)).toBeLessThan(3);
+  await page.keyboard.press('PageDown');
+  await expect(splitter).toHaveAttribute('aria-valuenow', '55');
+  await splitter.dblclick();
+  await expect(splitter).toHaveAttribute('aria-valuenow', '40');
+});
+
+test('in a narrow window the column is the whole width above the editor, with nothing to resize', async ({ page }) => {
+  await start(page, { instructions: wideInstructions }, { width: 820, height: 900 });
+  await expect(page.getByRole('region', { name: 'Instructions and TODO list' })).toBeVisible();
+  await expect(page.getByRole('separator', { name: /Resize the instructions/ })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Wider instructions' })).toHaveCount(0);
+});
+
 test('typing exit in a terminal closes its tab, and the keyboard goes to the next terminal or, with none left, to the editor', async ({ page }) => {
   await start(page);
   await openSrc(page);
