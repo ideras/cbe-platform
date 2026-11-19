@@ -15,7 +15,7 @@ import (
 // image is the `image` command (decisions D-CB-5 and D-CB-7).
 func image(args []string, env Env) int {
 	if len(args) == 0 {
-		fmt.Fprint(env.Stderr, "cbe-portalctl image: name what to do: check, install or list\n\n")
+		fmt.Fprint(env.Stderr, "cbe-portalctl image: name what to do: check, install, test or list\n\n")
 		printImageHelp(env.Stderr)
 		return 2
 	}
@@ -27,10 +27,12 @@ func image(args []string, env Env) int {
 		return imageCheck(args[1:], env)
 	case "install":
 		return imageInstall(args[1:], env)
+	case "test":
+		return imageTest(args[1:], env)
 	case "list":
 		return imageList(args[1:], env)
 	}
-	return unknownCommand(env, "image "+args[0], []string{"image check", "image install", "image list"}, "image")
+	return unknownCommand(env, "image "+args[0], []string{"image check", "image install", "image test", "image list"}, "image")
 }
 
 func imageCheck(args []string, env Env) int {

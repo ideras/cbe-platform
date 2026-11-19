@@ -129,7 +129,7 @@ Exit status 0: the server will accept the image. 1: it will not (the line NOT AC
 		},
 		{
 			Name:    "image install",
-			Args:    "NAME DIR [--agent FILE] [--replace] [--restart]",
+			Args:    "NAME DIR [--agent FILE] [--replace] [--restart] [--test]",
 			Summary: "Build a class image and approve it on this server",
 			Text: `Install a class image on this server: build DIR once, as image check does but in the runner's storage, and approve it as NAME in the runner's settings, so that every exam of the class can say "image: NAME".
 
@@ -137,8 +137,26 @@ NAME is lower-case words joined by / . _ or - (cbe/cpp20, nn-2026), with no tag.
 
 A new NAME is used once the runner restarts: run cbe-portalctl restart, or add --restart, which does it now unless students are working. Installing a NAME again needs --replace and no restart: the workspaces created from then on use the new image.
 
+--test tries the image once it is installed, as image test does, with the checks file of DIR. A new NAME needs --restart with it: the runner makes workspaces only of the names it read when it started.
+
 Run it as root.`,
-			Examples: []string{"sudo cbe-portalctl image install cbe/cpp20 images/cpp20/ --restart"},
+			Examples: []string{
+				"sudo cbe-portalctl image install cbe/cpp20 images/cpp20/ --restart --test",
+				"sudo cbe-portalctl image install cbe/cpp20 images/cpp20/ --replace --test",
+			},
+		},
+		{
+			Name:    "image test",
+			Args:    "NAME [DIR]",
+			Summary: "Try an installed image in a student's workspace",
+			Text: `Try an image the runner approves the way a student uses it. The runner makes a workspace of NAME as it makes a student's (a /work of 20 MB, 256 MB of memory, no network, a read-only root), and the test drives the agent in it through the runner: the agent itself, the student's account, files, terminals, the limits of disk, memory and processes, and a stop. The workspace is removed at the end, even when a check fails or the test is interrupted.
+
+DIR is the image's folder: the commands of its file checks are the course's own checks (cbe/cpp20's are its C++ toolchain), run after the others and before the limits. Without DIR, only the checks every image must pass are run. A check starts with a line "# check: what it checks"; its lines, up to the next check, run in a terminal in /work with sh -e, and it passes when they end with status 0.
+
+Exit status 0: every check passed. 1: a check failed (FAIL says which and why), or the test could not be made.
+
+Run it as root: it talks to the runner as the exam server does, with the runner's secret.`,
+			Examples: []string{"sudo cbe-portalctl image test cbe/cpp20 images/cpp20/"},
 		},
 		{
 			Name:    "image list",
@@ -220,7 +238,7 @@ func printOverview(w io.Writer) {
 	fmt.Fprint(w, "cbe-portalctl sets up and runs a CBE Portal exam server on this Linux machine.\n\nUsage: cbe-portalctl COMMAND [OPTIONS]\n")
 	listCommands(w, "")
 	fmt.Fprint(w, "\n")
-	fill(w, `Run as root (sudo): configure, unconfigure, restart, image install and image list. doctor and image check need no root, and neither do configure and unconfigure with --dry-run. status runs as anyone, but only root sees the runner and the student workspaces.`, "", "")
+	fill(w, `Run as root (sudo): configure, unconfigure, restart, image install, image test and image list. doctor and image check need no root, and neither do configure and unconfigure with --dry-run. status runs as anyone, but only root sees the runner and the student workspaces.`, "", "")
 	fmt.Fprint(w, "\n")
 	fill(w, `Exit status: 0 done; 1 it failed, or something is not working; 2 a wrong command, option or configuration.`, "", "")
 	fmt.Fprint(w, "\n")

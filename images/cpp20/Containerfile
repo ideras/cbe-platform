@@ -2,6 +2,7 @@
 #
 #   sudo cbe-portalctl image install cbe/cpp20 images/cpp20     build it, finish it with the agent, approve it as cbe/cpp20
 #   cbe-portalctl image check images/cpp20 --reproducible       build it twice from nothing and say whether the two images are the same
+#   sudo cbe-portalctl image test cbe/cpp20 images/cpp20        try it in a student's workspace, with the checks of images/cpp20/checks
 #
 # The agent is not copied here: the runner's last layer adds it after this file's last line (the student account, the agent, USER, WORKDIR
 # and ENTRYPOINT), as it does for every image (decision D-CB-9).

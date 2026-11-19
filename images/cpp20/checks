@@ -1,0 +1,86 @@
+# The checks of cbe/cpp20 that are its own: the C++ toolchain. `sudo cbe-portalctl image test cbe/cpp20 images/cpp20` (or `image install
+# ... --test`) runs them in a student's workspace made from the installed image, after the checks every image passes (the agent, the
+# student, files, terminals) and before the limits (decision D-CB-10).
+#
+# A check starts with a line `# check: what it checks`. Its lines, up to the next check, run in a terminal in /work with sh -c and set -e:
+# the first command that fails ends the check, and it passes when it ends with status 0. The checks run in this order, in the same /work
+# (20 MB), so a check may use what an earlier one made.
+
+# check: the tools are there: g++, make, cmake, gdb, flex, bison, nano
+g++ --version >/dev/null
+make --version >/dev/null
+cmake --version >/dev/null
+gdb --version >/dev/null
+flex --version >/dev/null
+bison --version >/dev/null
+nano --version >/dev/null
+
+# check: C++20, with ranges and format, compiles and runs
+cat > even.cpp <<'CPP'
+#include <format>
+#include <iostream>
+#include <ranges>
+#include <vector>
+int main() {
+  std::vector v{1, 2, 3, 4};
+  for (int x : v | std::views::filter([](int n) { return n % 2 == 0; })) std::cout << std::format("even {}\n", x);
+}
+CPP
+g++ -std=c++20 -Wall -g -o even even.cpp
+./even | grep -q 'even 4'
+
+# check: gdb runs a program
+gdb -batch -ex run -ex bt ./even 2>&1 | grep -q 'exited normally'
+
+# check: make builds a project, and its exit status comes back
+mkdir -p mk
+cd mk
+cat > hello.cpp <<'CPP'
+#include <iostream>
+int main() { std::cout << "hello from make\n"; }
+CPP
+printf 'hello: hello.cpp\n\tg++ -std=c++20 -o hello hello.cpp\ncheck: hello\n\t./hello\n\tfalse\n' > Makefile
+make hello | grep -q 'g++ -std=c++20'
+status=0
+make check >/dev/null 2>&1 || status=$?
+test "$status" = 2
+
+# check: cmake configures and builds
+mkdir -p cm
+cd cm
+cat > CMakeLists.txt <<'CMAKE'
+cmake_minimum_required(VERSION 3.20)
+project(demo CXX)
+set(CMAKE_CXX_STANDARD 20)
+add_executable(demo main.cpp)
+CMAKE
+cat > main.cpp <<'CPP'
+#include <iostream>
+int main() { std::cout << "cmake ok\n"; }
+CPP
+cmake -S . -B build >/dev/null
+cmake --build build >/dev/null
+./build/demo | grep -q 'cmake ok'
+
+# check: flex and bison make code that compiles
+mkdir -p fb
+cd fb
+cat > scan.l <<'LEX'
+%%
+[0-9]+ { return 1; }
+.|\n ;
+%%
+int yywrap(void) { return 1; }
+LEX
+flex -o scan.c scan.l
+gcc -c scan.c -o scan.o
+cat > parse.y <<'YACC'
+%{
+int yylex(void) { return 0; }
+void yyerror(const char *s) {}
+%}
+%%
+start: ;
+YACC
+bison -o parse.c parse.y
+gcc -c parse.c -o parse.o
