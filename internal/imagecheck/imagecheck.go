@@ -16,8 +16,12 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
+	"runtime"
+	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"exam-platform/internal/runner"
@@ -42,8 +46,17 @@ func Command(prefix ...string) Podman {
 type Options struct {
 	// Dir is a package folder (its image/ folder is checked), an image folder, or the Containerfile itself.
 	Dir string
-	// Agent is the static cbe-agent the runner puts in every image it finishes (the installer puts it in INSTALL_DIR/bin).
-	Agent string
+	// Agent is the static cbe-agent the runner puts in every image it finishes (the installer puts it in INSTALL_DIR/bin). AgentFrom says where it was
+	// found, for the output ("agent_binary in /opt/cbe-portal/etc/runner.json").
+	Agent, AgentFrom string
+	// Release is the release the agent should be ("v0.19.0") and ReleaseOf whose release that is ("the server installed here"): an agent that says it
+	// is another is a warning. Empty or "dev": no comparison.
+	Release, ReleaseOf string
+	// Epoch is the date the images, and every file in them, are stamped with (podman build --timestamp, and SOURCE_DATE_EPOCH when the Containerfile
+	// declares that ARG), so that a build of the same files gives the same image. 0 is DefaultEpoch.
+	Epoch int64
+	// Reproducible builds everything twice from nothing and compares the two images: Result.Irreproducible says how they differ.
+	Reproducible bool
 	// Config holds the decisions of the server the exam is for (custom_base, base_registries): nil is no decision, every base allowed.
 	Config *runner.Config
 	// Podman is how the container runtime is run.
@@ -80,7 +93,12 @@ type Result struct {
 	Image   string
 	ImageID string
 	Tags    []string
+	// Irreproducible says how two builds from nothing differed (Options.Reproducible): empty when they gave the same image, or were not compared.
+	Irreproducible string
 }
+
+// DefaultEpoch is the date the images are stamped with when nothing else is said: 2000-01-01, as the course images always were.
+const DefaultEpoch = 946684800
 
 // Check does it. An error is something that stopped the check (no Podman, no agent, no folder); an image that is not accepted is a Result with a Problem.
 func Check(ctx context.Context, o Options) (Result, error) {
@@ -90,7 +108,7 @@ func Check(ctx context.Context, o Options) (Result, error) {
 	}
 	say := func(format string, args ...any) { fmt.Fprintf(out, format+"\n", args...) }
 
-	folder, file, err := locate(o.Dir)
+	folder, file, err := Locate(o.Dir)
 	if err != nil {
 		return Result{}, err
 	}
@@ -107,11 +125,11 @@ func Check(ctx context.Context, o Options) (Result, error) {
 	for _, warning := range rules.Warnings {
 		say("  warning: Containerfile %s", warning)
 	}
-	if len(rules.Problems) > 0 {
-		for _, problem := range rules.Problems {
+	if problems := append(rules.Problems, copiesTheAgent(string(text))...); len(problems) > 0 {
+		for _, problem := range problems {
 			say("  Containerfile %s", problem)
 		}
-		return fail(result, "the Containerfile is not accepted: "+strings.Join(rules.Problems, "; ")), nil
+		return fail(result, "the Containerfile is not accepted: "+strings.Join(problems, "; ")), nil
 	}
 	say("  rules       ok")
 
@@ -128,9 +146,29 @@ func Check(ctx context.Context, o Options) (Result, error) {
 		say("  server      ok (custom_base on, registries: %s)", registriesText(o.Config))
 	}
 
-	agent, err := os.ReadFile(o.Agent)
+	// 3. The agent, which goes in the image last: looked at before anything is built.
+	agent, err := ReadAgent(ctx, o.Agent, runtime.GOARCH)
 	if err != nil {
-		return Result{}, fmt.Errorf("the agent to put in the image: %w (--agent names a static cbe-agent; the installer puts one in /opt/cbe-portal/bin)", err)
+		return Result{}, fmt.Errorf("the agent to put in the image: %w", err)
+	}
+	warn := func(format string, args ...any) {
+		text := fmt.Sprintf(format, args...)
+		result.Warnings = append(result.Warnings, text)
+		say("  warning: %s", text)
+	}
+	agentVersion, from := agent.Version, ""
+	if agentVersion == "" {
+		agentVersion = "version not known"
+	}
+	if o.AgentFrom != "" {
+		from = " (" + o.AgentFrom + ")"
+	}
+	say("  agent       ok: %s%s, %s, linux/%s, static, sha256 %s", o.Agent, from, agentVersion, agent.Arch, agent.Sum[:12])
+	if agent.VersionProblem != "" {
+		warn("the agent's version could not be asked (%s): the image is not labelled with it", agent.VersionProblem)
+	}
+	if agent.Version != "" && o.Release != "" && o.Release != "dev" && agent.Version != o.Release {
+		warn("the agent is %s and %s is %s: a runner talks to the agents of its own release", agent.Version, o.ReleaseOf, o.Release)
 	}
 	if o.Podman == nil {
 		o.Podman = Command("podman")
@@ -140,7 +178,7 @@ func Check(ctx context.Context, o Options) (Result, error) {
 		return Result{}, fmt.Errorf("the container runtime does not answer (is podman installed, and does `podman info` work for this user?): %v %s", err, strings.TrimSpace(version.String()))
 	}
 
-	// 3. The author's build and the runner's, in a folder of their own.
+	// 4. The author's build and the runner's, in a folder of their own.
 	work, err := os.MkdirTemp("", "cbe-image-check-")
 	if err != nil {
 		return Result{}, err
@@ -183,43 +221,72 @@ func Check(ctx context.Context, o Options) (Result, error) {
 			}
 		}
 	}
-	say("\nBuilding the Containerfile (the base is pulled the first time: this can take minutes)\n")
-	build := []string{"build", "--format", "docker", "--tag", authors}
-	if o.Rebuild {
-		build = append(build, "--no-cache")
-	}
-	if err := o.Podman(ctx, append(build, context1), out, out); err != nil {
-		return fail(result, "the build of the Containerfile failed: "+err.Error()+" (the output above says which step)"), nil
-	}
-
 	context2 := filepath.Join(work, "finish")
 	if err := os.MkdirAll(context2, 0o755); err != nil {
 		return Result{}, err
 	}
-	for _, f := range runner.FinalizeFiles(authors, agent) {
+	for _, f := range runner.FinalizeFiles(authors, agent.Data) {
 		if err := os.WriteFile(filepath.Join(context2, f.Name), f.Data, fs.FileMode(f.Mode)); err != nil {
 			return Result{}, err
 		}
 		_ = os.Chmod(filepath.Join(context2, f.Name), fs.FileMode(f.Mode))
 	}
-	say("\nFinishing the image: the student account, no way up, the agent\n")
-	finishing := []string{"build", "--format", "docker"}
-	labels := make([]string, 0, len(o.Labels))
+
+	// Every file of both builds, and the images themselves, have the same date, so that the same files give the same image.
+	epoch := o.Epoch
+	if epoch == 0 {
+		epoch = DefaultEpoch
+	}
+	stamp := strconv.FormatInt(epoch, 10)
+	authorBuild := []string{"build", "--format", "docker", "--timestamp", stamp}
+	if declares(string(text), "SOURCE_DATE_EPOCH") {
+		authorBuild = append(authorBuild, "--build-arg", "SOURCE_DATE_EPOCH="+stamp)
+	}
+	finishing := []string{"build", "--format", "docker", "--timestamp", stamp}
+	labels := map[string]string{}
+	if agent.Version != "" {
+		labels[LabelAgentVersion] = agent.Version
+	}
 	for key, value := range o.Labels {
-		labels = append(labels, key+"="+value)
+		labels[key] = value
 	}
-	sort.Strings(labels)
-	for _, label := range labels {
-		finishing = append(finishing, "--label", label)
+	keys := make([]string, 0, len(labels))
+	for key := range labels {
+		keys = append(keys, key)
 	}
-	if err := o.Podman(ctx, append(finishing, "--tag", finished, context2), out, out); err != nil {
-		return fail(result, "the runner could not finish the image (the base has to be a Linux image with /bin/sh): "+err.Error()), nil
+	sort.Strings(keys)
+	for _, key := range keys {
+		finishing = append(finishing, "--label", key+"="+labels[key])
+	}
+	// buildBoth makes the author's image and finishes it, and says what failed. fromNothing builds the author's image without the cache (--rebuild),
+	// and both builds when the finishing layer must be made again too (--reproducible).
+	buildBoth := func(fromNothing, finishFromNothing bool) string {
+		say("\nBuilding the Containerfile (the base is pulled the first time: this can take minutes)\n")
+		build := append(append([]string{}, authorBuild...), "--tag", authors)
+		if fromNothing {
+			build = append(build, "--no-cache")
+		}
+		if err := o.Podman(ctx, append(build, context1), out, out); err != nil {
+			return "the build of the Containerfile failed: " + err.Error() + " (the output above says which step)"
+		}
+		say("\nFinishing the image: the student account, no way up, the agent\n")
+		finish := append(append([]string{}, finishing...), "--tag", finished)
+		if finishFromNothing {
+			finish = append(finish, "--no-cache")
+		}
+		if err := o.Podman(ctx, append(finish, context2), out, out); err != nil {
+			return "the runner could not finish the image (the base has to be a Linux image with /bin/sh): " + err.Error()
+		}
+		return ""
+	}
+	if problem := buildBoth(o.Rebuild || o.Reproducible, o.Reproducible); problem != "" {
+		return fail(result, problem), nil
 	}
 	if o.Keep {
 		result.Image = finished
 	}
 
-	// 4. What the finished image is.
+	// 5. What the finished image is.
 	var inspected bytes.Buffer
 	if err := o.Podman(ctx, []string{"image", "inspect", finished}, &inspected, io.Discard); err != nil {
 		return Result{}, fmt.Errorf("the image that was built cannot be read: %w", err)
@@ -228,12 +295,12 @@ func Check(ctx context.Context, o Options) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	if problem := runner.ImageConfigProblem(info, runner.AgentSum(agent)); problem != "" {
+	if problem := runner.ImageConfigProblem(info, agent.Sum); problem != "" {
 		return fail(result, problem), nil
 	}
 	say("  image       ok (user 1000:1000, the agent, no volume)")
 
-	// 5. The agent's self test, in a container made as a student's is (internal/runner/policy.go, hardened).
+	// 6. The agent's self test, in a container made as a student's is (internal/runner/policy.go, hardened).
 	var report, stderr bytes.Buffer
 	run := []string{"run", "--rm", "--user", "1000:1000", "--network", "none", "--read-only", "--cap-drop", "all", "--security-opt", "no-new-privileges",
 		"--pids-limit", "256", "--memory", "256m", "--memory-swap", "256m", "--tmpfs", "/tmp:rw,noexec,nosuid,nodev,size=64m,mode=1777",
@@ -245,7 +312,7 @@ func Check(ctx context.Context, o Options) (Result, error) {
 		if runErr != nil {
 			detail = strings.TrimSpace(runErr.Error() + " " + detail)
 		}
-		return fail(result, "the agent in the image did not run: "+detail+". The image must be a Linux image the agent, a static program, can run in: the agent given with --agent must be built for this machine's architecture, and the image needs /proc"), nil
+		return fail(result, "the agent in the image did not run: "+detail+". The image must be a Linux image the agent, a static program, can run in: it needs /proc"), nil
 	}
 	say("")
 	for _, c := range self.Checks {
@@ -264,12 +331,36 @@ func Check(ctx context.Context, o Options) (Result, error) {
 		return fail(result, "the image does not keep the contract of a workspace image: "+self.Failed()), nil
 	}
 	result.OK = true
-	if o.Name != "" {
-		short := strings.TrimPrefix(info.ID, "sha256:")
-		if len(short) > 12 {
-			short = short[:12]
+
+	// 7. The same files, built again from nothing, must give the same image.
+	if o.Reproducible {
+		first := append([]byte{}, inspected.Bytes()...)
+		say("\nBuilding everything again from nothing, to compare the two images\n")
+		var ignored bytes.Buffer
+		_ = o.Podman(ctx, []string{"rmi", "--force", finished, authors}, &ignored, &ignored)
+		if problem := buildBoth(true, true); problem != "" {
+			return fail(result, "the second build from nothing: "+problem), nil
 		}
-		names := []string{o.Name + ":" + short, o.Name + ":latest"}
+		var again bytes.Buffer
+		if err := o.Podman(ctx, []string{"image", "inspect", finished}, &again, io.Discard); err != nil {
+			return Result{}, fmt.Errorf("the image that was built again cannot be read: %w", err)
+		}
+		second, err := imageInfo(again.Bytes())
+		if err != nil {
+			return Result{}, err
+		}
+		say("")
+		if second.ID == info.ID {
+			say("  reproduced  ok: two builds from nothing gave the same image (%s)", shortID(info.ID))
+		} else {
+			result.Irreproducible = differences(first, again.Bytes())
+			say("  reproduced  NO: %s", result.Irreproducible)
+		}
+		info = second
+	}
+
+	if o.Name != "" {
+		names := []string{o.Name + ":" + shortID(info.ID), o.Name + ":latest"}
 		if err := o.Podman(ctx, append([]string{"tag", finished}, names...), out, out); err != nil {
 			return Result{}, fmt.Errorf("naming the image: %w", err)
 		}
@@ -285,6 +376,136 @@ func fail(r Result, problem string) Result {
 	return r
 }
 
+func shortID(id string) string {
+	id = strings.TrimPrefix(id, "sha256:")
+	if len(id) > 12 {
+		return id[:12]
+	}
+	return id
+}
+
+// copiesTheAgent finds the lines that COPY or ADD a file called cbe-agent from the build's folder. There is none there: the runner adds the agent to
+// every image after the Containerfile's last line (internal/runner/finalize.go), whether the server builds it or cbe-portalctl does (decision D-CB-9).
+func copiesTheAgent(text string) []string {
+	instructions, err := containerfile.Parse(text)
+	if err != nil {
+		return nil // the rules have said what is wrong
+	}
+	var problems []string
+	for _, in := range instructions {
+		if in.Command != "COPY" && in.Command != "ADD" || slices.ContainsFunc(in.Flags, func(flag string) bool { return flag == "--from" || strings.HasPrefix(flag, "--from=") }) {
+			continue
+		}
+		words := copyWords(in.Args)
+		for _, word := range words[:max(len(words)-1, 0)] { // the last word is where it goes
+			if path.Base(word) == "cbe-agent" {
+				problems = append(problems, fmt.Sprintf("line %d: %s %s: there is no cbe-agent in the build's folder: the runner adds the agent to every image after the last line of the Containerfile (%s), so take this line out", in.Line, in.Command, word, runner.AgentPath))
+				break
+			}
+		}
+	}
+	return problems
+}
+
+// copyWords are the sources and the destination of a COPY or ADD, written as words or as a JSON list.
+func copyWords(args string) []string {
+	line, _, _ := strings.Cut(args, "\n") // a heredoc's body follows the first line
+	line = strings.TrimSpace(line)
+	if strings.HasPrefix(line, "[") {
+		var words []string
+		if json.Unmarshal([]byte(line), &words) == nil {
+			return words
+		}
+	}
+	return strings.Fields(line)
+}
+
+// declares says whether the Containerfile has the ARG name.
+func declares(text, name string) bool {
+	instructions, err := containerfile.Parse(text)
+	if err != nil {
+		return false
+	}
+	for _, in := range instructions {
+		if in.Command != "ARG" {
+			continue
+		}
+		for _, word := range strings.Fields(in.Args) {
+			if key, _, _ := strings.Cut(word, "="); key == name {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// layer is a layer of an image and the step of the Containerfile that made it.
+type layer struct{ digest, step string }
+
+// layersOf reads the layers of an image from `podman image inspect`, each with the step that made it (the history's entries that made a layer are in
+// the order of the layers).
+func layersOf(inspected []byte) ([]layer, error) {
+	var images []struct {
+		RootFS struct {
+			Layers []string `json:"Layers"`
+		} `json:"RootFS"`
+		History []struct {
+			CreatedBy  string `json:"created_by"`
+			EmptyLayer bool   `json:"empty_layer"`
+		} `json:"History"`
+	}
+	if err := json.Unmarshal(inspected, &images); err != nil || len(images) != 1 {
+		return nil, fmt.Errorf("the image's layers cannot be read: %v", err)
+	}
+	var steps []string
+	for _, h := range images[0].History {
+		if !h.EmptyLayer {
+			steps = append(steps, h.CreatedBy)
+		}
+	}
+	layers := make([]layer, len(images[0].RootFS.Layers))
+	for i, digest := range images[0].RootFS.Layers {
+		layers[i] = layer{digest: digest, step: "a step the image does not name"}
+		if len(steps) == len(layers) {
+			layers[i].step = stepText(steps[i])
+		}
+	}
+	return layers, nil
+}
+
+// stepText is a step of an image's history as it is shown: the Containerfile's words, on one line, not too long.
+func stepText(createdBy string) string {
+	text := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(createdBy), "/bin/sh -c"))
+	text = strings.TrimSpace(strings.TrimPrefix(text, "#(nop)"))
+	text = strings.Join(strings.Fields(text), " ")
+	if len(text) > 70 {
+		text = text[:70] + "…"
+	}
+	return text
+}
+
+// differences says where two images built from the same files differ: the layers that are not the same, with the step that made each.
+func differences(first, second []byte) string {
+	a, errA := layersOf(first)
+	b, errB := layersOf(second)
+	switch {
+	case errA != nil || errB != nil:
+		return "the two builds from nothing gave different images (their layers could not be read to say where)"
+	case len(a) != len(b):
+		return fmt.Sprintf("the two builds from nothing gave images of %d and %d layers", len(a), len(b))
+	}
+	var differ []string
+	for i := range a {
+		if a[i].digest != b[i].digest {
+			differ = append(differ, fmt.Sprintf("layer %d of %d (%s)", i+1, len(a), a[i].step))
+		}
+	}
+	if len(differ) == 0 {
+		return "the two builds from nothing have the same layers and different configurations (a date or a label that changes with every build)"
+	}
+	return "the two builds from nothing differ in " + strings.Join(differ, ", ") + ": something in that step changes with every build (a date, a log, a download that is not pinned)"
+}
+
 func registriesText(c *runner.Config) string {
 	if len(c.BaseRegistries) == 0 {
 		return "any"
@@ -292,8 +513,8 @@ func registriesText(c *runner.Config) string {
 	return strings.Join(c.BaseRegistries, ", ")
 }
 
-// locate finds the folder of the build context and its Containerfile: a package folder (image/Containerfile), an image folder, or the file itself.
-func locate(dir string) (folder, file string, err error) {
+// Locate finds the folder of the build context and its Containerfile: a package folder (image/Containerfile), an image folder, or the file itself.
+func Locate(dir string) (folder, file string, err error) {
 	if dir == "" {
 		return "", "", errors.New("name the package folder, its image/ folder or the Containerfile")
 	}

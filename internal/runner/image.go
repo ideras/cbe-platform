@@ -340,7 +340,7 @@ func (s *Service) BuildImageLive(ctx context.Context, req BuildRequest, buildCon
 	}
 
 	// The build: the context with the Containerfile pinned to the digest, and the host's certificate bundle lent as ca.crt (the course image
-	// has none: a step that reaches an HTTPS archive mounts it, as images/build.sh does, and it is not in the image).
+	// has none: a step that reaches an HTTPS archive mounts it, as images/cpp20/Containerfile does, and it is not in the image).
 	pinned, err := containerfile.Pin(string(text), req.Image, pinnedRef)
 	if err != nil {
 		return finish(FailContainerfile, "the Containerfile is not accepted: "+err.Error())

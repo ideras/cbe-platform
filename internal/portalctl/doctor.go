@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"exam-platform/internal/imagecheck"
 )
 
 // Level is how bad a finding of the pre-flight check is.
@@ -64,6 +66,15 @@ func Doctor(c *Ctx) []Finding {
 	}
 	if !l.Workspace {
 		return out
+	}
+
+	// The agent goes in every image the runner finishes and every image image install builds: it is looked at as they look at it (decision D-CB-9).
+	if data, err := c.Sys.ReadFile(l.AgentBinary()); err == nil {
+		if a, err := imagecheck.InspectAgent(data, c.Sys.Arch()); err != nil {
+			add(Fail, "the agent", l.AgentBinary()+" cannot go in an image: "+err.Error()+" (reinstall the installer of this machine)")
+		} else {
+			add(OK, "the agent", fmt.Sprintf("static, linux/%s, sha256 %s", a.Arch, a.Sum[:12]))
+		}
 	}
 
 	if out, err := c.Sys.Run("podman", "--version"); err != nil {

@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"exam-platform/internal/agenttest"
 	"exam-platform/internal/runner"
 )
 
@@ -25,6 +26,8 @@ type fakePodman struct {
 	buildErr  map[int]error                // a build (the first is 1) that fails
 	builds    int
 	inspected string // what `image inspect` prints; empty: an image that is as the runner finishes it
+	again     string // what the second `image inspect` prints, when it is not what the first did
+	inspects  int
 	selftest  string // what the agent prints
 	runErr    error
 	noPodman  bool
@@ -68,6 +71,11 @@ func (f *fakePodman) run(_ context.Context, args []string, stdout, stderr io.Wri
 		fmt.Fprintf(stdout, "STEP 1/1: build %d\n", f.builds)
 		return f.buildErr[f.builds]
 	case "image":
+		f.inspects++
+		if f.inspects > 1 && f.again != "" {
+			fmt.Fprint(stdout, f.again)
+			return nil
+		}
 		if f.inspected != "" {
 			fmt.Fprint(stdout, f.inspected)
 			return nil
@@ -115,6 +123,7 @@ func finishedImage(agentSum, user, workdir string, volumes []string) string {
 
 type rig struct {
 	dir, agent string
+	agentData  []byte
 	fake       *fakePodman
 	out        *bytes.Buffer
 	options    Options
@@ -132,17 +141,18 @@ func newRig(t *testing.T, containerfile string) *rig {
 			t.Fatal(err)
 		}
 	}
+	agentData := agenttest.Agent(t, runtime.GOARCH)
 	agent := filepath.Join(t.TempDir(), "cbe-agent")
-	if err := os.WriteFile(agent, []byte("THE AGENT"), 0o755); err != nil {
+	if err := os.WriteFile(agent, agentData, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	ca := filepath.Join(t.TempDir(), "ca.crt")
 	if err := os.WriteFile(ca, []byte("CERTS"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	fake := &fakePodman{agentSum: runner.AgentSum([]byte("THE AGENT"))}
+	fake := &fakePodman{agentSum: runner.AgentSum(agentData)}
 	out := &bytes.Buffer{}
-	return &rig{dir: dir, agent: agent, fake: fake, out: out, options: Options{Dir: dir, Agent: agent, Podman: fake.run, CABundle: ca, Out: out}}
+	return &rig{dir: dir, agent: agent, agentData: agentData, fake: fake, out: out, options: Options{Dir: dir, Agent: agent, Podman: fake.run, CABundle: ca, Out: out}}
 }
 
 func (r *rig) check(t *testing.T) Result {
@@ -175,7 +185,7 @@ func TestAnImageThatKeepsTheContractPassesAndLeavesNothingBehind(t *testing.T) {
 	finish := r.fake.contexts["finish"]
 	built := r.fake.called("build")
 	if len(built) != 2 || !strings.Contains(finish["Containerfile"], "FROM localhost/cbe-check/") || !strings.Contains(finish["Containerfile"], ":author\n") ||
-		finish["cbe-agent"] != "THE AGENT" || finish["cbe-finalize.sh"] == "" || !strings.Contains(finish["Containerfile"], "USER 1000:1000") {
+		finish["cbe-agent"] != string(r.agentData) || finish["cbe-finalize.sh"] == "" || !strings.Contains(finish["Containerfile"], "USER 1000:1000") {
 		t.Errorf("the finishing context: %v", finish)
 	}
 	for _, b := range built {
@@ -266,7 +276,7 @@ func TestABuildThatFailsIsSaidAndStillCleansUp(t *testing.T) {
 }
 
 func TestAnImageThatDoesNotKeepTheContractIsNotAccepted(t *testing.T) {
-	agentSum := runner.AgentSum([]byte("THE AGENT"))
+	agentSum := newRig(t, pythonFile).fake.agentSum
 	for name, test := range map[string]struct{ inspected, want string }{
 		"a volume":      {finishedImage(agentSum, "1000:1000", "", []string{"/var/lib/redis"}), "declares the volume(s) /var/lib/redis"},
 		"root":          {finishedImage(agentSum, "root", "", nil), `the user of the image is "root"`},
@@ -296,7 +306,7 @@ func TestAFailedSelfTestSaysWhichChecks(t *testing.T) {
 	r = newRig(t, pythonFile)
 	r.fake.selftest = "exec format error"
 	r.fake.runErr = errors.New("exit status 126")
-	if result := r.check(t); result.OK || !strings.Contains(result.Problem, "the agent in the image did not run") || !strings.Contains(result.Problem, "exit status 126") || !strings.Contains(result.Problem, "built for this machine's architecture") {
+	if result := r.check(t); result.OK || !strings.Contains(result.Problem, "the agent in the image did not run") || !strings.Contains(result.Problem, "exit status 126") || !strings.Contains(result.Problem, "it needs /proc") {
 		t.Errorf("an agent that did not run: %+v", result)
 	}
 }
@@ -304,7 +314,7 @@ func TestAFailedSelfTestSaysWhichChecks(t *testing.T) {
 func TestWhatStopsTheCheckIsAnErrorNotAnImageThatFailed(t *testing.T) {
 	r := newRig(t, pythonFile)
 	r.options.Agent = filepath.Join(r.dir, "no-agent")
-	if _, err := Check(context.Background(), r.options); err == nil || !strings.Contains(err.Error(), "--agent names a static cbe-agent") {
+	if _, err := Check(context.Background(), r.options); err == nil || !strings.Contains(err.Error(), "the agent to put in the image") || !strings.Contains(err.Error(), "no-agent") {
 		t.Errorf("no agent: %v", err)
 	}
 	r = newRig(t, pythonFile)
@@ -421,5 +431,173 @@ func TestTheFoldersOfTheBuildCanBeReadByAnotherAccountWhenAskedFor(t *testing.T)
 	}
 	if result := r.check(t); !result.OK || r.fake.modes["author/Containerfile"] != 0o600 {
 		t.Errorf("%+v %v", result, r.fake.modes["author/Containerfile"])
+	}
+}
+
+// ----- the agent, the dates of the images, and a build twice from nothing (decision D-CB-9)
+
+func otherArch() string {
+	if runtime.GOARCH == "arm64" {
+		return "amd64"
+	}
+	return "arm64"
+}
+
+func TestTheAgentIsLookedAtBeforeAnythingIsBuilt(t *testing.T) {
+	cases := map[string]struct {
+		data []byte
+		want string
+	}{
+		"not a program":   {[]byte("THE AGENT"), "it is not a Linux program"},
+		"another machine": {agenttest.Agent(t, otherArch()), "it is a program for " + otherArch() + ", and the images of this machine are " + runtime.GOARCH},
+		"another program": {agenttest.Program(t, "cbe-agent-cli", runtime.GOARCH), "it is exam-platform/cmd/cbe-agent-cli, not cbe-agent"},
+	}
+	if sh, err := os.ReadFile("/bin/sh"); err == nil && runtime.GOOS == "linux" {
+		cases["a program that is not static"] = struct {
+			data []byte
+			want string
+		}{sh, "it is not static"}
+	}
+	for name, c := range cases {
+		r := newRig(t, pythonFile)
+		if err := os.WriteFile(r.agent, c.data, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		_, err := Check(context.Background(), r.options)
+		if err == nil || !strings.Contains(err.Error(), "cannot go in an image: "+c.want) || len(r.fake.calls) != 0 {
+			t.Errorf("%s: %v, podman was called %v", name, err, r.fake.calls)
+		}
+	}
+	// The agent that is right says so, with where it was found, what it is and its hash.
+	r := newRig(t, pythonFile)
+	r.options.AgentFrom = "named with --agent"
+	if result := r.check(t); !result.OK {
+		t.Fatalf("%+v\n%s", result, r.out)
+	}
+	want := "agent       ok: " + r.agent + " (named with --agent), "
+	if !strings.Contains(r.out.String(), want) || !strings.Contains(r.out.String(), "linux/"+runtime.GOARCH+", static, sha256 "+r.fake.agentSum[:12]) {
+		t.Errorf("the report lacks %q:\n%s", want, r.out)
+	}
+}
+
+// The version is asked of the agent itself. Only Linux runs it; elsewhere the check says it could not ask, and goes on.
+func TestTheImageIsLabelledWithTheVersionTheAgentSays(t *testing.T) {
+	r := newRig(t, pythonFile)
+	r.options.Release, r.options.ReleaseOf = "v9.9.9", "the server installed here"
+	result := r.check(t)
+	finishing := strings.Join(r.fake.called("build")[1], " ")
+	if runtime.GOOS != "linux" {
+		if !result.OK || !strings.Contains(r.out.String(), "warning: the agent's version could not be asked") || strings.Contains(finishing, LabelAgentVersion) {
+			t.Errorf("%+v\n%s", result, r.out)
+		}
+		return
+	}
+	if !result.OK || !strings.Contains(r.out.String(), ", "+agenttest.Version+", linux/") || !strings.Contains(finishing, "--label "+LabelAgentVersion+"="+agenttest.Version) {
+		t.Errorf("the version: %+v\n%s\n%s", result, finishing, r.out)
+	}
+	// An agent of another release than the server's is said, and is not a failure.
+	if want := "warning: the agent is " + agenttest.Version + " and the server installed here is v9.9.9"; !strings.Contains(r.out.String(), want) || len(result.Warnings) != 1 {
+		t.Errorf("the report lacks %q: %v\n%s", want, result.Warnings, r.out)
+	}
+	r = newRig(t, pythonFile)
+	r.options.Release = agenttest.Version
+	if result := r.check(t); !result.OK || len(result.Warnings) != 0 {
+		t.Errorf("the same release: %+v", result)
+	}
+}
+
+func TestAContainerfileThatCopiesTheAgentIsToldTheRunnerAddsIt(t *testing.T) {
+	for name, line := range map[string]string{
+		"as the course image did": "COPY --chmod=0755 cbe-agent /usr/local/bin/cbe-agent",
+		"from a folder":           "COPY ./bin/cbe-agent /usr/local/bin/",
+		"as a list":               `ADD ["cbe-agent", "/opt/agent"]`,
+	} {
+		r := newRig(t, pythonFile+line+"\n")
+		result := r.check(t)
+		if result.OK || !strings.Contains(result.Problem, "line 3: ") || !strings.Contains(result.Problem, "there is no cbe-agent in the build's folder: the runner adds the agent to every image") || len(r.fake.calls) != 0 {
+			t.Errorf("%s: %+v, podman was called %v", name, result, r.fake.calls)
+		}
+	}
+	// A file of that name made in an earlier stage is the author's own business.
+	r := newRig(t, "FROM docker.io/library/golang:1.26 AS build\nRUN touch /cbe-agent\n"+pythonFile+"COPY --from=build /cbe-agent /opt/mine\n")
+	if result := r.check(t); !result.OK {
+		t.Errorf("from a stage: %+v\n%s", result, r.out)
+	}
+}
+
+func TestEveryImageIsStampedWithTheSameDate(t *testing.T) {
+	r := newRig(t, pythonFile)
+	r.check(t)
+	built := r.fake.called("build")
+	for _, b := range built {
+		if line := strings.Join(b, " "); !strings.Contains(line, "--timestamp 946684800") || strings.Contains(line, "SOURCE_DATE_EPOCH") {
+			t.Errorf("a build: %s", line)
+		}
+	}
+	// A Containerfile that declares SOURCE_DATE_EPOCH is given the date too (its own build only), and the date can be another.
+	r = newRig(t, "ARG SOURCE_DATE_EPOCH=0\n"+pythonFile)
+	r.options.Epoch = 1700000000
+	r.check(t)
+	built = r.fake.called("build")
+	if author := strings.Join(built[0], " "); !strings.Contains(author, "--timestamp 1700000000 --build-arg SOURCE_DATE_EPOCH=1700000000") {
+		t.Errorf("the author's build: %s", author)
+	}
+	if finishing := strings.Join(built[1], " "); !strings.Contains(finishing, "--timestamp 1700000000") || strings.Contains(finishing, "SOURCE_DATE_EPOCH") {
+		t.Errorf("the finishing: %s", finishing)
+	}
+}
+
+// inspectedLayers is `podman image inspect` of a finished image with its layers and the history that made them.
+func inspectedLayers(agentSum, id string, layers ...string) string {
+	history := []map[string]any{{"created_by": "/bin/sh -c #(nop) ARG V", "empty_layer": true}}
+	for i := range layers {
+		history = append(history, map[string]any{"created_by": fmt.Sprintf("/bin/sh -c step %d   with   spaces", i+1)})
+	}
+	data, _ := json.Marshal([]map[string]any{{"Id": id, "Config": map[string]any{"User": "1000:1000", "Entrypoint": []string{runner.AgentPath}, "WorkingDir": "/work",
+		"Labels": map[string]string{runner.LabelAgent: agentSum}}, "RootFS": map[string]any{"Type": "layers", "Layers": layers}, "History": history}})
+	return string(data)
+}
+
+func TestReproducibleBuildsEverythingTwiceFromNothingAndComparesTheImages(t *testing.T) {
+	r := newRig(t, pythonFile)
+	r.options.Reproducible = true
+	r.fake.inspected = inspectedLayers(r.fake.agentSum, "sha256:aaaaaaaaaaaa1", "l1", "l2", "l3")
+	result := r.check(t)
+	if !result.OK || result.Irreproducible != "" || !strings.Contains(r.out.String(), "reproduced  ok: two builds from nothing gave the same image (aaaaaaaaaaaa)") {
+		t.Fatalf("%+v\n%s", result, r.out)
+	}
+	built := r.fake.called("build")
+	if len(built) != 4 {
+		t.Fatalf("builds: %v", built)
+	}
+	for _, b := range built {
+		if !strings.Contains(strings.Join(b, " "), "--no-cache") {
+			t.Errorf("a build that is not from nothing: %v", b)
+		}
+	}
+	// The first images are removed before the second build, which gets the same names; the self test runs once.
+	var order []string
+	for _, c := range r.fake.calls {
+		order = append(order, c[0])
+	}
+	if got := strings.Join(order, " "); got != "version build build image run rmi build build image rmi" {
+		t.Errorf("the calls: %s", got)
+	}
+
+	// Two images that differ: the layers that are not the same, and the steps that made them.
+	r = newRig(t, pythonFile)
+	r.options.Reproducible = true
+	r.fake.inspected = inspectedLayers(r.fake.agentSum, "sha256:aaaaaaaaaaaa1", "l1", "l2", "l3")
+	r.fake.again = inspectedLayers(r.fake.agentSum, "sha256:bbbbbbbbbbbb2", "l1", "l2-other", "l3")
+	result = r.check(t)
+	want := "the two builds from nothing differ in layer 2 of 3 (step 2 with spaces)"
+	if !result.OK || !strings.HasPrefix(result.Irreproducible, want) || !strings.Contains(r.out.String(), "reproduced  NO: "+want) {
+		t.Errorf("%+v\n%s", result, r.out)
+	}
+	if got := differences([]byte(inspectedLayers("", "a", "l1")), []byte(inspectedLayers("", "b", "l1", "l2"))); got != "the two builds from nothing gave images of 1 and 2 layers" {
+		t.Errorf("layers that do not match: %s", got)
+	}
+	if got := differences([]byte(inspectedLayers("", "a", "l1")), []byte(inspectedLayers("", "b", "l1"))); !strings.Contains(got, "the same layers and different configurations") {
+		t.Errorf("the same layers: %s", got)
 	}
 }

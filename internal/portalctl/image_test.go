@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"exam-platform/internal/agenttest"
 	"exam-platform/internal/portalctl/sys"
 	"exam-platform/internal/runner"
 )
@@ -22,7 +23,7 @@ func imageCommand(t *testing.T, containerfile, runnerJSON string, extra ...strin
 	if err := os.MkdirAll(filepath.Join(dir, "image"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	for name, text := range map[string]string{"image/Containerfile": containerfile, "agent": "AGENT", "runner.json": runnerJSON} {
+	for name, text := range map[string]string{"image/Containerfile": containerfile, "agent": string(testAgent(t)), "runner.json": runnerJSON} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(text), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -83,9 +84,14 @@ func TestImageCheckUsage(t *testing.T) {
 		}
 	}
 	var out bytes.Buffer
-	if code := Main([]string{"image", "--help"}, Env{Sys: sys.NewFake(), Stdout: &out, Stderr: &out}); code != 0 || !strings.Contains(out.String(), "image check     Check an exam's own base image") {
+	if code := Main([]string{"image", "--help"}, Env{Sys: sys.NewFake(), Stdout: &out, Stderr: &out}); code != 0 || !strings.Contains(out.String(), "image check     Check an image before the server or image install") {
 		t.Errorf("image --help: exit %d\n%s", code, out.String())
 	}
+}
+
+// testAgent is a real agent for the machine the test runs on: image check and image install look at it before they build.
+func testAgent(t *testing.T) []byte {
+	return agenttest.Agent(t, runtime.GOARCH)
 }
 
 // ----- image install and image list
@@ -95,6 +101,8 @@ const pythonFile = "FROM docker.io/library/python:3.12-slim@sha256:0123456789abc
 // fakeRuntime is the runner account's container runtime: it records what it is asked and answers as one that builds a good image.
 type fakeRuntime struct {
 	calls     [][]string
+	differ    bool // the second build of an image gives another image (--reproducible)
+	inspects  int
 	selftest  string
 	installed map[string]string // image reference -> "id label" for `image inspect --format`
 	workModes []os.FileMode     // the mode of the folder that holds each build's context, when the build is made
@@ -117,8 +125,13 @@ func (f *fakeRuntime) run(_ context.Context, args []string, stdout, _ io.Writer)
 			}
 			return os.ErrNotExist
 		}
-		data, _ := json.Marshal([]map[string]any{{"Id": "abc123def456789", "Config": map[string]any{"User": "1000:1000", "Entrypoint": []string{runner.AgentPath}, "WorkingDir": "/work",
-			"Labels": map[string]string{runner.LabelAgent: runner.AgentSum([]byte("AGENT"))}}}})
+		f.inspects++
+		id := "abc123def456789"
+		if f.differ && f.inspects > 1 {
+			id = "fed987cba654321"
+		}
+		data, _ := json.Marshal([]map[string]any{{"Id": id, "Config": map[string]any{"User": "1000:1000", "Entrypoint": []string{runner.AgentPath}, "WorkingDir": "/work",
+			"Labels": map[string]string{runner.LabelAgent: runner.AgentSum(installedAgent(runtime.GOARCH))}}}})
 		stdout.Write(data)
 	case "run":
 		if f.selftest != "" {
@@ -160,7 +173,7 @@ func newClassImage(t *testing.T, containerfile string) *classImage {
 		t.Fatal(err)
 	}
 	agent := filepath.Join(dir, "agent")
-	for name, text := range map[string]string{"image/Containerfile": containerfile, "agent": "AGENT"} {
+	for name, text := range map[string]string{"image/Containerfile": containerfile, "agent": string(testAgent(t))} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(text), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -353,5 +366,138 @@ func TestImageListSaysWhatTheRunnerApprovesAndWhatTheRuntimeHas(t *testing.T) {
 	delete(c.runtime.installed, "localhost/cbe-course/nn-2026:latest")
 	if code, out, _ := c.run("image", "list"); code != 1 || !strings.Contains(out, "nn-2026") || !strings.Contains(out, "MISSING: the container runtime does not have it") {
 		t.Errorf("a missing image: exit %d\n%s", code, out)
+	}
+}
+
+// ----- which agent goes in the image (decision D-CB-9)
+
+// agentRig is an installation folder of its own (INSTALL/bin/cbe-portalctl), so that nothing of the machine the test runs on is read: a package to
+// check, and a real agent that can be put in several places.
+type agentRig struct {
+	install, dir, agent string
+	runtime             *fakeRuntime
+}
+
+func newAgentRig(t *testing.T) *agentRig {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("the installation folder is found from a Linux path")
+	}
+	r := &agentRig{install: t.TempDir(), dir: t.TempDir(), runtime: &fakeRuntime{}}
+	r.agent = filepath.Join(t.TempDir(), "cbe-agent")
+	for name, data := range map[string][]byte{filepath.Join(r.dir, "Containerfile"): []byte(pythonFile), r.agent: testAgent(t)} {
+		if err := os.WriteFile(name, data, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(r.install, "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
+
+func (r *agentRig) put(t *testing.T, name string, data []byte) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(name), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(name, data, 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func (r *agentRig) check(args ...string) (int, string, string) {
+	var out, errs bytes.Buffer
+	code := Main(append([]string{"image", "check", r.dir}, args...), Env{Sys: sys.NewFake(), Stdin: strings.NewReader(""), Stdout: &out, Stderr: &errs,
+		Exe: filepath.Join(r.install, "bin", "cbe-portalctl"), Version: agenttest.Version, Podman: r.runtime.run})
+	return code, out.String(), errs.String()
+}
+
+func TestTheAgentIsTheNamedOneElseTheServersElseTheOneNextToTheProgram(t *testing.T) {
+	r := newAgentRig(t)
+	// Nothing anywhere: it says where it looked and how to get one, and builds nothing. An agent on PATH is not one anybody chose.
+	r.put(t, filepath.Join(t.TempDir(), "path", "cbe-agent"), testAgent(t))
+	t.Setenv("PATH", filepath.Join(t.TempDir(), "path"))
+	code, _, errs := r.check()
+	if code != 1 || !strings.Contains(errs, "there is no agent to put in the image") || !strings.Contains(errs, "make agent") || len(r.runtime.calls) != 0 {
+		t.Errorf("no agent: exit %d\n%s\n%v", code, errs, r.runtime.calls)
+	}
+	// Next to the program (build/cbe-agent beside build/cbe-portalctl).
+	next := filepath.Join(r.install, "bin", "cbe-agent")
+	r.put(t, next, testAgent(t))
+	if code, out, errs := r.check(); code != 0 || !strings.Contains(out, "agent       ok: "+next+" (the one next to this program), ") {
+		t.Errorf("next to the program: exit %d\n%s\n%s", code, out, errs)
+	}
+	// A server installed here: its runner's agent, whatever is next to the program.
+	server := filepath.Join(t.TempDir(), "server-agent")
+	r.put(t, server, testAgent(t))
+	settings := filepath.Join(r.install, "etc", "runner.json")
+	r.put(t, settings, []byte(`{"agent_binary": "`+server+`"}`))
+	if code, out, errs := r.check(); code != 0 || !strings.Contains(out, "agent       ok: "+server+" (the server's: agent_binary in "+settings+")") {
+		t.Errorf("the server's: exit %d\n%s\n%s", code, out, errs)
+	}
+	// The one named wins, even with other settings named for the rest.
+	other := filepath.Join(t.TempDir(), "runner.json")
+	r.put(t, other, []byte(`{}`))
+	if code, out, errs := r.check("--agent", r.agent, "--runner-config", other); code != 0 || !strings.Contains(out, "agent       ok: "+r.agent+" (named with --agent)") {
+		t.Errorf("named: exit %d\n%s\n%s", code, out, errs)
+	}
+	if code, out, errs := r.check("--runner-config", other); code != 0 || !strings.Contains(out, "agent       ok: "+server+" (the server's") {
+		t.Errorf("other settings named, the server's agent still: exit %d\n%s\n%s", code, out, errs)
+	}
+	// One that is not an agent is refused before anything is built.
+	r.put(t, r.agent, []byte("not a program"))
+	r.runtime.calls = nil
+	if code, _, errs := r.check("--agent", r.agent); code != 1 || !strings.Contains(errs, "cannot go in an image: it is not a Linux program") || len(r.runtime.calls) != 0 {
+		t.Errorf("not an agent: exit %d\n%s", code, errs)
+	}
+}
+
+func TestImageCheckSaysWhetherTheImageIsReproducible(t *testing.T) {
+	r := newAgentRig(t)
+	code, out, errs := r.check("--agent", r.agent, "--reproducible")
+	if code != 0 || !strings.Contains(out, "It is reproducible: the same files built again from nothing give the same image.") || len(r.runtime.called("build")) != 4 {
+		t.Errorf("the same image: exit %d\n%s\n%s", code, out, errs)
+	}
+	r.runtime = &fakeRuntime{differ: true}
+	code, out, _ = r.check("--agent", r.agent, "--reproducible")
+	if code != 1 || !strings.Contains(out, "NOT REPRODUCIBLE: ") || !strings.Contains(out, "The image keeps the contract, and the server would accept it") {
+		t.Errorf("two images: exit %d\n%s", code, out)
+	}
+}
+
+func TestInstallPutsTheServersAgentInTheImage(t *testing.T) {
+	c := newClassImage(t, pythonFile)
+	settings := c.settings(t)
+	settings["agent_binary"] = c.agent
+	data, _ := json.Marshal(settings)
+	c.f.Install("/opt/cbe-portal/etc/runner.json", string(data), 0o644)
+	code, out, errs := c.run("image", "install", "nn-2026", c.dir)
+	if code != 0 || !strings.Contains(out, "agent       ok: "+c.agent+" (the server's: agent_binary in /opt/cbe-portal/etc/runner.json)") {
+		t.Fatalf("exit %d\n%s\n%s", code, out, errs)
+	}
+	// The image is dated, and labelled with the agent's version when it could be asked.
+	finishing := strings.Join(c.runtime.called("build")[1], " ")
+	if !strings.Contains(finishing, "--timestamp 946684800") || runtime.GOOS == "linux" && !strings.Contains(finishing, "--label io.cbe.agent.version="+agenttest.Version) {
+		t.Errorf("the finishing build: %s", finishing)
+	}
+}
+
+func TestDoctorLooksAtTheAgentAsAnImageBuildWould(t *testing.T) {
+	for name, test := range map[string]struct {
+		data []byte
+		want string
+	}{
+		"not a program":   {[]byte("binary"), "FAIL  the agent: /opt/cbe-portal/bin/cbe-agent cannot go in an image: it is not a Linux program"},
+		"another machine": {installedAgent("arm64"), "FAIL  the agent: /opt/cbe-portal/bin/cbe-agent cannot go in an image: it is a program for arm64, and the images of this machine are amd64"},
+		"the right one":   {installedAgent("amd64"), "ok    the agent: static, linux/amd64, sha256 "},
+	} {
+		f := machine()
+		f.Install("/opt/cbe-portal/bin/cbe-agent", string(test.data), 0o755)
+		f.Install("/root/cbe.conf", workspaceConfig, 0o644)
+		code, s := command(f, "", false, "doctor", "--config", "/root/cbe.conf")
+		if !strings.Contains(s.out.String(), test.want) || (code == 0) != (name == "the right one") {
+			t.Errorf("%s: exit %d\n%s", name, code, s.out.String())
+		}
 	}
 }
