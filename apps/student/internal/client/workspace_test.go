@@ -168,7 +168,7 @@ func (r *recorder) snapshot() []string {
 
 func waitFor(t *testing.T, what string, condition func() bool) {
 	t.Helper()
-	until := time.Now().Add(3 * time.Second)
+	until := time.Now().Add(waitLimit)
 	for time.Now().Before(until) {
 		if condition() {
 			return

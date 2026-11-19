@@ -324,7 +324,7 @@ func heartbeatWith(f *fixture, volume int, muted bool) bool {
 }
 func eventually(t *testing.T, what string, condition func() bool) {
 	t.Helper()
-	until := time.Now().Add(3 * time.Second)
+	until := time.Now().Add(waitLimit)
 	for !condition() {
 		if time.Now().After(until) {
 			t.Fatalf("never happened: %s", what)

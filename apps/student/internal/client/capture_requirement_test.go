@@ -178,7 +178,7 @@ func TestShutdownCancelsAPendingAdmissionCheck(t *testing.T) {
 		if err == nil || loginRequests(f) != 0 {
 			t.Fatalf("shutdown: err=%v logins=%d", err, loginRequests(f))
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(waitLimit):
 		t.Fatal("shutdown left the login waiting on the capture dialog")
 	}
 }

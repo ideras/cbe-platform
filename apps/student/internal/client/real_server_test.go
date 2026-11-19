@@ -79,7 +79,7 @@ func (s *realServer) start(t *testing.T, exam string, policy testPolicy) func() 
 	h := newHTTPClient(200 * time.Millisecond)
 	defer h.CloseIdleConnections()
 	ready := false
-	for until := time.Now().Add(5 * time.Second); time.Now().Before(until); {
+	for until := time.Now().Add(waitLimit); time.Now().Before(until); {
 		response, err := h.Get(s.base + "/healthz")
 		if err == nil {
 			_, _ = io.Copy(io.Discard, response.Body)
