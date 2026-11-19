@@ -6,13 +6,15 @@
 #   deploy/workspace/test-imagecheck.sh                   a package on alpine:3.20 (on the host already), the rules, the server's registries: no network
 #   CBE_IMAGECHECK_NET=1 deploy/workspace/test-imagecheck.sh   also a Redis base, which is refused for its volume (pulls redis:7-alpine)
 #
-# Needs deploy/workspace/install.sh to have been run (the cbe-runner account). It uses sudo.
+# Needs a server set up by the installer and cbe-portalctl configure for workspace exams (host.sh reads it: the runner's account). It runs only
+# while the server is quiet, and uses sudo.
 set -euo pipefail
 repo=$(cd "$(dirname "$0")/../.." && pwd)
-RUNNER=cbe-runner
-RUID=$(id -u "$RUNNER")
+# shellcheck source=host.sh
+. "$repo/deploy/workspace/host.sh"
+require_quiet "$0"
 work=$(mktemp -d)
-as_runner() { sudo -n -u "$RUNNER" env HOME="/home/$RUNNER" XDG_RUNTIME_DIR="/run/user/$RUID" "$@"; }
+as_runner() { sudo -n -u "$RUNNER" env HOME="$RUNNER_HOME" XDG_RUNTIME_DIR="/run/user/$RUID" "$@"; }
 images_before=$(as_runner podman images -a --format '{{.ID}}' | sort)
 cleanup() {
   for id in $(as_runner podman images -a --format '{{.ID}}' | sort | comm -13 <(echo "$images_before") -); do as_runner podman rmi -f "$id" >/dev/null 2>&1 || true; done

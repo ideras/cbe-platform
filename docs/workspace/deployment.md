@@ -3,20 +3,22 @@
 # Deploying workspace exams
 
 How the pieces of a workspace exam are set up on the container host, which is also the exam server's computer. The plan is
-`.agents/WORKSPACE-PLAN.md`; the reasons for each choice are in `DECISIONS.md` (P3-1 to P3-21).
+`.agents/WORKSPACE-PLAN.md`; the reasons for each choice are in `DECISIONS.md` (P3-1 to P3-21). The installer and `cbe-portalctl configure` make all of
+it ([deployment-linux.md](../deployment-linux.md)); `INSTALL_DIR` and `DATA_DIR` below are the keys of its configuration (`/opt/cbe-portal` and
+`/var/lib/cbe-portal` by default), and the accounts are `SERVER_USER`, `RUNNER_USER` and `IPC_GROUP` (`cbe-server`, `cbe-runner`, `cbe-ipc`).
 
 ## What runs, and as whom
 
 ```
  student's application ──HTTPS/WebSocket──▶  cbe-portal-server     (account cbe-server)
                                               │  the exam server: login, relay, snapshots, supervisor
-                                              │  HTTP + secret over  /data/cbe-platform/ipc/runner.sock
+                                              │  HTTP + secret over  DATA_DIR/ipc/runner.sock
                                               ▼
                                             cbe-runner              (account cbe-runner, a user service)
                                               │  the only holder of the container runtime's socket
                                               │  ├── rootless Podman  (/run/user/<uid>/podman/podman.sock)
                                               │  ├── cbe-quota-helperd  (root; /run/cbe-quota/helper.sock; serves only cbe-runner)
-                                              │  └── each container's agent  (/data/cbe-platform/run/<session>/agent.sock)
+                                              │  └── each container's agent  (DATA_DIR/run/<session>/agent.sock)
                                               ▼
                                             one container per student: cbe-agent as PID 1, a terminal, /work
 ```
@@ -25,45 +27,29 @@ How the pieces of a workspace exam are set up on the container host, which is al
 |---|---|---|---|
 | `cbe-portal-server` | `cbe-server` (no login) | Talk to the runner's socket; write its own folder. | Reach the runtime's socket, the runner's folders, the students' folders. |
 | `cbe-runner` | `cbe-runner` (lingering user service) | Use rootless Podman; make the agents' folders; ask the quota helper. | Anything as root. |
-| `cbe-quota-helperd` | root (system service, sandboxed) | Make and remove `/data/cbe-platform/work/<session>` with an XFS project quota. | Serve anyone but `cbe-runner`. |
+| `cbe-quota-helperd` | root (system service, sandboxed) | Make and remove `DATA_DIR/work/<session>` with an XFS project quota. | Serve anyone but `cbe-runner`. |
 | the student's program | uid 1000 in a user namespace | Its own `/work`. | The network, the host, other containers, a larger disk or process count than its limits. |
 
 ## Folders
 
 | Folder | Owner and mode | What is in it |
 |---|---|---|
-| `/data/cbe-platform/work` | root; the XFS volume (`prjquota`) | One quota folder per session, mode 0700, owned by the container's mapped student. Made by the quota helper. |
-| `/data/cbe-platform/ipc` | `cbe-runner:cbe-ipc`, 2710 | `runner.sock` and `runner.secret`. A member of `cbe-ipc` reaches them by name and cannot list the folder. |
-| `/data/cbe-platform/run` | `cbe-runner`, 0700 | One folder per session (mode 0777 inside the private parent) for the agent's socket. |
-| `/data/cbe-platform/runner` | `cbe-runner`, 0700 | What the runner knows about each container, as a small file per session. |
-| `/data/cbe-platform/server` | `cbe-server`, 0700 | The server's database, screenshots, admin token and `workspace/` (bundles, blobs, snapshots). |
-| `/etc/cbe-platform/runner.json` | root, 0644 | The runner's settings (below). Kept if it already exists. |
+| `DATA_DIR/work` | root; the XFS volume (`prjquota`) | One quota folder per session, mode 0700, owned by the container's mapped student. Made by the quota helper. |
+| `DATA_DIR/ipc` | `cbe-runner:cbe-ipc`, 2710 | `runner.sock` and `runner.secret`. A member of `cbe-ipc` reaches them by name and cannot list the folder. |
+| `DATA_DIR/run` | `cbe-runner`, 0700 | One folder per session (mode 0777 inside the private parent) for the agent's socket. |
+| `DATA_DIR/runner` | `cbe-runner`, 0700 | What the runner knows about each container, as a small file per session. |
+| `DATA_DIR/server` | `cbe-server`, 0700 | The server's database, screenshots, admin token and `workspace/` (bundles, blobs, snapshots). |
+| `INSTALL_DIR/etc/runner.json` | root, 0644 | The runner's settings (below), written by `cbe-portalctl configure`, which keeps the keys it does not set; `image install` adds to its `images`. |
 
 ## Installing
 
-On the container host, after `docs/workspace/spike/setup-host.sh` (the `cbe-runner` user, rootless Podman, the XFS volume):
+The installer puts the programs in `INSTALL_DIR/bin`, and `cbe-portalctl configure` makes the accounts, the folders above, the XFS volume, the units
+(the runner's is a user unit of `cbe-runner`, with lingering), the limits of the runner's control group and the runner's settings; `sudo cbe-portalctl
+image install cbe/cpp20 images/cpp20 --restart` installs the course image ([deployment-linux.md](../deployment-linux.md)). The manual setup of Phases 3
+to 8 (`deploy/workspace/install.sh`, `limits.sh`, their `runner.json` and units) was removed once the installer had replaced it.
 
-```sh
-go build -o bin/cbe-runner ./cmd/cbe-runner
-go build -o bin/cbe-quota-helper ./cmd/cbe-quota-helper
-sudo deploy/workspace/install.sh bin       # accounts, folders, both services; safe to run again
-```
-
-The course image `cbe/cpp20` was built here by `images/build.sh`, which is gone: `cbe-portalctl` is now the one program that builds images (decision D-CB-9), and
-`sudo cbe-portalctl image install cbe/cpp20 images/cpp20` needs a server that `cbe-portalctl configure` set up ([deployment-linux.md](../deployment-linux.md)). This manual
-setup, from before the installer, has no way of its own to build it.
-
-The exam server is not started by `install.sh`: it may already be running somewhere else (the owner's own, on `:8080`). To run it as `cbe-server`:
-
-```sh
-CGO_ENABLED=0 go build -trimpath -ldflags "-X main.version=<release>" -o bin/cbe-portal-server ./cmd/server
-sudo install -m 0755 bin/cbe-portal-server /usr/local/bin/cbe-portal-server
-sudo -u cbe-server sh -c 'head -c 40 /dev/urandom | base64 -w0 | tr -d "=+/" > /data/cbe-platform/server/admin-token; chmod 600 /data/cbe-platform/server/admin-token'
-sudo install -m 0644 deploy/workspace/cbe-server.service /etc/systemd/system/    # edit -bind first
-sudo systemctl daemon-reload && sudo systemctl enable --now cbe-server
-```
-
-The unit runs the server with `NoNewPrivileges`, a read-only system, only its own folder writable, the IPC folder read-only and no capabilities; it was checked against the real runner. **The server's flags for workspace exams** (they are all off unless `-runner-socket` is given):
+The server's unit runs it with `NoNewPrivileges`, a read-only system, only its own folder writable, the IPC folder read-only and no capabilities; it was
+checked against the real runner. **The server's flags for workspace exams** (they are all off unless `-runner-socket` is given):
 
 | Flag | Default | Meaning |
 |---|---|---|
@@ -75,23 +61,23 @@ The unit runs the server with `NoNewPrivileges`, a read-only system, only its ow
 | `-workspace-grade-parallel` | 2 | How many grading runs the server has going at once (1 to 32). The runner bounds them again (`grade_parallel`); the lower rules. |
 | `-workspace-grade-timeout` | 5m | How long a grading run may take for an exam that sets no `grade_timeout` (10s to 30m). |
 
-## The runner's settings (`/etc/cbe-platform/runner.json`)
+## The runner's settings (`INSTALL_DIR/etc/runner.json`)
 
 | Key | Example | Meaning |
 |---|---|---|
-| `socket`, `socket_group`, `secret_file` | `/data/cbe-platform/ipc/runner.sock`, `cbe-ipc`, `…/runner.secret` | Where the API listens, who may connect, and the shared secret (made on first start). |
-| `runtime_socket` | `unix:///run/user/<uid>/podman/podman.sock` | The container runtime. Only the runner opens it. Left out (as `deploy/workspace/runner.json` does), it is the rootless Podman of the account the runner runs as, whatever uid `cbe-runner` got; `cbe-portalctl configure` writes that account's. |
+| `socket`, `socket_group`, `secret_file` | `DATA_DIR/ipc/runner.sock`, `cbe-ipc`, `…/runner.secret` | Where the API listens, who may connect, and the shared secret (made on first start). |
+| `runtime_socket` | `unix:///run/user/<uid>/podman/podman.sock` | The container runtime. Only the runner opens it. Left out, it is the rootless Podman of the account the runner runs as, whatever uid `cbe-runner` got; `cbe-portalctl configure` writes that account's. |
 | `quota_socket`, `work_root`, `run_root`, `state_root` | see the file | The quota helper and the three folders above. |
-| `images` | `{"cbe/cpp20": "localhost/cbe/cpp20:latest"}` | **The approved images**: the name an exam uses, and the runtime's reference. An exam that names any other image is refused at import and again at `container.create`. |
+| `images` | `{"cbe/cpp20": "localhost/cbe-course/cbe/cpp20:latest"}` | **The approved images**: the name an exam uses, and the runtime's reference. An exam that names any other image is refused at import and again at `container.create`. |
 | `custom_base`, `base_registries`, `agent_binary` | `true`, `[]` (any registry), `""` | **Exams with a base image of their own** (`images.md`). `custom_base` false refuses them (the failure *policy*); `base_registries` lists the registries their `FROM`s may name; `agent_binary` is the static `cbe-agent` the runner puts in every image it finishes (the installer sets it to `/opt/cbe-portal/bin/cbe-agent`, and the configurator keys `ALLOW_CUSTOM_BASE` and `BASE_REGISTRIES` write the other two). |
 | `max`, `default` | cpu 2, memory 2048, disk 500; 1, 1024, 100 | The largest limits an exam may ask for, and what it gets for a limit it leaves out. |
 | `pids`, `inodes`, `tmp_mb`, `stop_seconds` | 256, 20000, 64, 5 | Fixed for every container. |
-| `grade_root` | `/data/cbe-platform/grading` | Where a grading run's copy of the hidden bundle is for as long as the run lasts. Private to the runner (`install.sh` makes it, mode 0700). |
+| `grade_root` | `DATA_DIR/grading` | Where a grading run's copy of the hidden bundle is for as long as the run lasts. Private to the runner (`configure` makes it, mode 0700). |
 | `build_max_seconds`, `build_memory_mb` | 900, 2048 | **Phase 7** (`images.md`): the longest an image build may last (a request may ask for less, from 10 s), and the memory the steps of a build may use together (enforced: a step over it is killed). One build runs at a time. |
-| `host_memory_mb` | 0 | **Phase 8**: the most memory (MiB) the **limits** of the student containers (made, running or frozen) may add up to. The runner refuses to make a container that would go over it (503, and the student's workspace fails with the reason, which the proctor sees). Every container may use its whole limit at once, so this is what keeps forty of them from taking a machine that also runs the exam server and its owner's desktop. **0 is 70% of the machine's memory** (44,838 MiB on a machine of 64 GiB, which holds forty students at the default 1 GiB). `limits.sh` sizes the control group's ceiling from it. |
+| `host_memory_mb` | 0 | **Phase 8**: the most memory (MiB) the **limits** of the student containers (made, running or frozen) may add up to. The runner refuses to make a container that would go over it (503, and the student's workspace fails with the reason, which the proctor sees). Every container may use its whole limit at once, so this is what keeps forty of them from taking a machine that also runs the exam server and its owner's desktop. **0 is 70% of the machine's memory** (44,838 MiB on a machine of 64 GiB, which holds forty students at the default 1 GiB). `cbe-portalctl configure` sizes the control group's ceiling from it. |
 | `grade_parallel`, `grade_max_seconds`, `grade_output_bytes` | 2, 1800, 262144 | How many gradings run at once (1 to 32), the longest a run may be asked to last, and the most of each of a run's two output streams that is kept. |
 
-**The control group's limits (Phase 8, `limits.sh`).** Every container, the runner, the runtime and the image builds run in one control group, the `cbe-runner` user's slice. `install.sh` runs `deploy/workspace/limits.sh` (run it again alone after changing `host_memory_mb`), which **replaces the spike's backstop** (a hard cap of 400% CPU, 16 GiB and 6,000 tasks, `P0-11`; kept as `/etc/cbe-platform/spike-backstop.conf.removed`) with `/etc/systemd/system/user-<uid>.slice.d/cbe-limits.conf`:
+**The control group's limits (Phase 8).** Every container, the runner, the runtime and the image builds run in one control group, the `cbe-runner` user's slice. `cbe-portalctl configure` writes its limits to `/etc/systemd/system/user-<uid>.slice.d/cbe-limits.conf` (run it again after changing `host_memory_mb`); they replaced the spike's backstop (a hard cap of 400% CPU, 16 GiB and 6,000 tasks, `P0-11`):
 
 | Setting | Value | Why |
 |---|---|---|
@@ -99,11 +85,7 @@ The unit runs the server with `NoNewPrivileges`, a read-only system, only its ow
 | `MemoryMax` | the budget + 9,216 MiB | The budget, and room for two grading runs, one image build and the runtime. Over it the out-of-memory killer acts inside the slice, not on the machine. |
 | `MemorySwapMax`, `TasksMax` | 0, 12,000 | No swap for the students; forty containers at their 256 processes each, and the runtime. |
 
-**Upgrading a host that has Phase 7 (to Phase 8):** replace `/usr/local/bin/cbe-runner`, run `deploy/workspace/limits.sh` (it removes the backstop and sets the limits above) and restart the runner's unit; nothing else changes. `runner.json` needs nothing (`host_memory_mb` defaults to 70% of the machine's memory; set it if the machine is shared with more than a desktop).
-
-**Upgrading a host that has Phase 6 (to Phase 7):** only `cbe-runner` changes (the quota helper, the agent and the unit file do not). Replace `/usr/local/bin/cbe-runner`, restart the runner's unit; `runner.json` needs nothing (the two `build_*` keys have defaults). The new server binary adds a migration (023) on its first start. Then **build the image of every exam that has one** from the proctor application before publishing it.
-
-**Upgrading a host that has Phases 3 to 5:** re-run `install.sh` (it makes the grading folder and leaves the existing `runner.json` alone: the new keys have these defaults) with the new `cbe-runner` binary, and restart the runner's unit (`systemctl --user restart cbe-runner` as `cbe-runner`): its containers keep running. Then give the exam server the new binary.
+**Upgrading** is the installer's and the configurator's: [deployment-linux.md](../deployment-linux.md), "Upgrading".
 
 ## The runner's API
 
@@ -146,20 +128,29 @@ A session's workspace as the proctor would see it: `GET /admin/workspace/session
 
 ## The tests that need this host
 
+They need a server set up by the installer and `cbe-portalctl configure` for workspace exams, and most need the course image (`sudo cbe-portalctl
+image install cbe/cpp20 images/cpp20 --restart`). `deploy/workspace/host.sh` reads the installation (`INSTALL_DIR/etc/runner.json` and
+`cbe-portal.conf`; `CBE_INSTALL_DIR` names another), so no test names a folder or an account of its own. They use the server's own runtime, quota
+helper and volume: they run only while no container of the installed runner is running and no image is being built, and whoever runs one makes sure
+no class, grading or build starts until it ends. Every one but the two that restart (below) starts a **private** runner (its own socket, secret and
+folders), restarts nothing, and removes what it made: a private runner's leftovers are removed only when it has a note of them, never a container the
+installed runner has one of. They use `sudo` without a password.
+
 | Script | Does |
 |---|---|
-| `sudo cbe-portalctl image test cbe/cpp20 images/cpp20` | An installed image in a workspace the runner makes, through its agent: the checks every image passes and the course's own (`images/cpp20/checks`). It needs a server that `cbe-portalctl configure` set up. |
-| `deploy/workspace/test-runner.sh` | The runner and the quota helper against Podman, as `cbe-server`; restarts the runner and checks it finds its containers. |
-| `deploy/workspace/test-server.sh` | The server's binary as `cbe-server` against all of it: login, files, terminals, Run and Check, abuse, an agent that ends, a restarted server and a restarted runner, the deadline. About four minutes; removes everything it made. |
-| `deploy/workspace/test-server.sh --manual [address]` | Not a test: a throwaway exam server for a person to try the applications against (the focus-loss script). It listens on `127.0.0.1:8090` unless given an address (`0.0.0.0:8090`, or the host's address on a virtual machine's network), has its own database, a class of three students (accounts `0001` to `0003`) and the example package published (PIN and admin token are printed), and runs until Ctrl+C, when it removes what the students made. It never touches the server on `:8080`. |
-
-| `deploy/workspace/test-grading.sh` | Phase 6 (`grading.md`): grading with nothing replaced. It starts a **private** runner (its own socket, secret and folders; the same runtime and quota helper), so the installed runner and anyone's containers are not touched and no service is restarted. Grades the example package's three students in real containers, holds misbehaving grade programs (no network, a read-only `/grading` and root, a run that does not end, runs out of memory or floods) and runs forty at once, two at a time. About two minutes; reports whatever it finds left (nothing, so far). |
-
-| `deploy/workspace/test-image.sh` | Phase 7 (`images.md`): an exam's own image with nothing replaced, against a **private** runner as `test-grading.sh` does. Real image builds from the course image and real containers: publishing refused until built; the log records the course image's digest; cache hit and rebuild; the exam's student compiles against a library the course image does not have, with no network, and is graded there; another exam has no such library and cannot be given the image; a `FROM` that is not the exam's image, and a changed user, entrypoint, command, working folder or agent, all fail with their reasons; a build is stopped at its time and at its memory limit and builds run one at a time; reports what it left (nothing). `CBE_E2E_APT=1` also builds a library from the Ubuntu snapshot over HTTPS (needs the network; about six minutes in all instead of two). It removes the images it built. |
-
-| `deploy/workspace/test-load.sh` | Phase 8 (`load-test.md`): forty simulated students take a workspace exam on a throwaway exam server for half an hour (`CBE_LOAD_STUDENTS`, `CBE_LOAD_DURATION`), with the machine read every ten seconds; keeps `load-report.md`, `load-summary.json` and `load-machine.csv`. |
+| `sudo cbe-portalctl image test cbe/cpp20 images/cpp20` | An installed image in a workspace the runner makes, through its agent: the checks every image passes and the course's own (`images/cpp20/checks`). |
+| `deploy/workspace/test-imagecheck.sh` | `cbe-portalctl image check` against the runner account's Podman: a good package, the Containerfile's rules, the server's decisions (`CBE_IMAGECHECK_NET=1` adds a Redis base, refused for its volume). |
+| `deploy/workspace/test-imageinstall.sh` | `image install` and `image list` into a scratch installation, then the course-image path in a real container, and `image test` of the class image (an Alpine base) against a private runner. |
+| `deploy/workspace/test-ownbase.sh` | Exams with a base image of their own (`images.md`): real builds, the finishing layer, the self test, real containers (`CBE_OWNBASE_NET=1` adds Python and Redis). |
+| `deploy/workspace/test-security.sh` | The runner's real-runtime tests (`internal/runner/integration_test.go`, with the Phase 8 security subtest: links that lead out of `/work`, mounts, privileges and the limit on files) against a private runner. |
+| `deploy/workspace/test-grading.sh` | Phase 6 (`grading.md`): grading with nothing replaced. Grades the example package's three students in real containers, holds misbehaving grade programs (no network, a read-only `/grading` and root, a run that does not end, runs out of memory or floods) and runs forty at once, two at a time. About two minutes; reports whatever it finds left (nothing, so far). |
+| `deploy/workspace/test-image.sh` | Phase 7 (`images.md`): an exam's own image with nothing replaced. Real image builds from the course image and real containers: publishing refused until built; the log records the course image's digest; cache hit and rebuild; the exam's student compiles against a library the course image does not have, with no network, and is graded there; another exam has no such library and cannot be given the image; a `FROM` that is not the exam's image, and a changed user, entrypoint, command, working folder or agent, all fail with their reasons; a build is stopped at its time and at its memory limit and builds run one at a time; reports what it left (nothing). `CBE_E2E_APT=1` also builds a library from the Ubuntu snapshot over HTTPS (needs the network; about six minutes in all instead of two). It removes the images it built. |
+| `deploy/workspace/test-load.sh` | Phase 8 (`load-test.md`): forty simulated students take a workspace exam on a throwaway exam server for half an hour (`CBE_LOAD_STUDENTS`, `CBE_LOAD_DURATION`), with the machine read every ten seconds; keeps `load-report.md`, `load-summary.json` and `load-machine.csv`. The machine is for nothing else meanwhile. |
+| `CBE_ALLOW_RESTART=1 deploy/workspace/test-runner.sh` | The runner's real-runtime tests against the **installed** runner, which it restarts to check it finds its containers again. For a test host. |
+| `CBE_ALLOW_RESTART=1 deploy/workspace/test-server.sh` | The server's binary as `cbe-server` against the installed runner: login, files, terminals, Run and Check, abuse, an agent that ends, a restarted server, a restarted runner and a restarted user manager of the runner's account (which stops every container), the deadline. About four minutes; removes everything it made. For a test host. |
+| `deploy/workspace/test-server.sh --manual [address]` | Not a test, and it restarts nothing: a throwaway exam server for a person to try the applications against (the focus-loss script). It listens on `127.0.0.1:8090` unless given an address (`0.0.0.0:8090`, or the host's address on a virtual machine's network), has its own database, a class of three students (accounts `0001` to `0003`) and the example package published (PIN and admin token are printed), and runs until Ctrl+C, when it removes what the students made. It never touches the server on `:8080`. |
 | `deploy/workspace/fuzz.sh [duration]` | Phase 8: every decoder a student or an agent can reach, five minutes each by default (`security-checklist.md`). Needs no host: only Go. |
 
-`internal/runner/integration_test.go` (through `test-runner.sh`) also holds the Phase 8 security subtest: links that lead out of `/work`, mounts, privileges and the limit on files, in a real container.
-
-All of them use `sudo` without a password.
+**The two that restart** (`test-runner.sh`, `test-server.sh`) restart the installed runner, and `test-server.sh` the runner account's user manager too,
+which stops every container of the server and cuts every student's connection: they run only with `CBE_ALLOW_RESTART=1` and while no container of the
+runner is running, so they are for a test host or a server nobody is using.

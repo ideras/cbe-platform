@@ -232,7 +232,8 @@ func checkReadOnly(t *tester) error {
 }
 
 func checkNoNetwork(t *tester) error {
-	printed, err := t.sh(`ls /sys/class/net`)
+	// The shell lists them: an image's ls may colour its output in a terminal (BusyBox's does).
+	printed, err := t.sh(`for i in /sys/class/net/*; do echo "${i##*/}"; done`)
 	if err != nil {
 		return err
 	}

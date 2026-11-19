@@ -276,7 +276,7 @@ func delegationStep() Step {
 	return step
 }
 
-// limitsContent is the limits of the control group every container runs in: the same numbers deploy/workspace/limits.sh gave (decision P8-3).
+// limitsContent is the limits of the control group every container runs in: the same numbers the manual setup's limits.sh gave (decision P8-3).
 func limitsContent(c *Ctx) (string, error) {
 	data, err := c.Sys.ReadFile("/proc/meminfo")
 	if err != nil {

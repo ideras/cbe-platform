@@ -6,22 +6,24 @@
 #   2. its name is approved in the runner's settings, every other setting kept; the same name again needs --replace and then needs no change to the settings;
 #   3. an image that is not accepted is not named and changes nothing;
 #   4. a PRIVATE runner that approves the name makes a real container of it by the course-image path (internal/runner/courseimage_real_test.go): the student,
-#      the agent, a read-only root, no capabilities, and what the class image holds.
+#      the agent, a read-only root, no capabilities, and what the class image holds;
+#   5. `image test` of it passes against that private runner (decision D-CB-10): the checks every image must pass, on a base that is not Ubuntu.
 #
 # It installs into a scratch INSTALL_DIR (the program is run from its bin/, so that is where it looks for its settings): the installed server's settings and
 # services are not touched, and nothing is restarted. Whatever images the run made are removed at the end, by ID, against what was there before.
 #
 #   deploy/workspace/test-imageinstall.sh        uses alpine:3.20, which the host has: no network
 #
-# Needs deploy/workspace/install.sh to have been run (the accounts, the quota helper, the folders). It uses sudo.
+# Needs a server set up by the installer and cbe-portalctl configure for workspace exams (host.sh reads it: the accounts, the quota helper, the
+# folders). It runs only while the server is quiet, and uses sudo.
 set -euo pipefail
 repo=$(cd "$(dirname "$0")/../.." && pwd)
-RUNNER=cbe-runner
-RUID=$(id -u "$RUNNER")
-BASE=/data/cbe-platform
+# shellcheck source=host.sh
+. "$repo/deploy/workspace/host.sh"
+require_quiet "$0"
 NAME=it-$$
 work=$(mktemp -d)
-as_runner() { sudo -n -u "$RUNNER" env HOME="/home/$RUNNER" XDG_RUNTIME_DIR="/run/user/$RUID" "$@"; }
+as_runner() { sudo -n -u "$RUNNER" env HOME="$RUNNER_HOME" XDG_RUNTIME_DIR="/run/user/$RUID" "$@"; }
 images_before=$(as_runner podman images -a --format '{{.ID}}' | sort)
 # shellcheck source=private-runner.sh
 . "$repo/deploy/workspace/private-runner.sh"
@@ -104,10 +106,23 @@ export PR_IMAGES="$NAME=localhost/cbe-course/$NAME:latest"
 mkdir -p "$work/internal/runner" "$work/private"; sudo -n chmod -R a+rX "$work"  # (the install, run as root, wrote some of what is in it)
 private_runner_start "$work/private"
 echo "the private runner is up ($PR_TAG)"
-sudo -n -u cbe-server env CBE_RUNNER_SOCKET="$PR_SOCKET" CBE_RUNNER_SECRET_FILE="$PR_SECRET" CBE_COURSE_IMAGE="$NAME" \
+sudo -n -u "$SERVER" env CBE_RUNNER_SOCKET="$PR_SOCKET" CBE_RUNNER_SECRET_FILE="$PR_SECRET" CBE_COURSE_IMAGE="$NAME" \
   bash -c "cd '$work/internal/runner' && ../../runner.test -test.run '^TestRealInstalledCourseImage\$' -test.v -test.timeout 10m" | tee "$work/course.log" | grep -E '^(--- |ok|PASS|FAIL)'
 grep -q -- '--- PASS: TestRealInstalledCourseImage' "$work/course.log" || fail "the course-image path did not run the installed image"
 echo "ok"
+
+echo "== image test passes against that runner: the checks every image must pass, on a base that is not Ubuntu"
+sudo -n python3 - "$inst/etc/runner.json" "$PR_SOCKET" "$PR_SECRET" "$DATA_DIR/run-$PR_TAG" <<'PY' || fail "the scratch settings"  # (image install, as root, wrote it)
+import json, sys
+path, socket, secret, run = sys.argv[1:]
+cfg = json.load(open(path))
+cfg.update({"socket": socket, "secret_file": secret, "run_root": run})
+json.dump(cfg, open(path, "w"), indent=2)
+PY
+out=$(ctl image test "$NAME") || { echo "$out"; fail "image test did not pass"; }
+echo "$out" | grep -q "^OK: $NAME works in a student's workspace" || { echo "$out"; fail "no OK"; }
+echo "$out" | grep -q "^The workspace image-test-.* was removed\.$" || { echo "$out"; fail "the workspace was not said to be removed"; }
+echo "ok ($(echo "$out" | grep -E '^[0-9]+ passed'))"
 
 echo "== what the run left"
 left=$(runtime ps -a --format '{{.Names}}' | sort | comm -13 <(echo "$PR_BEFORE") -)
