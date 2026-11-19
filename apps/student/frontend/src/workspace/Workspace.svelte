@@ -11,7 +11,8 @@
   import { PasteGuard, guardWindow } from './paste-guard.js';
   import { makeTransport, decodeOutput } from './transport.js';
   import { basename, dirname } from './paths.js';
-  import { MIN_SHARE, MAX_SHARE, DEFAULT_SHARE, SHARE_STEP } from './sizes.js';
+  import { MIN_SHARE, MAX_SHARE, DEFAULT_SHARE, SHARE_STEP, MIN_SIDE, MAX_SIDE, SIDE_STEP, MIN_INSTRUCTIONS, MAX_INSTRUCTIONS, DEFAULT_INSTRUCTIONS,
+    INSTRUCTIONS_STEP } from './sizes.js';
 
   // The student's workspace: instructions and TODO list, the files, the editor, the terminals, and what the connection is doing. The
   // application's Go side holds the connection; this page shows what the model (model.js) makes of it and tells it what the student
@@ -90,13 +91,66 @@
   function endDrag() { dragging = false; }
   function splitterKeys(event) {
     const moves = { ArrowUp: SHARE_STEP, ArrowDown: -SHARE_STEP, PageUp: 3 * SHARE_STEP, PageDown: -3 * SHARE_STEP };
-    if (event.key in moves) model.setTerminalShare(snap.terminalShare + moves[event.key]);
+    if (event.key in moves) model.setTerminalShare(model.terminalShare + moves[event.key]);
     else if (event.key === 'Home') model.setTerminalShare(MAX_SHARE);
     else if (event.key === 'End') model.setTerminalShare(MIN_SHARE);
     else if (event.key === 'Enter') model.setTerminalShare(DEFAULT_SHARE);
     else return;
     event.preventDefault();
   }
+
+  // The column of the instructions and the files has two splitters, as the terminals have one: the one at its right edge gives it more or less
+  // of the width (an exam's instructions with a wide table need it), and the one between the instructions and the files shares its height.
+  // Their keys are the terminals' splitter's: the arrows a step, Page Up and Page Down three, Home and End the ends, Enter the usual size.
+  let panesBox;
+  let sideBox;
+  let panesWidth = $state(0);
+  let sideWidth = $state(0);
+  // Until the student moves it, the column is at its usual width, whose share is measured.
+  const sideNow = $derived(snap.sideShare ?? (panesWidth > 0 ? sideWidth / panesWidth : MIN_SIDE));
+  let sideDragging = $state(false);
+  let instructionsDragging = $state(false);
+  function startSplit(event) {
+    if (event.button !== 0) return false;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    return true;
+  }
+  function sideDrag(event) {
+    if (!sideDragging || !panesBox) return;
+    const box = panesBox.getBoundingClientRect();
+    if (box.width > 0) model.setSideShare((event.clientX - box.left) / box.width);
+  }
+  function instructionsDrag(event) {
+    if (!instructionsDragging || !sideBox) return;
+    const box = sideBox.getBoundingClientRect();
+    if (box.height > 0) model.setInstructionsShare((event.clientY - box.top) / box.height);
+  }
+  // A key moves from what the model has now: the snapshot the page draws is a frame behind, and keys repeat faster than that.
+  function sideKeys(event) {
+    const moves = { ArrowRight: SIDE_STEP, ArrowLeft: -SIDE_STEP, PageUp: 3 * SIDE_STEP, PageDown: -3 * SIDE_STEP };
+    const now = model.sideShare ?? (panesWidth > 0 ? sideWidth / panesWidth : MIN_SIDE);
+    if (event.key in moves) model.setSideShare(now + moves[event.key]);
+    else if (event.key === 'Home') model.setSideShare(MAX_SIDE);
+    else if (event.key === 'End') model.setSideShare(MIN_SIDE);
+    else if (event.key === 'Enter') model.setSideShare(null);
+    else return;
+    event.preventDefault();
+  }
+  function instructionsKeys(event) {
+    // Up moves the splitter up, which gives the instructions less room.
+    const moves = { ArrowDown: INSTRUCTIONS_STEP, ArrowUp: -INSTRUCTIONS_STEP, PageDown: 3 * INSTRUCTIONS_STEP, PageUp: -3 * INSTRUCTIONS_STEP };
+    if (event.key in moves) model.setInstructionsShare(model.instructionsShare + moves[event.key]);
+    else if (event.key === 'Home') model.setInstructionsShare(MAX_INSTRUCTIONS);
+    else if (event.key === 'End') model.setInstructionsShare(MIN_INSTRUCTIONS);
+    else if (event.key === 'Enter') model.setInstructionsShare(DEFAULT_INSTRUCTIONS);
+    else return;
+    event.preventDefault();
+  }
+  // The column's width and the share of its height go to the CSS as fractions (the editor keeps at least 24rem, the column 15rem).
+  const sideColumns = $derived(snap.sideShare === null ? null
+    : `minmax(15rem, ${Math.round(snap.sideShare * 1000)}fr) minmax(24rem, ${Math.round((1 - snap.sideShare) * 1000)}fr)`);
+
   function hideTerminal() { terminalWanted = false; editor?.focus(); }
   async function toggleTerminal() {
     if (terminalVisible) { hideTerminal(); return; }
@@ -214,14 +268,32 @@
       {#if banner.retry}<button type="button" onclick={() => model.transport.reconnect().catch(() => {})}>Use this window</button>{/if}
     </p>
   {/if}
-  <div class="panes">
-    <aside class="side">
-      <div data-pane="todo" class="todo-box"><TodoPanel instructions={workspace.instructions} todos={workspace.todos} done={snap.todo} disabled={disabled} onToggle={(id, done) => model.setTodo(id, done)} /></div>
+  <div class="panes" bind:this={panesBox} bind:clientWidth={panesWidth} style:--side-columns={sideColumns}>
+    <aside class="side" id="side-panel" bind:this={sideBox} bind:clientWidth={sideWidth}
+      style:--instructions-share="{Math.round(snap.instructionsShare * 1000)}fr" style:--files-share="{Math.round((1 - snap.instructionsShare) * 1000)}fr">
+      <div data-pane="todo" class="todo-box" id="instructions-panel"><TodoPanel instructions={workspace.instructions} todos={workspace.todos} done={snap.todo} disabled={disabled}
+        onToggle={(id, done) => model.setTodo(id, done)} wide={snap.sideWide} onWiden={() => model.toggleSideWide()} /></div>
       <div data-pane="tree" class="tree-box" bind:this={tree}>
+        <!-- The splitter between the instructions and the files sits in the gap above the files. -->
+        <div class="side-splitter across" class:dragging={instructionsDragging} role="separator" aria-orientation="horizontal" aria-label="Resize the instructions"
+          aria-controls="instructions-panel" tabindex="0" aria-valuemin={Math.round(MIN_INSTRUCTIONS * 100)} aria-valuemax={Math.round(MAX_INSTRUCTIONS * 100)}
+          aria-valuenow={Math.round(snap.instructionsShare * 100)} aria-valuetext="The instructions take {Math.round(snap.instructionsShare * 100)} percent of the height"
+          title="Drag to give the instructions or the files more room, or use the up and down arrows. Double click: usual size"
+          onpointerdown={event => { if (startSplit(event)) instructionsDragging = true; }} onpointermove={instructionsDrag}
+          onpointerup={() => { instructionsDragging = false; }} onpointercancel={() => { instructionsDragging = false; }} onlostpointercapture={() => { instructionsDragging = false; }}
+          onkeydown={instructionsKeys} ondblclick={() => model.setInstructionsShare(DEFAULT_INSTRUCTIONS)}></div>
         <FileTree folders={snap.folders} expanded={snap.expanded} activePath={snap.activePath} readOnly={disabled}
           onToggle={path => model.toggleFolder(path)} onOpen={open}
           onNew={(kind, folder) => { naming = { kind, folder }; }} onRename={path => { naming = { kind: 'rename', path, folder: dirname(path) }; }} onDelete={path => { deleting = path; }} />
       </div>
+      <!-- The splitter between the column and the editor sits in the gap at the column's right. -->
+      <div class="side-splitter upright" class:dragging={sideDragging} role="separator" aria-orientation="vertical" aria-label="Resize the instructions and the files"
+        aria-controls="side-panel" tabindex="0" aria-valuemin={Math.round(MIN_SIDE * 100)} aria-valuemax={Math.round(MAX_SIDE * 100)} aria-valuenow={Math.round(sideNow * 100)}
+        aria-valuetext="The instructions and the files take {Math.round(sideNow * 100)} percent of the width"
+        title="Drag to give the instructions or the editor more room, or use the left and right arrows. Double click: usual width"
+        onpointerdown={event => { if (startSplit(event)) sideDragging = true; }} onpointermove={sideDrag}
+        onpointerup={() => { sideDragging = false; }} onpointercancel={() => { sideDragging = false; }} onlostpointercapture={() => { sideDragging = false; }}
+        onkeydown={sideKeys} ondblclick={() => model.setSideShare(null)}></div>
     </aside>
     <div class="main" class:with-terminal={terminalVisible} style:--editor-share="{Math.round((1 - snap.terminalShare) * 1000)}fr" style:--terminal-share="{Math.round(snap.terminalShare * 1000)}fr">
       <div class="actions" role="toolbar" aria-label="Run, check and save">
@@ -294,10 +366,20 @@
   .banner.pending { background: var(--info-fill, var(--bg-raised)); color: var(--text-main); }
   .banner.danger { background: var(--alert-fill); color: var(--alert-text); }
   .banner button { margin: 0 0 0 auto; }
-  .panes { flex: 1 1 0; min-height: 0; display: grid; grid-template-columns: minmax(15rem, 21rem) minmax(0, 1fr); gap: var(--space-2); }
-  .side { display: grid; grid-template-rows: minmax(0, 2fr) minmax(0, 3fr); gap: var(--space-2); min-height: 0; min-width: 0; }
+  /* The column of the instructions and the files is 15 to 21rem until the student gives it a share of the width (--side-columns). */
+  .panes { flex: 1 1 0; min-height: 0; display: grid; grid-template-columns: var(--side-columns, minmax(15rem, 21rem) minmax(0, 1fr)); gap: var(--space-2); }
+  .side { position: relative; display: grid; grid-template-rows: minmax(0, var(--instructions-share, 400fr)) minmax(0, var(--files-share, 600fr)); gap: var(--space-2); min-height: 0; min-width: 0; }
   .todo-box { min-height: 0; overflow: auto; padding-right: .15rem; }
-  .tree-box { min-height: 0; display: grid; }
+  .tree-box { position: relative; min-height: 0; display: grid; }
+  /* The column's splitters are strips of the gaps (out of the grid's flow): at the column's right edge, and above the files. */
+  .side-splitter { position: absolute; z-index: 1; touch-action: none; border-radius: 4px; display: grid; place-items: center; }
+  .side-splitter::before { content: ''; border-radius: 2px; background: var(--text-muted); opacity: .5; }
+  .side-splitter.upright { top: 0; bottom: 0; right: calc(var(--space-2) * -1); width: var(--space-2); cursor: col-resize; }
+  .side-splitter.upright::before { width: 3px; height: 3rem; }
+  .side-splitter.across { left: 0; right: 0; top: calc(var(--space-2) * -1); height: var(--space-2); cursor: row-resize; }
+  .side-splitter.across::before { width: 3rem; height: 3px; }
+  .side-splitter:hover::before, .side-splitter.dragging::before, .side-splitter:focus-visible::before { background: var(--action-primary); opacity: 1; }
+  .side-splitter:focus-visible { outline: 2px solid var(--action-primary); outline-offset: -1px; }
   /* The editor has all the room until a terminal is wanted, and then about two thirds of it. */
   .main { display: grid; grid-template-rows: auto minmax(0, 1fr); gap: var(--space-2); min-height: 0; min-width: 0; }
   .main.with-terminal { grid-template-rows: auto minmax(0, var(--editor-share, 650fr)) 0 minmax(6rem, var(--terminal-share, 350fr)); }
@@ -323,5 +405,7 @@
     .panes { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(36rem, 1fr); }
     .side { grid-template-rows: auto minmax(12rem, 16rem); }
     .todo-box { max-height: 16rem; }
+    /* The column is the whole width, above the editor: nothing to resize. */
+    .side-splitter { display: none; }
   }
 </style>
