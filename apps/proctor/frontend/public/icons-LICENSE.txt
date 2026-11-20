@@ -16,6 +16,7 @@ Tabler Icons (github.com/tabler/tabler-icons/blob/main/LICENSE):
   copy.svg: copy
   delete-exam.svg: trash
   done.svg: circle-check
+  dots.svg: dots
   download.svg: download
   eraser.svg: eraser
   error.svg: alert-circle

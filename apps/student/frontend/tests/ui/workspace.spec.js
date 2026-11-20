@@ -95,6 +95,116 @@ test('Ctrl+S saves at once, and switching tabs saves the file left behind', asyn
   await expect(page.getByRole('textbox', { name: /Editor for src\/list\.cpp/ })).toContainText('// two');
 });
 
+const openTabs = page => page.getByRole('tablist', { name: 'Open files' }).getByRole('tab');
+
+test('Ctrl+W closes the file in front, saving it first, from the editor or the tree, and one file for a key held down', async ({ page }) => {
+  await start(page);
+  await openFile(page, 'Makefile');
+  const editor = await openFile(page, 'notes.txt');
+  await editor.click();
+  await page.keyboard.type('closed with Ctrl+W\n');
+  await page.keyboard.press('Control+w');
+  await expect(page.getByRole('tab', { name: /notes\.txt/ })).toHaveCount(0);
+  await expect.poll(() => file(page, 'notes.txt')).toContain('closed with Ctrl+W');
+  // The file behind it comes to the front, with the keyboard in it.
+  await expect(page.getByRole('tab', { name: /Makefile/ })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('textbox', { name: /Editor for Makefile/ })).toBeFocused();
+  // From the file tree too; a key held down (its repeats) closes one file, not every file.
+  await openFile(page, 'notes.txt');
+  await page.getByRole('treeitem', { name: 'notes.txt', exact: true }).focus();
+  await page.keyboard.down('Control');
+  for (let i = 0; i < 3; i += 1) await page.keyboard.down('w');
+  await page.keyboard.up('w');
+  await page.keyboard.up('Control');
+  await expect(openTabs(page)).toHaveCount(1);
+  await expect(page.getByRole('tab', { name: /Makefile/ })).toBeVisible();
+  // Not behind a dialog: the dialog is what the student is looking at.
+  await page.getByRole('button', { name: 'File', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'New file' })).toBeVisible();
+  await page.keyboard.press('Control+w');
+  await page.keyboard.press('Escape');
+  await expect(openTabs(page)).toHaveCount(1);
+});
+
+test('in a terminal Ctrl+W is the program\'s, and the student is told once how to close a file', async ({ page }) => {
+  await start(page);
+  await openFile(page, 'notes.txt');
+  await openTerminal(page);
+  await page.getByRole('textbox', { name: 'Terminal 1 input' }).focus();
+  await page.keyboard.type('echo one two');
+  await page.keyboard.press('Control+w');
+  await page.keyboard.press('Control+w');
+  // bash deletes a word with it (^W), and nano searches: the terminal has both, and the file is still open.
+  await expect.poll(async () => (await server(page, 'server.typed.join("")')).split('\x17').length - 1).toBe(2);
+  await expect(page.getByRole('tab', { name: /notes\.txt/ })).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'Terminal 1 input' })).toBeFocused();
+  await expect(page.getByRole('status').filter({ hasText: 'In a terminal, Ctrl+W belongs to the program' })).toHaveCount(1);
+});
+
+test('a middle click closes a tab, and the ⋯ menu closes all of them, the others, or the saved ones', async ({ page }) => {
+  await start(page);
+  await page.getByRole('treeitem', { name: 'src', exact: true }).click();
+  for (const name of ['list.cpp', 'main.cpp', 'Makefile', 'notes.txt']) await openFile(page, name);
+  await expect(openTabs(page)).toHaveCount(4);
+  await page.getByRole('tab', { name: /main\.cpp/ }).click({ button: 'middle' });
+  await expect(openTabs(page)).toHaveCount(3);
+  await expect(page.getByRole('tab', { name: /main\.cpp/ })).toHaveCount(0);
+  // An unsaved file (the disk is full) is not a saved one: Close saved leaves it.
+  await server(page, 'server.diskFull = true');
+  await page.getByRole('textbox', { name: /Editor for notes\.txt/ }).click();
+  await page.keyboard.type('not saved\n');
+  await expect(page.getByRole('img', { name: 'unsaved changes' })).toBeVisible();
+  const actions = page.getByRole('button', { name: 'Tab actions' });
+  await actions.click();
+  const menu = page.getByRole('menu', { name: 'Tab actions' });
+  await expect(menu.getByRole('menuitem')).toHaveText([/^Close all\s*3$/, /^Close others\s*2$/, /^Close saved\s*2$/, /^Close notes\.txt\s*Ctrl\+W$/]);
+  await menu.getByRole('menuitem', { name: 'Close saved' }).click();
+  await expect(menu).toHaveCount(0);
+  await expect(openTabs(page)).toHaveText([/notes\.txt/]);
+  // Close all: the file that cannot be saved stays open, with its changes, and the student is told.
+  await actions.click();
+  await expect(menu.getByRole('menuitem', { name: 'Close others' })).toBeDisabled();
+  await menu.getByRole('menuitem', { name: 'Close all' }).click();
+  await expect(page.getByRole('alert').filter({ hasText: 'notes.txt has changes that could not be saved yet, so it stays open.' })).toBeVisible();
+  await expect(openTabs(page)).toHaveText([/notes\.txt/]);
+  await server(page, 'server.diskFull = false');
+  await actions.click();
+  await menu.getByRole('menuitem', { name: 'Close all' }).click();
+  await expect(openTabs(page)).toHaveCount(0);
+  await expect.poll(() => file(page, 'notes.txt')).toContain('not saved');
+  await expect(actions).toBeDisabled();
+});
+
+test('the ⋯ menu works from the keyboard: the arrows open and move, Enter acts, Escape goes back to the button', async ({ page }) => {
+  await start(page);
+  await openFile(page, 'Makefile');
+  await openFile(page, 'notes.txt');
+  const actions = page.getByRole('button', { name: 'Tab actions' });
+  await actions.focus();
+  await page.keyboard.press('ArrowDown');
+  const menu = page.getByRole('menu', { name: 'Tab actions' });
+  await expect(actions).toHaveAttribute('aria-expanded', 'true');
+  await expect(menu.getByRole('menuitem', { name: 'Close all' })).toBeFocused();
+  await page.keyboard.press('ArrowUp');
+  await expect(menu.getByRole('menuitem', { name: 'Close notes.txt' })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(menu).toHaveCount(0);
+  await expect(actions).toBeFocused();
+  await expect(actions).toHaveAttribute('aria-expanded', 'false');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('ArrowDown');
+  await expect(menu.getByRole('menuitem', { name: 'Close others' })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(openTabs(page)).toHaveText([/notes\.txt/]);
+  await expect(actions).toBeFocused();
+  // A click elsewhere closes it.
+  await actions.click();
+  await expect(menu).toBeVisible();
+  await page.getByRole('textbox', { name: /Editor for notes\.txt/ }).click();
+  await expect(menu).toHaveCount(0);
+  await expect(openTabs(page)).toHaveText([/notes\.txt/]);
+});
+
 test('Run and Check show their output in terminals of their own, after saving the files', async ({ page }) => {
   await start(page);
   const editor = await openSrc(page);
@@ -419,6 +529,10 @@ test('the workspace has no critical accessibility problems', async ({ page }) =>
     expect(serious.map(v => `${v.impact} ${v.id}: ${v.help} :: ${v.nodes.map(n => `${n.target.join(' ')} ${n.failureSummary?.replace(/\n/g, ' ')}`).join(' | ')}`), label).toEqual([]);
   };
   await scan('workspace');
+  await page.getByRole('button', { name: 'Tab actions' }).click();
+  await expect(page.getByRole('menu', { name: 'Tab actions' })).toBeVisible();
+  await scan('the tab actions menu');
+  await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'File', exact: true }).click();
   await scan('the new file dialog');
   await page.keyboard.press('Escape');

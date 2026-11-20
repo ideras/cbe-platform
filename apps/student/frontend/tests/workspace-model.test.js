@@ -331,6 +331,35 @@ test('closing a tab saves it first, and a tab that cannot be saved stays', async
   assert.ok(h.model.tab('Makefile'));
 });
 
+test('closing several tabs saves each first, keeps the ones that cannot be saved, and says so once', async () => {
+  const h = setup();
+  await h.connect();
+  await h.model.toggleFolder('src');
+  const notes = await open(h, 'notes.txt');
+  await open(h, 'src/list.cpp');
+  const make = await open(h, 'Makefile');
+  notes.type('saved on the way out\n');
+  assert.equal(await h.model.closeTabs(['notes.txt', 'src/list.cpp']), 2);
+  assert.equal(h.server.files.get('notes.txt'), 'saved on the way out\n');
+  assert.deepEqual(h.model.tabs.map(t => t.path), ['Makefile']);
+  assert.equal(h.model.activePath, 'Makefile');
+  assert.equal(h.notes.length, 0);
+  // Two that cannot be saved stay open with their edits, and one notice tells of both.
+  const main = await open(h, 'src/main.cpp');
+  make.type('all:\n\techo\n');
+  main.type('int main() { return 1; }\n');
+  h.server.diskFull = true;
+  assert.equal(await h.model.closeTabs(['Makefile', 'src/main.cpp']), 0);
+  assert.deepEqual(h.model.tabs.map(t => [t.path, t.dirty]), [['Makefile', true], ['src/main.cpp', true]]);
+  // (The saves tell why they failed, as any save does; the closing adds one notice, not one a file.)
+  assert.deepEqual(h.notes.filter(n => n.key === 'close-unsaved').map(n => n.text), ['2 files have changes that could not be saved yet, so they stay open.']);
+  // Closing all: the active tab goes too, and nothing is in front.
+  h.server.diskFull = false;
+  assert.equal(await h.model.closeTabs(h.model.tabs.map(t => t.path)), 2);
+  assert.deepEqual(h.model.tabs, []);
+  assert.equal(h.model.activePath, null);
+});
+
 test('Run saves every file first, so the program is the one on the screen', async () => {
   const h = setup();
   await h.connect();
