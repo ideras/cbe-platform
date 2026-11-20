@@ -1,123 +1,64 @@
 <script>
-  import { onMount, tick, untrack } from 'svelte';
-  import { SvelteMap } from 'svelte/reactivity';
-  import { EditorState, Compartment, Annotation } from '@codemirror/state';
-  import { EditorView, keymap, lineNumbers, highlightActiveLineGutter, highlightSpecialChars, drawSelection, dropCursor } from '@codemirror/view';
-  import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
-  import { foldGutter, foldKeymap, indentOnInput, bracketMatching, syntaxHighlighting } from '@codemirror/language';
-  import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
-  import { searchKeymap, highlightSelectionMatches } from '@codemirror/search';
+  import { onMount, onDestroy, tick, untrack } from 'svelte';
+  import { EditorState } from '@codemirror/state';
+  import { EditorView } from '@codemirror/view';
   import Icon from '../../../../../shared/theme/Icon.svelte';
-  import { highlightColors, editorTheme } from '../editor-theme.js';
-  import { loadLanguage } from '../languages.js';
-  import { languageOf, basename, dirname } from './paths.js';
+  import { editorTheme } from '../editor-theme.js';
+  import { basename, dirname } from './paths.js';
   import { ZOOMS, DEFAULT_ZOOM, stepZoom } from './sizes.js';
   import { isSvgPath, looksLikeSvg } from './picture.js';
+  import { access, sizing, sizeTheme, accessConfig } from './editor-store.js';
   import PictureView from './PictureView.svelte';
   import MenuButton from './MenuButton.svelte';
 
-  // The open files: a tab for each, and one CodeMirror editor that shows the state of the tab in front. Each tab keeps its own editor
-  // state (its undo history and its cursor) and where it was scrolled, so all three survive a trip to another tab. The editor tells the
-  // model when the text changes; the model decides when it is written. Highlighting only, as in the exam's code answers: no autocompletion.
-  // `onClose` closes one tab and `onCloseMany` several (the ⋯ menu's Close all, Close others and Close saved).
-  let { model, tabs, activePath, readOnly, onClose, onCloseMany = () => {} } = $props();
+  // A pane of the editor: the tabs of the files open in it, and one CodeMirror editor that shows the state of the tab in front. There are
+  // one or two panes; what each tab is (its editor state, with its undo history and its cursor, where it was scrolled, and an SVG's picture)
+  // is kept in the store the panes share (editor-store.js), so it survives a trip to another tab and a move to the other pane. The editor
+  // tells the model when the text changes; the model decides when it is written. Highlighting only, as in the exam's code answers.
+  //
+  // `tabs` are this pane's, in order, and `allTabs` every open file's (two tabs with the same name say which folder they are in, in whichever
+  // pane). `side` is '' with one pane and 'left' or 'right' with two; `used` says this is the pane last used, whose tab in front is marked.
+  // `onClose` closes one tab, `onCloseMany` several (the ⋯ menu's Close all, Close others and Close saved), and `onMove` sends one to the
+  // other pane.
+  let { model, store, paneId, tabs, allTabs = tabs, activePath, readOnly, side = '', used = true, canMove = false,
+    onClose, onCloseMany = () => {}, onMove = () => {} } = $props();
   let host = $state(null);
   let view;
-  const states = new Map(); // tab id -> the tab's editor state
-  // An editor state does not hold the scroll: CodeMirror shows a state given to it from the top. Where a tab was scrolled is kept apart, as
-  // CodeMirror's own snapshot of it, and given back with its state.
-  const scrolls = new Map(); // tab id -> the snapshot of its scroll when it went to the back
-  const extensionsOf = new Map(); // tab id -> the language's extension, for a state made again
-  const outside = Annotation.define();
-  const access = new Compartment();
   // The size of the code is part of the editor's theme, and a change of it is dispatched as a change of the theme. CodeMirror measures its
   // lines (the height it believes each has, which moving the cursor up and down and finding the line under the mouse go by) when its
   // content changes height or its theme changes, and in no other case: a size that came from the page's CSS alone (the toolbar's A− and
   // A+, ours below) left it with the old heights when the code did not fill the editor, and the arrow keys then skipped lines.
-  const sizing = new Compartment();
-  const sizeTheme = () => EditorView.theme({ '&': { fontSize: 'calc(var(--text-sm) * var(--code-zoom, 1))' } });
   function resize() { view?.dispatch({ effects: sizing.reconfigure(sizeTheme()) }); }
   let shownId = $state(null);
-  const buffers = new Map(); // tab id -> the buffer registered with the model
+  // With two panes every name says which pane it is in.
+  const named = text => (side ? `${text} (${side})` : text);
 
   const active = $derived(tabs.find(tab => tab.path === activePath) ?? null);
   const showing = $derived(active?.state === 'ready');
   let picture = $state(null);
-  // Two tabs with the same name say which folder they are in.
-  const label = tab => tabs.some(other => other.id !== tab.id && basename(other.path) === basename(tab.path)) ? `${basename(tab.path)} (${dirname(tab.path) || '/'})` : basename(tab.path);
+  const label = tab => allTabs.some(other => other.id !== tab.id && basename(other.path) === basename(tab.path)) ? `${basename(tab.path)} (${dirname(tab.path) || '/'})` : basename(tab.path);
 
   // The size of the code text, on top of the application's A− and A+ (which size the whole workspace, files and buttons too): a student
   // who wants bigger code need not make everything else bigger, which would take the room the code needs. Ctrl and + − 0 do it from the
-  // keyboard, as in a code editor. It is kept while the application runs and is not written anywhere.
+  // keyboard, as in a code editor. Each pane has its own. It is kept while the application runs and is not written anywhere.
   let zoomIndex = $state(DEFAULT_ZOOM);
   const zoom = delta => { zoomIndex = stepZoom(zoomIndex, delta); };
   $effect(() => { zoomIndex; if (view) tick().then(resize); });
   // A click leaves the focus where the student was working (the editor); a key press on the button keeps it on the button.
   const zoomClick = (delta, event) => { zoom(delta); if (event.detail > 0) view?.focus(); };
 
-  const accessConfig = locked => [EditorState.readOnly.of(locked), EditorView.contentAttributes.of(locked ? { 'aria-readonly': 'true' } : {})];
-
-  function makeState(tab, text, language) {
-    return EditorState.create({ doc: text, extensions: [
-      lineNumbers(), highlightActiveLineGutter(), highlightSpecialChars(), history(), foldGutter(),
-      drawSelection(), dropCursor(), indentOnInput(), bracketMatching(), closeBrackets(), highlightSelectionMatches(),
-      syntaxHighlighting(highlightColors), language,
-      keymap.of([
-        { key: 'Mod-s', preventDefault: true, run: () => { model.save(model.tabs.find(item => item.id === tab.id)?.path ?? tab.path).catch(() => {}); return true; } },
-        { key: 'Mod-=', run: () => { zoom(1); return true; } }, { key: 'Mod-+', run: () => { zoom(1); return true; } },
-        { key: 'Mod--', run: () => { zoom(-1); return true; } }, { key: 'Mod-0', run: () => { zoom(0); return true; } },
-        indentWithTab, ...closeBracketsKeymap, ...defaultKeymap, ...searchKeymap, ...historyKeymap, ...foldKeymap,
-      ]),
-      EditorView.contentAttributes.of({ 'aria-label': `Editor for ${tab.path}`, spellcheck: 'false' }),
-      access.of(accessConfig(readOnly)),
-      editorTheme('0'),
-      sizing.of(sizeTheme()),
-      EditorView.updateListener.of(update => {
-        if (update.docChanged && !update.transactions.some(t => t.annotation(outside))) {
-          model.editedById(tab.id);
-          // A student typing an SVG of their own stays in its source when the text starts to look like one.
-          if (!views.has(tab.id)) views.set(tab.id, 'source');
-        }
-      }),
-    ] });
-  }
-
-  async function ensure(tab) {
-    let state = states.get(tab.id);
-    if (state) return state;
-    const language = await loadLanguage(languageOf(tab.path)).catch(() => []);
-    state = states.get(tab.id) ?? makeState(tab, tab.savedText, language);
-    states.set(tab.id, state);
-    extensionsOf.set(tab.id, language);
-    if (!buffers.has(tab.id)) {
-      const id = tab.id;
-      const buffer = {
-        text: () => (shownId === id ? view.state.doc.toString() : states.get(id)?.doc.toString() ?? ''),
-        replace: text => {
-          if (shownId === id) view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: text }, annotations: outside.of(true) });
-          else {
-            states.set(id, makeState({ id, path: model.tabs.find(item => item.id === id)?.path ?? tab.path }, text, extensionsOf.get(id) ?? []));
-            scrolls.delete(id); // a snapshot is of the text it was taken in, and this is another
-          }
-        },
-      };
-      buffers.set(tab.id, buffer);
-      model.registerBuffer(tab.path, buffer);
-    }
-    return state;
-  }
-
-  // The tab in front changes: keep the state of the one that was, show the state of the one that is.
+  // The tab in front changes: the pane lets go of the one that was, and shows the state of the one that is (taken from the other pane when
+  // the tab was just moved from there).
   let wanted = 0;
   async function show() {
     const ticket = ++wanted;
     const tab = untrack(() => active);
-    if (shownId !== null && view) states.set(shownId, view.state);
-    if (!tab || tab.state !== 'ready') { shownId = null; return; }
-    const state = await ensure(tab);
-    if (ticket !== wanted) return;
-    view.setState(state);
-    const scroll = scrolls.get(tab.id);
+    if (shownId !== null && view) { store.release(shownId, view); shownId = null; }
+    if (!tab || tab.state !== 'ready') return;
+    await store.ensure(tab);
+    if (ticket !== wanted || !view) return;
+    view.setState(store.take(tab.id, view));
+    const scroll = store.scrolls.get(tab.id);
     view.dispatch({ effects: [access.reconfigure(accessConfig(readOnly)), sizing.reconfigure(sizeTheme()), ...(scroll ? [scroll] : [])] });
     shownId = tab.id;
   }
@@ -127,16 +68,15 @@
   const activeState = $derived(active?.state ?? null);
   // Where the tab going to the back is scrolled is read before the page changes: a tab in front that is not text hides the editor, and a
   // hidden editor has no scroll to read.
-  $effect.pre(() => { activeId; activeState; untrack(() => { if (shownId !== null && view) scrolls.set(shownId, view.scrollSnapshot()); }); });
+  $effect.pre(() => { activeId; activeState; untrack(() => { if (shownId !== null && view && store.mine(shownId, view)) store.scrolls.set(shownId, view.scrollSnapshot()); }); });
   $effect(() => { activeId; activeState; if (view) untrack(show); });
 
   // An SVG file is shown as its picture, or as its source in the editor (docs/workspace/student-ide.md, "Editor"). The tab is the same
   // tab either way: its text, its saves and its conflicts are the model's, as for any file, and the editor keeps its state (cursor,
-  // scroll, undo) behind the picture. Which of the two a tab shows is the student's choice, kept here while the tab is open.
-  const views = new SvelteMap(); // tab id -> 'picture' | 'source'
-  // Where each tab's picture was (its zoom and its scroll), for when the tab comes to the front again: the picture is made anew for it.
-  const pictures = new Map(); // tab id -> { zoom, left, top }
-  const placeOf = id => { if (!pictures.has(id)) pictures.set(id, {}); return pictures.get(id); };
+  // scroll, undo) behind the picture. Which of the two a tab shows is the student's choice, kept in the store while the tab is open, with
+  // where its picture was (its zoom and its scroll), for when the tab comes to the front again: the picture is made anew for it.
+  const views = store.views;
+  const placeOf = id => { if (!store.pictures.has(id)) store.pictures.set(id, {}); return store.pictures.get(id); };
   const activeSvg = $derived(activePath !== null && isSvgPath(activePath));
   const activeVersion = $derived(active?.version ?? '');
   const activeSaved = $derived(active?.savedText ?? '');
@@ -165,32 +105,33 @@
     if (mode === 'picture') picture?.focus(); else view?.focus();
   }
 
-  // What the model keeps are the tabs that exist: the state of one that was closed goes with it.
-  $effect(() => {
-    const ids = new Set(tabs.map(tab => tab.id));
-    for (const id of untrack(() => [...views.keys()])) if (!ids.has(id)) views.delete(id);
-    for (const map of [scrolls, pictures]) for (const id of [...map.keys()]) if (!ids.has(id)) map.delete(id);
-    for (const id of [...states.keys()]) if (!ids.has(id)) {
-      states.delete(id); extensionsOf.delete(id);
-      const buffer = buffers.get(id);
-      if (buffer) { model.unregisterBuffer(id, buffer); buffers.delete(id); }
-    }
-  });
-
   $effect(() => { const locked = readOnly; if (view) view.dispatch({ effects: access.reconfigure(accessConfig(locked)) }); });
 
   onMount(() => {
     view = new EditorView({ parent: host, state: EditorState.create({ doc: '', extensions: [editorTheme('0'), sizing.of(sizeTheme())] }) });
+    store.zooms.set(view, zoom);
+    // Where the tab shown is scrolled is kept as it changes: a pane that goes (the other is left alone) is taken off the page before it
+    // could be asked, and an editor off the page reads as scrolled to the top.
+    view.scrollDOM.addEventListener('scroll', () => { if (shownId !== null && view && store.mine(shownId, view)) store.scrolls.set(shownId, view.scrollSnapshot()); }, { passive: true });
     show();
     window.addEventListener('exam-text-size', resize);
-    return () => { window.removeEventListener('exam-text-size', resize); view.destroy(); view = null; };
+    return () => window.removeEventListener('exam-text-size', resize);
+  });
+  // A pane that goes (the other one is the only one left) leaves the tab it showed in the store, where it was.
+  onDestroy(() => {
+    if (!view) return;
+    if (shownId !== null) store.release(shownId, view);
+    store.zooms.delete(view);
+    view.destroy();
+    view = null;
   });
 
   // The keyboard goes to what the tab shows: its picture, or the editor. The pane is drawn from the model's snapshots, which come once a
   // frame: a file just opened from the tree is not in it yet. When a picture is in front, or may be about to be, the keyboard goes where
   // the next snapshot puts it (else it would go into an editor about to be hidden behind a picture, and from there to nowhere).
   export function focus() {
-    if (!pictureShown && !isSvgPath(model.activePath ?? '')) { view?.focus(); return; }
+    const front = model.panes.find(pane => pane.id === paneId)?.active ?? null;
+    if (!pictureShown && !isSvgPath(front ?? '')) { view?.focus(); return; }
     requestAnimationFrame(() => tick().then(() => { if (pictureShown) picture?.focus(); else view?.focus(); }));
   }
 
@@ -207,24 +148,26 @@
   // A middle click closes a tab, as in a browser or a code editor (its press is kept from starting the scroll mode some systems give it).
   const middle = event => event.button === 1;
 
-  // The ⋯ menu: Close all, Close others (all but the one in front) and Close saved (the tabs with no unsaved changes), with how many each
-  // closes, and Close for the tab in front with its key. Each tab is saved first, as when it is closed alone.
+  // The ⋯ menu: Close all, Close others (all but the one in front) and Close saved (the tabs with no unsaved changes) of this pane, with how
+  // many each closes; then, for the tab in front, Move to the other side and Close with its key. Each tab is saved before it closes.
   const shortcut = typeof navigator !== 'undefined' && /Mac/.test(navigator.platform || navigator.userAgent) ? '⌘W' : 'Ctrl+W';
   const others = $derived(tabs.filter(tab => tab.path !== activePath).map(tab => tab.path));
   const saved = $derived(tabs.filter(tab => !tab.dirty).map(tab => tab.path));
+  const otherSide = $derived(side === 'right' ? 'left' : 'right');
   const tabActions = $derived([
     { label: 'Close all', detail: tabs.length, disabled: tabs.length === 0, run: () => onCloseMany(tabs.map(tab => tab.path)) },
     { label: 'Close others', detail: others.length, disabled: others.length === 0, run: () => onCloseMany(others) },
     { label: 'Close saved', detail: saved.length, disabled: saved.length === 0, run: () => onCloseMany(saved) },
     'separator',
+    { label: active ? `Move ${label(active)} to the ${otherSide}` : `Move to the ${otherSide}`, disabled: !active || !canMove, run: () => { if (active) onMove(active.path); } },
     { label: active ? `Close ${label(active)}` : 'Close', detail: shortcut, disabled: !active, run: () => { if (active) onClose(active.path); } },
   ]);
 </script>
-<section class="editor" aria-label="Editor" style:--code-zoom={ZOOMS[zoomIndex]}>
+<section class="editor" class:used aria-label={named('Editor')} style:--code-zoom={ZOOMS[zoomIndex]}>
   <div class="tabbar">
-    <div class="tabs" role="tablist" aria-label="Open files">
+    <div class="tabs" role="tablist" aria-label={named('Open files')}>
       {#each tabs as tab, index (tab.id)}
-        <button type="button" role="tab" class="tab" class:front={tab.path === activePath} id="file-tab-{tab.id}" aria-selected={tab.path === activePath} aria-controls="editor-panel"
+        <button type="button" role="tab" class="tab" class:front={tab.path === activePath} id="file-tab-{tab.id}" aria-selected={tab.path === activePath} aria-controls="editor-panel-{paneId}"
           tabindex={tab.path === activePath ? 0 : -1} title={tab.path} onclick={() => model.activate(tab.path)} onkeydown={event => tabKeys(event, index)}
           onmousedown={event => { if (middle(event)) event.preventDefault(); }} onauxclick={event => { if (middle(event)) { event.preventDefault(); onClose(tab.path); } }}>
           {label(tab)}<span class="mark">{#if tab.dirty}<span class="dot" role="img" aria-label="unsaved changes">●</span>{/if}</span>
@@ -244,15 +187,18 @@
     <!-- The names start with what is drawn on the buttons, as WCAG's "label in name" asks (a person who says "A plus" to a voice control must reach it).
          They size the code text, so a picture, which has its own zoom, does not show them. -->
     {#if !pictureShown}
-      <div class="zoom" role="group" aria-label="Code text size">
+      <div class="zoom" role="group" aria-label={named('Code text size')}>
         <button type="button" aria-label="A− Smaller code text" title="Smaller code text (Ctrl and −)" disabled={zoomIndex === 0} onclick={event => zoomClick(-1, event)}>A−</button>
         <button type="button" aria-label="A+ Larger code text" title="Larger code text (Ctrl and +)" disabled={zoomIndex === ZOOMS.length - 1} onclick={event => zoomClick(1, event)}>A+</button>
       </div>
     {/if}
-    <MenuButton label="Tab actions" items={tabActions} disabled={tabs.length === 0} />
+    <!-- The tab in front goes to the other pane (made when there is one); with one pane and one tab there is nowhere to send it. -->
+    <button type="button" class="move" aria-label={named('Move to the other side')} title={active ? `Move ${label(active)} to the ${otherSide}` : 'Move a tab to the other side'}
+      disabled={!active || !canMove} onclick={() => { if (active) onMove(active.path); }}><Icon name="split" size={16} /></button>
+    <MenuButton label={named('Tab actions')} items={tabActions} disabled={tabs.length === 0} />
     {#if active}<button type="button" class="close-active" aria-label="Close {label(active)}" title="Close this file ({shortcut})" onclick={() => onClose(active.path)}><Icon name="close" size={14} /></button>{/if}
   </div>
-  <div class="panel" id="editor-panel" role="tabpanel" aria-labelledby={active ? `file-tab-${active.id}` : undefined}>
+  <div class="panel" id="editor-panel-{paneId}" role="tabpanel" aria-labelledby={active ? `file-tab-${active.id}` : undefined}>
     {#if active?.conflict}
       <div class="notice conflict" role="alert">
         <span>{#if active.conflict.content === null}<strong>{basename(active.path)}</strong> changed in the terminal and cannot be shown here.{:else}This file changed in the terminal.{/if} Reload it, or keep yours?</span>
@@ -294,7 +240,12 @@
   .tab:focus-visible, .close-active:focus-visible { outline: 2px solid var(--action-primary); outline-offset: -2px; }
   .close { display: inline-flex; padding: .1rem; border-radius: 4px; color: var(--text-muted); }
   .close:hover { color: var(--alert-text); background: var(--hover-fill); }
-  .close-active { flex: none; margin: 0; border: 0; border-radius: 0; background: var(--transparent); box-shadow: none; color: var(--text-main); }
+  .close-active, .move { flex: none; margin: 0; border: 0; border-radius: 0; background: var(--transparent); box-shadow: none; color: var(--text-main); }
+  .move { display: inline-flex; align-items: center; padding: .25rem .45rem; }
+  .move:disabled { opacity: .45; }
+  .move:focus-visible { outline: 2px solid var(--action-primary); outline-offset: -2px; }
+  /* With two panes, the tab in front of the pane not in use is marked in grey: the blue one is where the keyboard and the next file go. */
+  .editor:not(.used) .tab.front { border-bottom-color: var(--text-muted); }
   .dot { color: var(--warn-text); font-size: .7em; }
   /* The place of the dot is kept when there is none, so the tab does not widen and move the ones after it at every edit and every save. */
   .mark { display: inline-block; width: .8em; text-align: center; }

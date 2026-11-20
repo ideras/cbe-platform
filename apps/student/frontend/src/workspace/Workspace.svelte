@@ -8,9 +8,11 @@
   import TerminalPane from './TerminalPane.svelte';
   import TodoPanel from './TodoPanel.svelte';
   import { WorkspaceModel } from './model.js';
+  import { EditorStore } from './editor-store.js';
   import { PasteGuard, guardWindow } from './paste-guard.js';
   import { makeTransport, decodeOutput } from './transport.js';
   import { basename, dirname } from './paths.js';
+  import { MIN_PANE, MAX_PANE, DEFAULT_PANE, PANE_STEP } from './sizes.js';
   import { MIN_SHARE, MAX_SHARE, DEFAULT_SHARE, SHARE_STEP, MIN_SIDE, MAX_SIDE, SIDE_STEP, MIN_INSTRUCTIONS, MAX_INSTRUCTIONS, DEFAULT_INSTRUCTIONS,
     INSTRUCTIONS_STEP } from './sizes.js';
 
@@ -32,7 +34,15 @@
     queued = true;
     requestAnimationFrame(() => { queued = false; snap = model.snapshot(); });
   }
-  let editor;
+  // What the editor's panes share about the open files (editor-store.js), and each pane's component, by the pane's id.
+  const store = new EditorStore(model);
+  const editors = {};
+  // The keyboard goes to the editor of a pane (the one last used, by default). A pane just made is drawn at the next snapshot: it is waited for.
+  async function focusEditor(index = model.activePane) {
+    const pane = () => editors[model.panes[index]?.id];
+    if (!pane()) { await new Promise(resolve => requestAnimationFrame(resolve)); await tick(); }
+    pane()?.focus();
+  }
   let tree;
   let panes;
   // The workspace fills the window below whatever the page puts above it (the toolbar, the notices), so it measures where it starts.
@@ -67,13 +77,13 @@
   let wasVisible = false;
   $effect(() => {
     const visible = terminalVisible;
-    if (wasVisible && !visible) queueMicrotask(() => { if (!document.activeElement || document.activeElement === document.body) editor?.focus(); });
+    if (wasVisible && !visible) queueMicrotask(() => { if (!document.activeElement || document.activeElement === document.body) focusEditor(); });
     wasVisible = visible;
   });
   // The splitter between the editor and the terminals: dragged with the pointer, or moved with the arrow keys when it has the focus. The share it
   // sets is of the room from the top of the editor to the bottom of the terminals, kept in the model so that hiding the terminals and showing them
   // again leaves it where it was.
-  let editorBox;
+  let editorBox; // the editors' row: one pane, or two side by side
   let terminalBox;
   let dragging = $state(false);
   function startDrag(event) {
@@ -151,7 +161,34 @@
   const sideColumns = $derived(snap.sideShare === null ? null
     : `minmax(15rem, ${Math.round(snap.sideShare * 1000)}fr) minmax(24rem, ${Math.round((1 - snap.sideShare) * 1000)}fr)`);
 
-  function hideTerminal() { terminalWanted = false; editor?.focus(); }
+  // The splitter between the two panes of the editor, as the others: the arrows a step, Page Up and Page Down three, Home and End the ends,
+  // Enter (or a double click) half and half. Each pane keeps at least 16rem.
+  let paneDragging = $state(false);
+  function paneDrag(event) {
+    if (!paneDragging || !editorBox) return;
+    const box = editorBox.getBoundingClientRect();
+    if (box.width > 0) model.setPaneShare((event.clientX - box.left) / box.width);
+  }
+  function paneKeys(event) {
+    const moves = { ArrowRight: PANE_STEP, ArrowLeft: -PANE_STEP, PageUp: 3 * PANE_STEP, PageDown: -3 * PANE_STEP };
+    if (event.key in moves) model.setPaneShare(model.paneShare + moves[event.key]);
+    else if (event.key === 'Home') model.setPaneShare(MAX_PANE);
+    else if (event.key === 'End') model.setPaneShare(MIN_PANE);
+    else if (event.key === 'Enter') model.setPaneShare(DEFAULT_PANE);
+    else return;
+    event.preventDefault();
+  }
+  const twoPanes = $derived(snap.panes.length > 1);
+  const paneColumns = $derived(twoPanes ? `minmax(16rem, ${Math.round(snap.paneShare * 1000)}fr) minmax(16rem, ${Math.round((1 - snap.paneShare) * 1000)}fr)` : 'minmax(0, 1fr)');
+  const tabsByPath = $derived(new Map(snap.tabs.map(tab => [tab.path, tab])));
+  // The tree's marks: where each open file is, and which have changes not saved yet.
+  const openIn = $derived(new Map(snap.panes.flatMap((pane, index) => pane.items.map(path => [path, twoPanes ? (index === 0 ? 'left' : 'right') : 'open']))));
+  const unsavedPaths = $derived(new Set(snap.tabs.filter(tab => tab.dirty).map(tab => tab.path)));
+  // What the store keeps are the tabs that exist, and a new editor state is read-only while the workspace is.
+  $effect(() => { const ids = new Set(snap.tabs.map(tab => tab.id)); untrack(() => store.prune(ids)); });
+  $effect(() => { store.readOnly = disabled; });
+
+  function hideTerminal() { terminalWanted = false; focusEditor(); }
   async function toggleTerminal() {
     if (terminalVisible) { hideTerminal(); return; }
     terminalWanted = true; focusWhenShown = true;
@@ -180,10 +217,11 @@
   });
   const warn = event => { if (model.snapshot().unsaved) { event.preventDefault(); event.returnValue = ''; } };
 
-  const order = ['todo', 'tree', 'editor', 'terminal'];
+  // The panes F6 goes round: the editor is one stop for each of its panes.
+  const order = ['todo', 'tree', 'editor-0', 'editor-1', 'terminal'];
   function focusPane(name) {
     const node = panes?.querySelector(`[data-pane="${name}"]`);
-    if (name === 'editor') { editor?.focus(); return; }
+    if (name.startsWith('editor-')) { focusEditor(Number(name.slice('editor-'.length))); return; }
     (node?.querySelector('[tabindex="0"], input:not(:disabled), button:not(:disabled)') ?? node)?.focus?.();
     if (name === 'terminal') node?.querySelector('textarea')?.focus();
   }
@@ -203,8 +241,23 @@
     }
     event.preventDefault();
     if (event.repeat || !model.activePath) return;
-    const inEditor = event.target.closest?.('[data-pane="editor"]');
-    model.closeTab(model.activePath).then(closed => { if (closed && inEditor && model.activePath) editor?.focus(); });
+    const inEditor = event.target.closest?.('[data-pane^="editor-"]');
+    model.closeTab(model.activePath).then(closed => { if (closed && inEditor && model.activePath) focusEditor(); });
+  }
+  // The keys of the panes, as in a code editor: Ctrl+1 and Ctrl+2 (Cmd on a Mac) put the keyboard in the left or the right pane, and
+  // Ctrl+Page Up and Ctrl+Page Down bring the previous or the next tab of the pane last used to the front. Not in a terminal, whose
+  // programs may want them, and not behind a dialog.
+  function paneKey(event) {
+    if (event.target.closest?.('.xterm') || event.target.closest?.('dialog') || !panes || panes.closest('[hidden]')) return;
+    event.preventDefault();
+    if (event.key === 'PageUp' || event.key === 'PageDown') {
+      model.cycleTab(event.key === 'PageDown' ? 1 : -1);
+      if (event.target.closest?.('[data-pane^="editor-"]')) focusEditor();
+      return;
+    }
+    const index = Number(event.key) - 1;
+    if (index < model.panes.length) { model.usePane(index); focusEditor(index); }
+    else notify({ kind: 'info', key: 'no-right-pane', text: 'There is one pane. To open a file on the other side, Alt+click it in the files (or Ctrl+Enter), or move a tab with ⫿.' });
   }
   function keys(event) {
     const plain = (event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey;
@@ -215,16 +268,18 @@
       model.saveAll().then(ok => { if (!ok) notify({ kind: 'warning', key: 'save-all', text: 'Some changes could not be saved yet.' }); });
     } else if (plain && event.key.toLowerCase() === 'w') {
       closeKey(event);
+    } else if (plain && ['1', '2', 'PageUp', 'PageDown'].includes(event.key)) {
+      paneKey(event);
     } else if (event.key === 'F6') {
       event.preventDefault();
       // A hidden terminal panel is not a stop.
-      const stops = order.filter(name => name !== 'terminal' || terminalVisible);
+      const stops = order.filter(name => (name !== 'terminal' || terminalVisible) && (name !== 'editor-1' || model.panes.length > 1));
       const here = stops.findIndex(name => event.target.closest?.(`[data-pane="${name}"]`));
       focusPane(stops[(here + (event.shiftKey ? stops.length - 1 : 1)) % stops.length]);
     }
   }
 
-  async function open(path) { await model.openFile(path); editor?.focus(); }
+  async function open(path, side = false) { await model.openFile(path, { side }); focusEditor(); }
   async function create(name) {
     const { kind, folder, path } = naming;
     const problem = kind === 'rename' ? await model.rename(path, name) : kind === 'folder' ? await model.createFolder(folder, name) : await model.createFile(folder, name);
@@ -304,7 +359,7 @@
           onpointerdown={event => { if (startSplit(event)) instructionsDragging = true; }} onpointermove={instructionsDrag}
           onpointerup={() => { instructionsDragging = false; }} onpointercancel={() => { instructionsDragging = false; }} onlostpointercapture={() => { instructionsDragging = false; }}
           onkeydown={instructionsKeys} ondblclick={() => model.setInstructionsShare(DEFAULT_INSTRUCTIONS)}></div>
-        <FileTree folders={snap.folders} expanded={snap.expanded} activePath={snap.activePath} readOnly={disabled}
+        <FileTree folders={snap.folders} expanded={snap.expanded} activePath={snap.activePath} readOnly={disabled} {openIn} unsaved={unsavedPaths}
           onToggle={path => model.toggleFolder(path)} onOpen={open}
           onNew={(kind, folder) => { naming = { kind, folder }; }} onRename={path => { naming = { kind: 'rename', path, folder: dirname(path) }; }} onDelete={path => { deleting = path; }} />
       </div>
@@ -333,9 +388,26 @@
         <button type="button" class="primary" onclick={submit} disabled={disabled || submitting}><Icon name="fileCheck" size={16} />Save</button>
         <button type="button" onclick={() => { confirmingFinish = true; }} disabled={disabled}><Icon name="done" size={16} />Finish exam…</button>
       </div>
-      <div class="editor-box" data-pane="editor" bind:this={editorBox}>
-        <EditorPane bind:this={editor} {model} tabs={snap.tabs} activePath={snap.activePath} readOnly={disabled} onClose={path => model.closeTab(path)}
-          onCloseMany={paths => model.closeTabs(paths)} />
+      <!-- The editor: one pane, or two side by side with a splitter in the gap between them. A pane is kept by its id, so the one left when the
+           other goes keeps its editor and its text size. A click or the keyboard in a pane makes it the one last used. -->
+      <div class="editors" class:two={twoPanes} bind:this={editorBox} style:--pane-columns={paneColumns}>
+        {#each snap.panes as pane, index (pane.id)}
+          <div class="editor-box" data-pane="editor-{index}" onfocusin={() => model.usePane(index)} onpointerdown={() => model.usePane(index)}>
+            {#if index === 1}
+              <div class="pane-splitter" class:dragging={paneDragging} role="separator" aria-orientation="vertical" aria-label="Resize the two panes of the editor" tabindex="0"
+                aria-valuemin={Math.round(MIN_PANE * 100)} aria-valuemax={Math.round(MAX_PANE * 100)} aria-valuenow={Math.round(snap.paneShare * 100)}
+                aria-valuetext="The left pane takes {Math.round(snap.paneShare * 100)} percent of the width"
+                title="Drag to give one pane or the other more room, or use the left and right arrows. Double click: half and half"
+                onpointerdown={event => { event.stopPropagation(); if (startSplit(event)) paneDragging = true; }} onpointermove={paneDrag}
+                onpointerup={() => { paneDragging = false; }} onpointercancel={() => { paneDragging = false; }} onlostpointercapture={() => { paneDragging = false; }}
+                onkeydown={paneKeys} ondblclick={() => model.setPaneShare(DEFAULT_PANE)}></div>
+            {/if}
+            <EditorPane bind:this={editors[pane.id]} {model} {store} paneId={pane.id} tabs={pane.items.map(path => tabsByPath.get(path)).filter(Boolean)} allTabs={snap.tabs}
+              activePath={pane.active} side={twoPanes ? (index === 0 ? 'left' : 'right') : ''} used={!twoPanes || index === snap.activePane}
+              canMove={twoPanes || pane.items.length > 1} readOnly={disabled} onClose={path => model.closeTab(path)} onCloseMany={paths => model.closeTabs(paths)}
+              onMove={path => { model.moveTab(path); focusEditor(); }} />
+          </div>
+        {/each}
       </div>
       {#if terminalVisible}
         <!-- A separator that can be focused is a control (the ARIA pattern of a window splitter): the arrows move it, Home and End go to the largest and the smallest
@@ -415,6 +487,13 @@
   .splitter:focus-visible::before { background: var(--action-primary); opacity: 1; }
   .with-terminal .terminal-box { margin-top: calc(var(--space-2) * -1); }
   .editor-box, .terminal-box { min-height: 0; display: grid; }
+  /* The editors' row: one pane, or two side by side (--pane-columns), and the splitter between them is the strip of the gap, as the others. */
+  .editors { min-height: 0; min-width: 0; display: grid; grid-template-columns: var(--pane-columns, minmax(0, 1fr)); gap: var(--space-2); }
+  .editor-box { position: relative; min-width: 0; }
+  .pane-splitter { position: absolute; z-index: 1; top: 0; bottom: 0; left: calc(var(--space-2) * -1); width: var(--space-2); cursor: col-resize; touch-action: none; border-radius: 4px; display: grid; place-items: center; }
+  .pane-splitter::before { content: ''; width: 3px; height: 3rem; border-radius: 2px; background: var(--text-muted); opacity: .5; }
+  .pane-splitter:hover::before, .pane-splitter.dragging::before, .pane-splitter:focus-visible::before { background: var(--action-primary); opacity: 1; }
+  .pane-splitter:focus-visible { outline: 2px solid var(--action-primary); outline-offset: -1px; }
   .terminal-box[hidden] { display: none; }
   .actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
   .actions button { display: inline-flex; align-items: center; gap: .35rem; margin: 0; }
@@ -428,7 +507,8 @@
     .panes { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(36rem, 1fr); }
     .side { grid-template-rows: auto minmax(12rem, 16rem); }
     .todo-box { max-height: 16rem; }
-    /* The column is the whole width, above the editor: nothing to resize. */
-    .side-splitter { display: none; }
+    /* The column is the whole width, above the editor: nothing to resize. Two panes are one above the other. */
+    .side-splitter, .pane-splitter { display: none; }
+    .editors.two { grid-template-columns: minmax(0, 1fr); grid-auto-rows: minmax(14rem, 1fr); }
   }
 </style>

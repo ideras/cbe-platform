@@ -532,3 +532,28 @@ test('the picture has no critical accessibility problems, and nothing is written
   expect(await page.evaluate(async () => (await indexedDB.databases?.() ?? []).length)).toBe(0);
   expect(await page.evaluate(() => document.cookie)).toBe('');
 });
+
+test('a picture beside the code: the SVG in the other pane is drawn again there when it is made again, and moved it keeps its zoom', async ({ page }) => {
+  const problems = await start(page);
+  await open(page, 'notes.txt');
+  await page.getByRole('treeitem', { name: 'automaton.svg', exact: true }).click({ modifiers: ['Alt'] });
+  const right = page.getByRole('region', { name: 'Editor (right)' });
+  const picture = right.getByRole('img', { name: 'Picture drawn by automaton.svg' });
+  await expect(picture).toBeVisible();
+  // The code and its picture at once.
+  await expect(editorOf(page, 'notes.txt')).toBeVisible();
+  await zoomGroup(page).getByRole('button', { name: '+ Zoom in' }).click();
+  await expect(zoomGroup(page)).toContainText('150 %');
+  // Made again in the terminal (dot), it is drawn again in its pane; the editor beside it is untouched.
+  await editorOf(page, 'notes.txt').click();
+  await page.keyboard.type('typed beside the picture ');
+  await write(page, 'automaton.svg', redrawn);
+  await expect.poll(() => drawnText(picture)).toBe(redrawn);
+  await expect(editorOf(page, 'notes.txt')).toBeFocused();
+  await expect(editorOf(page, 'notes.txt')).toContainText('typed beside the picture');
+  // Moved to the other pane (the right one, left with nothing, goes), it keeps its zoom.
+  await page.getByRole('button', { name: 'Move to the other side (right)' }).click();
+  await expect(page.getByRole('region', { name: 'Editor', exact: true }).getByRole('img', { name: 'Picture drawn by automaton.svg' })).toBeVisible();
+  await expect(zoomGroup(page)).toContainText('150 %');
+  expect(problems).toEqual([]);
+});

@@ -43,6 +43,7 @@ Tabler Icons (github.com/tabler/tabler-icons/blob/main/LICENSE):
   search.svg: search
   server.svg: server-2
   shield-check.svg: shield-check
+  split.svg: layout-columns
   volume.svg: volume
   warning.svg: alert-triangle
   wifi.svg: wifi

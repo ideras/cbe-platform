@@ -360,6 +360,98 @@ test('closing several tabs saves each first, keeps the ones that cannot be saved
   assert.equal(h.model.activePath, null);
 });
 
+const panes = h => h.model.panes.map(pane => ({ items: pane.items, active: pane.active }));
+
+test('a file opened on the other side makes a second pane, and a file opened from the tree goes to the pane last used', async () => {
+  const h = setup();
+  await h.connect();
+  await h.model.toggleFolder('src');
+  await open(h, 'notes.txt');
+  await h.model.openFile('Makefile', { side: true });
+  assert.deepEqual(panes(h), [{ items: ['notes.txt'], active: 'notes.txt' }, { items: ['Makefile'], active: 'Makefile' }]);
+  assert.equal(h.model.activePane, 1);
+  assert.equal(h.model.activePath, 'Makefile');
+  // The right pane was used last: the next file goes there, after the tab in front.
+  await h.model.openFile('src/list.cpp');
+  assert.deepEqual(panes(h)[1], { items: ['Makefile', 'src/list.cpp'], active: 'src/list.cpp' });
+  // Working in the left pane again sends the next file there.
+  h.model.usePane(0);
+  await h.model.openFile('src/main.cpp');
+  assert.deepEqual(panes(h)[0], { items: ['notes.txt', 'src/main.cpp'], active: 'src/main.cpp' });
+  // A file open already comes to the front where it is, and opened on the other side it moves there.
+  await h.model.openFile('Makefile');
+  assert.equal(h.model.activePane, 1);
+  await h.model.openFile('Makefile', { side: true });
+  assert.deepEqual(panes(h), [{ items: ['notes.txt', 'src/main.cpp', 'Makefile'], active: 'Makefile' }, { items: ['src/list.cpp'], active: 'src/list.cpp' }]);
+  assert.equal(h.model.activePane, 0);
+  const snap = h.model.snapshot();
+  assert.deepEqual(snap.panes.map(pane => pane.items.length), [3, 1]);
+  assert.equal(snap.activePath, 'Makefile');
+});
+
+test('a tab moved to the other pane keeps its edits, and a pane left with nothing goes', async () => {
+  const h = setup();
+  await h.connect();
+  const e = await open(h, 'notes.txt');
+  await open(h, 'Makefile');
+  // One pane with one tab has nowhere to send it.
+  assert.equal(h.model.canMove('Makefile'), true);
+  e.type('edited before the move\n');
+  h.model.moveTab('notes.txt');
+  assert.deepEqual(panes(h), [{ items: ['Makefile'], active: 'Makefile' }, { items: ['notes.txt'], active: 'notes.txt' }]);
+  assert.equal(h.model.tab('notes.txt').dirty, true);
+  await h.time.advance(1000);
+  assert.equal(h.server.files.get('notes.txt'), 'edited before the move\n');
+  // The last tab of the left pane goes right: the left pane goes, and the right one is the only one.
+  h.model.moveTab('Makefile');
+  assert.deepEqual(panes(h), [{ items: ['notes.txt', 'Makefile'], active: 'Makefile' }]);
+  assert.equal(h.model.activePane, 0);
+  assert.equal(h.model.panes[0].id, 2);
+  h.model.moveTab('Makefile');
+  assert.equal(h.model.panes.length, 2);
+  await h.model.closeTab('notes.txt');
+  assert.deepEqual(panes(h), [{ items: ['Makefile'], active: 'Makefile' }]);
+  assert.equal(h.model.canMove('Makefile'), false);
+  h.model.moveTab('Makefile');
+  assert.deepEqual(panes(h), [{ items: ['Makefile'], active: 'Makefile' }]);
+});
+
+test('closing a tab brings the next one of its pane to the front, and a rename follows the files in both panes', async () => {
+  const h = setup();
+  await h.connect();
+  await h.model.toggleFolder('src');
+  await open(h, 'src/list.cpp');
+  await open(h, 'src/main.cpp');
+  await open(h, 'notes.txt');
+  h.model.activate('src/list.cpp');
+  await h.model.closeTab('src/list.cpp');
+  assert.deepEqual(panes(h), [{ items: ['src/main.cpp', 'notes.txt'], active: 'src/main.cpp' }]);
+  h.model.moveTab('notes.txt');
+  assert.equal(await h.model.rename('src', 'source'), '');
+  assert.deepEqual(panes(h), [{ items: ['source/main.cpp'], active: 'source/main.cpp' }, { items: ['notes.txt'], active: 'notes.txt' }]);
+  // Deleting the folder closes its tab, and the pane it leaves empty.
+  assert.equal(await h.model.remove('source'), '');
+  assert.deepEqual(panes(h), [{ items: ['notes.txt'], active: 'notes.txt' }]);
+  assert.equal(h.model.activePath, 'notes.txt');
+});
+
+test('the next and the previous tab of the pane last used, and the share of the width between the panes', async () => {
+  const h = setup();
+  await h.connect();
+  await open(h, 'notes.txt');
+  await open(h, 'Makefile');
+  h.model.cycleTab(1);
+  assert.equal(h.model.activePath, 'notes.txt');
+  h.model.cycleTab(-1);
+  assert.equal(h.model.activePath, 'Makefile');
+  h.model.setPaneShare(0.95);
+  assert.equal(h.model.paneShare, 0.8);
+  h.model.setPaneShare(0.1);
+  assert.equal(h.model.paneShare, 0.2);
+  h.model.setPaneShare(Number.NaN);
+  assert.equal(h.model.paneShare, 0.5);
+});
+
 test('Run saves every file first, so the program is the one on the screen', async () => {
   const h = setup();
   await h.connect();
