@@ -221,19 +221,29 @@ export class WorkspaceModel {
     this.changed();
   }
 
-  // Closing a tab saves it first; a tab that cannot be saved stays open, with its edits.
-  async closeTab(path) {
+  // Closing a tab saves it first; a tab that cannot be saved stays open, with its edits. `quiet` leaves the telling to the caller.
+  async closeTab(path, { quiet = false } = {}) {
     const tab = this.tab(path);
     if (!tab) return true;
     if (tab.dirty) {
       const saved = await this.save(path);
       if (!saved && this.tab(path)?.dirty) {
-        this.tell('error', 'close-unsaved', `${basename(path)} has changes that could not be saved yet, so it stays open.`);
+        if (!quiet) this.tell('error', 'close-unsaved', `${basename(path)} has changes that could not be saved yet, so it stays open.`);
         return false;
       }
     }
     this.dropTab(path);
     return true;
+  }
+
+  // Closing several tabs at once (the editor's Close all, Close others and Close saved): each is saved first and closed as one alone is,
+  // and the ones that cannot be saved stay open, which the student is told once for all of them. It says how many were closed.
+  async closeTabs(paths) {
+    const results = await Promise.all(paths.map(path => this.closeTab(path, { quiet: true })));
+    const kept = paths.filter((_, index) => !results[index]);
+    if (kept.length === 1) this.tell('error', 'close-unsaved', `${basename(kept[0])} has changes that could not be saved yet, so it stays open.`);
+    else if (kept.length > 1) this.tell('error', 'close-unsaved', `${kept.length} files have changes that could not be saved yet, so they stay open.`);
+    return paths.length - kept.length;
   }
 
   dropTab(path) {

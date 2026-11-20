@@ -187,12 +187,34 @@
     (node?.querySelector('[tabindex="0"], input:not(:disabled), button:not(:disabled)') ?? node)?.focus?.();
     if (name === 'terminal') node?.querySelector('textarea')?.focus();
   }
+  // Ctrl+W (Cmd+W on a Mac) closes the file in front, wherever the keyboard is, as in a code editor; a key held down closes one file, not
+  // every file. Not in a terminal, where Ctrl+W is the program's (bash deletes a word with it, nano searches): the first time it is pressed
+  // there the student is told how to close a file. Not while a dialog is open, or while the workspace is hidden behind the lock screen.
+  let toldTerminalClose = false;
+  function closeKey(event) {
+    if (event.target.closest?.('dialog') || !panes || panes.closest('[hidden]')) return;
+    if (event.target.closest?.('.xterm')) {
+      if (toldTerminalClose) return;
+      toldTerminalClose = true;
+      notify({ kind: 'info', key: 'close-in-terminal', text: event.metaKey
+        ? 'Cmd+W does not close files from a terminal. To close the file in front, leave the terminal first (F6).'
+        : 'In a terminal, Ctrl+W belongs to the program (bash deletes a word, nano searches). To close the file in front, leave the terminal first (F6).' });
+      return;
+    }
+    event.preventDefault();
+    if (event.repeat || !model.activePath) return;
+    const inEditor = event.target.closest?.('[data-pane="editor"]');
+    model.closeTab(model.activePath).then(closed => { if (closed && inEditor && model.activePath) editor?.focus(); });
+  }
   function keys(event) {
-    if ((event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === 's') {
+    const plain = (event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey;
+    if (plain && event.key.toLowerCase() === 's') {
       // Ctrl+S saves. In a terminal it is flow control, which a shell program may want: the terminal keeps it.
       if (event.target.closest?.('.xterm')) return;
       event.preventDefault();
       model.saveAll().then(ok => { if (!ok) notify({ kind: 'warning', key: 'save-all', text: 'Some changes could not be saved yet.' }); });
+    } else if (plain && event.key.toLowerCase() === 'w') {
+      closeKey(event);
     } else if (event.key === 'F6') {
       event.preventDefault();
       // A hidden terminal panel is not a stop.
@@ -312,7 +334,8 @@
         <button type="button" onclick={() => { confirmingFinish = true; }} disabled={disabled}><Icon name="done" size={16} />Finish exam…</button>
       </div>
       <div class="editor-box" data-pane="editor" bind:this={editorBox}>
-        <EditorPane bind:this={editor} {model} tabs={snap.tabs} activePath={snap.activePath} readOnly={disabled} onClose={path => model.closeTab(path)} />
+        <EditorPane bind:this={editor} {model} tabs={snap.tabs} activePath={snap.activePath} readOnly={disabled} onClose={path => model.closeTab(path)}
+          onCloseMany={paths => model.closeTabs(paths)} />
       </div>
       {#if terminalVisible}
         <!-- A separator that can be focused is a control (the ARIA pattern of a window splitter): the arrows move it, Home and End go to the largest and the smallest

@@ -14,11 +14,13 @@
   import { ZOOMS, DEFAULT_ZOOM, stepZoom } from './sizes.js';
   import { isSvgPath, looksLikeSvg } from './picture.js';
   import PictureView from './PictureView.svelte';
+  import MenuButton from './MenuButton.svelte';
 
   // The open files: a tab for each, and one CodeMirror editor that shows the state of the tab in front. Each tab keeps its own editor
   // state (its undo history and its cursor) and where it was scrolled, so all three survive a trip to another tab. The editor tells the
   // model when the text changes; the model decides when it is written. Highlighting only, as in the exam's code answers: no autocompletion.
-  let { model, tabs, activePath, readOnly, onClose } = $props();
+  // `onClose` closes one tab and `onCloseMany` several (the ⋯ menu's Close all, Close others and Close saved).
+  let { model, tabs, activePath, readOnly, onClose, onCloseMany = () => {} } = $props();
   let host = $state(null);
   let view;
   const states = new Map(); // tab id -> the tab's editor state
@@ -192,23 +194,42 @@
     requestAnimationFrame(() => tick().then(() => { if (pictureShown) picture?.focus(); else view?.focus(); }));
   }
 
+  // The tab with the keyboard is the one in front (the arrows bring the next one to the front), so Ctrl+W, which the page takes wherever
+  // the keyboard is, closes it too.
   function tabKeys(event, index) {
     const move = delta => { event.preventDefault(); const next = tabs[(index + delta + tabs.length) % tabs.length]; if (next) { model.activate(next.path); queueMicrotask(() => document.getElementById(`file-tab-${next.id}`)?.focus()); } };
     if (event.key === 'ArrowRight') move(1);
     else if (event.key === 'ArrowLeft') move(-1);
     else if (event.key === 'Home') { event.preventDefault(); move(-index); }
     else if (event.key === 'End') { event.preventDefault(); move(tabs.length - 1 - index); }
-    else if (event.key === 'Delete' || (event.key === 'w' && (event.ctrlKey || event.metaKey))) { event.preventDefault(); onClose(tabs[index].path); }
+    else if (event.key === 'Delete') { event.preventDefault(); onClose(tabs[index].path); }
   }
+  // A middle click closes a tab, as in a browser or a code editor (its press is kept from starting the scroll mode some systems give it).
+  const middle = event => event.button === 1;
+
+  // The ⋯ menu: Close all, Close others (all but the one in front) and Close saved (the tabs with no unsaved changes), with how many each
+  // closes, and Close for the tab in front with its key. Each tab is saved first, as when it is closed alone.
+  const shortcut = typeof navigator !== 'undefined' && /Mac/.test(navigator.platform || navigator.userAgent) ? '⌘W' : 'Ctrl+W';
+  const others = $derived(tabs.filter(tab => tab.path !== activePath).map(tab => tab.path));
+  const saved = $derived(tabs.filter(tab => !tab.dirty).map(tab => tab.path));
+  const tabActions = $derived([
+    { label: 'Close all', detail: tabs.length, disabled: tabs.length === 0, run: () => onCloseMany(tabs.map(tab => tab.path)) },
+    { label: 'Close others', detail: others.length, disabled: others.length === 0, run: () => onCloseMany(others) },
+    { label: 'Close saved', detail: saved.length, disabled: saved.length === 0, run: () => onCloseMany(saved) },
+    'separator',
+    { label: active ? `Close ${label(active)}` : 'Close', detail: shortcut, disabled: !active, run: () => { if (active) onClose(active.path); } },
+  ]);
 </script>
 <section class="editor" aria-label="Editor" style:--code-zoom={ZOOMS[zoomIndex]}>
   <div class="tabbar">
     <div class="tabs" role="tablist" aria-label="Open files">
       {#each tabs as tab, index (tab.id)}
         <button type="button" role="tab" class="tab" class:front={tab.path === activePath} id="file-tab-{tab.id}" aria-selected={tab.path === activePath} aria-controls="editor-panel"
-          tabindex={tab.path === activePath ? 0 : -1} title={tab.path} onclick={() => model.activate(tab.path)} onkeydown={event => tabKeys(event, index)}>
+          tabindex={tab.path === activePath ? 0 : -1} title={tab.path} onclick={() => model.activate(tab.path)} onkeydown={event => tabKeys(event, index)}
+          onmousedown={event => { if (middle(event)) event.preventDefault(); }} onauxclick={event => { if (middle(event)) { event.preventDefault(); onClose(tab.path); } }}>
           {label(tab)}<span class="mark">{#if tab.dirty}<span class="dot" role="img" aria-label="unsaved changes">●</span>{/if}</span>
-          <!-- The mouse's way to close a tab; the keyboard's are Delete and Ctrl+W on the tab, and the button next to the tabs. -->
+          <!-- The mouse's ways to close a tab are this and a middle click; the keyboard's are Delete on the tab, Ctrl+W anywhere but a terminal,
+               and the ⋯ menu and the button next to the tabs. -->
           <span class="close" aria-hidden="true" onclick={event => { event.stopPropagation(); onClose(tab.path); }}><Icon name="close" size={14} /></span>
         </button>
       {/each}
@@ -228,7 +249,8 @@
         <button type="button" aria-label="A+ Larger code text" title="Larger code text (Ctrl and +)" disabled={zoomIndex === ZOOMS.length - 1} onclick={event => zoomClick(1, event)}>A+</button>
       </div>
     {/if}
-    {#if active}<button type="button" class="close-active" aria-label="Close {label(active)}" title="Close this file" onclick={() => onClose(active.path)}><Icon name="close" size={14} /></button>{/if}
+    <MenuButton label="Tab actions" items={tabActions} disabled={tabs.length === 0} />
+    {#if active}<button type="button" class="close-active" aria-label="Close {label(active)}" title="Close this file ({shortcut})" onclick={() => onClose(active.path)}><Icon name="close" size={14} /></button>{/if}
   </div>
   <div class="panel" id="editor-panel" role="tabpanel" aria-labelledby={active ? `file-tab-${active.id}` : undefined}>
     {#if active?.conflict}

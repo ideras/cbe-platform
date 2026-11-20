@@ -8,7 +8,7 @@ are P4-1 to P4-13 in `DECISIONS.md`.
 ```
 ┌ exam toolbar: title, time chip, ● Connected, Saved 12:03:44, Server copy 12:03:00, A− A+ ───────────┐
 ├ Instructions ┐ ┌ [Run] [Check] [› Terminal]                                          [Save]   ┤
-│ TODO  ☐ ☐ ☑   │ ├ list.cpp ● │ main.cpp ──────────────────────────────────────────── A− A+ ✕ ┤
+│ TODO  ☐ ☐ ☑   │ ├ list.cpp ● │ main.cpp ────────────────────────────────────────── A− A+ ⋯ ✕ ┤
 ├ Files ────────┤ │  editor (CodeMirror 6, highlighting only): all the room there is              │
 │ ▾ src         │ │                                                                               │
 │    list.cpp   │ ├ Run ✓ │ Terminal 1 ───────────────────────────────────────────── + ✕ ⌄ ───┤  only while a
@@ -21,7 +21,9 @@ are P4-1 to P4-13 in `DECISIONS.md`.
 - **Files**: a tree; new file, new folder, rename and delete (which asks first) act on the selected item; the tree follows what the
   terminal and the programs do to the files within about 0.3 s.
 - **Editor**: one tab per open file, a dot on a file with unsaved changes, saved as the student types; a tab brought back to the front
-  is where it was left (cursor and scroll). A file that is not text, or over
+  is where it was left (cursor and scroll). A tab closes with its ×, a middle click, Delete on the tab or **Ctrl+W** (Cmd+W on a Mac)
+  anywhere but a terminal; the **⋯** menu has **Close all**, **Close others** and **Close saved** (WS-1, WS-2). A file is saved before
+  its tab closes, and one that cannot be saved stays open. A file that is not text, or over
   1 MiB, is named and not opened. It has all the room the window leaves, and its own **A−** and **A+** (the size of the code only,
   seven steps from 85 % to 200 %, also Ctrl and + − 0), on top of the toolbar's A− and A+ (which size the whole workspace, files,
   buttons and terminals too).
@@ -53,11 +55,13 @@ are P4-1 to P4-13 in `DECISIONS.md`.
 | Key | Does |
 |---|---|
 | Ctrl+S | Save every file (not in a terminal) |
+| Ctrl+W (Cmd+W on a Mac) | Close the file in front, saving it first (not in a terminal, where bash deletes a word and nano searches with it) |
 | F6, Shift+F6 | Next, previous pane (instructions, files, editor, terminal; a hidden terminal panel is skipped) |
 | Ctrl and +, Ctrl and −, Ctrl and 0 | Larger, smaller, normal size of the code text (in the editor) |
 | Arrows, Home, End, Enter | Move in the file tree, open a file, open or close a folder |
 | F2, Delete | Rename, delete the selected file or folder |
-| Arrows, Home, End | Move between tabs; Delete or Ctrl+W closes the file |
+| Arrows, Home, End | Move between tabs; Delete closes the file |
+| Arrows, Home, End, Enter, Escape | In the ⋯ menu: move, do the action, close the menu |
 | Ctrl+C, Ctrl+D, Tab, … | Go to the program when a terminal has the focus |
 
 ## How it is built
@@ -92,10 +96,11 @@ which reads the code for any of those APIs.
 
 | Where | What |
 |---|---|
-| `apps/student/frontend/tests/workspace-*.test.js`, `paste-guard.test.js` | The model (36), paths, the tree's rows, the paste guard, the no-storage check. Run with the others by `npm test`. |
+| `apps/student/frontend/tests/workspace-*.test.js`, `paste-guard.test.js` | The model (38), paths, the tree's rows, the paste guard, the no-storage check. Run with the others by `npm test`. |
 | `apps/student/frontend/tests/workspace-picture.test.js` | Which files are pictures, whether a text starts as an SVG, the `data:` address (a `#`, a `%`, accents, 1 MiB), Fit and the zoom steps, and that the picture is an `<img>` and never the SVG put into the page. |
 | `tests/ui/workspace-picture.spec.js` (Playwright, 15) | SVG files: the picture and its source, each keeping its place behind the other and while another tab is in front, a file made again in the terminal, a half-written one (a notice, no error), **that nothing in an SVG runs or is fetched**, Fit, the zoom and the scroll (buttons, keys, Ctrl and the wheel), the window's size, the white ground, other files as before, unsaved edits in the picture, an SVG being typed, the connection lost, that ticks, Run and other files do not draw the picture again or move it, the keyboard, axe, no storage. Run in Chromium and in WebKit. |
-| `tests/ui/workspace.spec.js` (Playwright, 43) | The whole page against the in-memory stand-in (`tests/fake-workspace-server.js` and the workspace part of `tests/fake-api.js`): editing and autosave, a tab's cursor and scroll after a trip to another tab, Ctrl+S, Run and Check, terminals, the tree's operations, conflicts, TODO, Save, the drop and the return of the connection (also with a 30-second drop on a fake clock), pastes, keyboard, no terminal, lock and unlock, no storage, accessibility (axe), sizes, text size (the toolbar's and the editor's), the terminal panel's showing and hiding, F6, that an autosave (or a tick, a Run, a file changed elsewhere) does not draw the editor again, move its scroll or move what is around it, and that the arrow keys and a click land on the right line after any change of the text size. Run in Chromium (`npm run test:ui`) and in WebKit. |
+| `tests/ui/workspace.spec.js` (Playwright, 51) | The whole page against the in-memory stand-in (`tests/fake-workspace-server.js` and the workspace part of `tests/fake-api.js`): editing and autosave, closing tabs (Ctrl+W, and not in a terminal; a middle click; the ⋯ menu with the mouse and the keyboard), a tab's cursor and scroll after a trip to another tab, Ctrl+S, Run and Check, terminals, the tree's operations, conflicts, TODO, Save, the drop and the return of the connection (also with a 30-second drop on a fake clock), pastes, keyboard, no terminal, lock and unlock, no storage, accessibility (axe), sizes, text size (the toolbar's and the editor's), the terminal panel's showing and hiding, F6, that an autosave (or a tick, a Run, a file changed elsewhere) does not draw the editor again, move its scroll or move what is around it, and that the arrow keys and a click land on the right line after any change of the text size. Run in Chromium (`npm run test:ui`) and in WebKit. |
+| `apps/student/cmd/student/menu_test.go` | The macOS menu bar has no key that closes, reloads or zooms the window, and keeps the Edit keys (WS-3). |
 | `apps/student/internal/client/workspace_test.go` | The connection: token, requests and ids, output batching and order, input frames, a dropped connection and the requests waiting on it, 423, 401, the end of the exam, another window, the exam's lock, and the service's own way of telling a workspace from a question exam. |
 | `apps/student/internal/client/real_workspace_test.go` | A student finishing the example package through the real client, run against the real server and a container by phase D of `deploy/workspace/test-server.sh`. |
 

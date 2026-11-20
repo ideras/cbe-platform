@@ -22,6 +22,9 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/events"
 )
 
+// appName is the application's name: Wails names the macOS menu's items after it.
+const appName = "cbe-portal-student"
+
 // version is the release, set by the build: go build -ldflags "-X main.version=v0.15.0".
 var version = "dev"
 
@@ -152,12 +155,16 @@ func main() {
 		client.ReportRemote(examClient, findings)
 	})
 	app := application.New(application.Options{
-		Name: "cbe-portal-student", Description: "CBE Portal student application",
+		Name: appName, Description: "CBE Portal student application",
 		Services: []application.Service{application.NewService(examClient), application.NewService(nativeCapture)},
 		Assets:   application.AssetOptions{Handler: application.AssetFileServerFS(student.Assets)},
 		Mac:      application.MacOptions{ApplicationShouldTerminateAfterLastWindowClosed: true},
 	})
 	nativeApp = app
+	if runtime.GOOS == "darwin" {
+		// The exam's own menu bar, without the keys of Wails's default one that close, reload or zoom the window (menu.go).
+		app.Menu.SetApplicationMenu(examMenu(appName))
+	}
 	options := application.WebviewWindowOptions{Title: "CBE Portal", Width: 1000, Height: 700, URL: "/"}
 	if *deterrence {
 		// Native window constraints are bypassable deterrents, not a security boundary.
