@@ -58,6 +58,32 @@
   --terminal-bright-magenta: color-mix(in srgb, var(--terminal-magenta) 80%, var(--text-main));
   --terminal-bright-cyan: color-mix(in srgb, var(--terminal-cyan) 80%, var(--text-main));
   --terminal-bright-white: color-mix(in srgb, var(--terminal-white) 80%, var(--text-main));
+  /* The student's workspace terminal is dark, as the owner's mock draws it (the proctor's transcript player keeps the light tokens above):
+     its ground is the navy of the text, its tab row a little deeper, its text the sidebar's. Its ANSI colors are the palette's own hues
+     lifted toward white until each reads 4.5:1 on the ground (shared/theme-tests checks every one), the bright ones lifted further. */
+  --term-ground: var(--text-main);
+  --term-head: color-mix(in srgb, var(--text-main) 70%, var(--ocean-deep));
+  --term-text: var(--side-text);
+  --term-dim: var(--side-text-dim);
+  --term-cursor: var(--accent-cyan-soft);
+  --term-selection: color-mix(in srgb, var(--action-primary) 55%, var(--text-main));
+  --term-black: var(--side-text-dim);
+  --term-red: color-mix(in srgb, var(--alert) 60%, var(--paper));
+  --term-green: color-mix(in srgb, var(--ok) 70%, var(--paper));
+  --term-yellow: color-mix(in srgb, var(--warn) 70%, var(--paper));
+  --term-blue: color-mix(in srgb, var(--action-primary) 55%, var(--paper));
+  --term-magenta-hue: color-mix(in srgb, var(--alert) 50%, var(--action-primary));
+  --term-magenta: color-mix(in srgb, var(--term-magenta-hue) 55%, var(--paper));
+  --term-cyan: var(--accent-cyan-soft);
+  --term-white: var(--side-text);
+  --term-bright-black: color-mix(in srgb, var(--term-black) 70%, var(--paper));
+  --term-bright-red: color-mix(in srgb, var(--term-red) 75%, var(--paper));
+  --term-bright-green: color-mix(in srgb, var(--term-green) 75%, var(--paper));
+  --term-bright-yellow: color-mix(in srgb, var(--term-yellow) 75%, var(--paper));
+  --term-bright-blue: color-mix(in srgb, var(--term-blue) 75%, var(--paper));
+  --term-bright-magenta: color-mix(in srgb, var(--term-magenta) 75%, var(--paper));
+  --term-bright-cyan: color-mix(in srgb, var(--term-cyan) 75%, var(--paper));
+  --term-bright-white: var(--paper);
 
   /* Proctor sidebar */
   --side-bg: linear-gradient(180deg, #0a2342 0%, #061a3a 55%, #03045e 100%);

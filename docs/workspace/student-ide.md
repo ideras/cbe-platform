@@ -53,7 +53,8 @@ are P4-1 to P4-13 in `DECISIONS.md`.
   Source show in the picture before they are saved. An SVG the student is typing stays in Source until they ask for the picture. The
   picture is an `<img>` from a `data:` address, so nothing in the file runs or is fetched (a test with a script, handlers, a frame and
   addresses elsewhere holds this). **PNG and PDF are not shown** (they are not text, and the workspace's file channel carries text only).
-- **Terminals**: up to four, plus a tab for the last Run and the last Check. Run and Check save every file first. **They take no room
+- **Terminals**: dark (WS-6): the navy of the text as the ground, the sidebar's light text, and ANSI colors lifted from the palette so
+  that each reads at least 4.5:1 on it. Up to four, plus a tab for the last Run and the last Check. Run and Check save every file first. **They take no room
   until one is wanted** (P5-12): Run, Check, or the **Terminal** button (which opens a terminal if there is none) show the panel, about a
   third of the room under the editor; **⌄** in the panel's tab row, or the Terminal button again, hides it, and the terminals go on
   running with what they printed. Closing the last one takes the panel away. F6 skips a hidden panel. The panel has its own **A−** and **A+** in
