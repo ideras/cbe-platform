@@ -1,29 +1,16 @@
 <script>
-  import Icon from '../../../../../shared/theme/Icon.svelte';
   import RichText from '../RichText.svelte';
-  // The exam's instructions and its TODO list. The ticks are the student's own record of their progress (the server keeps them and
-  // shows them to the instructor); nothing is checked. The text is the exam's, sanitized like every exam text. `onWiden` is the Wider
-  // button, which gives the column half the window (`wide`) and takes it back; without it there is no button.
-  let { instructions = '', todos = [], done = {}, disabled = false, onToggle, wide = false, onWiden = null } = $props();
+  // The exam's TODO list, in the left column above the files. The ticks are the student's own record of their progress (the server keeps
+  // them and shows them to the instructor); nothing is checked. The heading, with how many are ticked, stays in view however long the list
+  // is: the list scrolls under it (before, the list was under the instructions, and most students never saw it). The text is the exam's,
+  // sanitized like every exam text.
+  let { todos = [], done = {}, disabled = false, onToggle } = $props();
   const total = $derived(todos.length);
   const ticked = $derived(todos.filter(item => done[item.id]).length);
 </script>
-{#snippet widen()}
-  <!-- A toggle keeps its name; pressed, it is the wide column, and a second press gives the editor its room back. -->
-  <button type="button" class="widen" aria-label="Wider instructions" aria-pressed={wide} onclick={onWiden}
-    title={wide ? 'Give the editor its room back' : 'Give the instructions and the files half of the window'}><Icon name={wide ? 'back' : 'arrowRight'} size={13} />Wider</button>
-{/snippet}
-<section class="todo" aria-label="Instructions and TODO list">
-  {#if instructions}
-    <!-- The button sits on the line of the summary, at its right, where the summary has nothing: it takes no room of the text, and it stays at the top
-         of the panel while the instructions are scrolled. -->
-    {#if onWiden}<div class="head">{@render widen()}</div>{/if}
-    <details class="instructions" open>
-      <summary>Instructions</summary>
-      <RichText html={instructions} />
-    </details>
-  {/if}
-  <h3 id="todo-heading">TODO <span class="end"><span class="count" aria-label="{ticked} of {total} done">{ticked}/{total}</span>{#if onWiden && !instructions}{@render widen()}{/if}</span></h3>
+<section class="todo" aria-labelledby="todo-heading">
+  <h3 id="todo-heading">TODO <span class="count" class:all={ticked === total} aria-label="{ticked} of {total} done">{ticked}/{total}</span>
+    <span class="progress" aria-hidden="true"><span class="bar" style:width="{total ? (ticked / total) * 100 : 0}%"></span></span></h3>
   <ul aria-labelledby="todo-heading">
     {#each todos as item (item.id)}
       <li class:ticked={done[item.id]}>
@@ -36,21 +23,13 @@
   </ul>
 </section>
 <style>
-  .todo { display: grid; gap: var(--space-2); min-width: 0; }
-  .instructions { padding: var(--space-2) var(--space-3); background: var(--bg-raised); border: 1px solid var(--border-subtle); border-radius: var(--radius-ctl); font-size: var(--text-sm); }
-  .instructions summary { cursor: pointer; color: var(--action-hover); font-weight: 600; }
-  .instructions[open] summary { margin-bottom: var(--space-1); }
-  .instructions :global(p) { margin: 0 0 var(--space-1); }
-  h3 { display: flex; align-items: baseline; justify-content: space-between; margin: var(--space-1) 0 0; font-size: var(--text-base); }
-  .count { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); }
-  .end { display: inline-flex; align-items: center; gap: var(--space-2); }
-  .head { display: flex; justify-content: flex-end; height: 0; position: sticky; top: 0; z-index: 1; }
-  .head .widen { margin: .3rem .4rem 0 0; }
-  .widen { display: inline-flex; align-items: center; gap: .25rem; margin: 0; padding: .1rem .45rem; font-size: var(--text-xs); font-weight: 400; line-height: 1.4; }
-  .widen[aria-pressed="true"] { background: var(--selection-fill); }
-  /* In a narrow window the column is the whole width already. */
-  @media (max-width: 900px) { .head, .widen { display: none; } }
-  ul { display: grid; gap: .1rem; margin: 0; padding: 0; list-style: none; }
+  .todo { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; max-height: 100%; min-width: 0; }
+  h3 { display: flex; align-items: center; gap: var(--space-2); margin: 0; padding: .4rem .75rem; border-bottom: 1px solid var(--border-subtle); color: var(--action-primary); font-size: var(--text-xs); font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+  .count { padding: 0 .45rem; border-radius: 999px; background: var(--warn-fill); color: var(--warn-text); font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0; }
+  .count.all { background: var(--ok-fill); color: var(--ok-text); }
+  .progress { flex: 1; height: 4px; border-radius: 999px; background: var(--bg-secondary); overflow: hidden; }
+  .progress .bar { display: block; height: 100%; background: linear-gradient(90deg, var(--action-primary), var(--accent-cyan)); transition: width .2s; }
+  ul { display: grid; align-content: start; gap: .1rem; margin: 0; padding: .25rem .4rem .4rem; list-style: none; overflow: auto; }
   li label { display: flex; align-items: flex-start; gap: var(--space-2); margin: 0; padding: .25rem .3rem; border-radius: var(--radius-ctl); cursor: pointer; }
   li label:hover { background: var(--hover-fill); }
   li input { flex: none; width: 1.05rem; height: 1.05rem; margin: .15rem 0 0; accent-color: var(--ok-text); }

@@ -59,7 +59,7 @@ async function start(page, options = {}, viewport = { width: 1280, height: 800 }
     }
   });
   await page.goto('/');
-  await page.evaluate(value => window.__studentHarness.useWorkspace(value), { files: project, ...options });
+  await page.evaluate(value => window.__studentHarness.useWorkspace(value), { files: project, instructions: '', ...options });
   await page.getByLabel('I have read these rules').check();
   await page.getByLabel('Account number').fill('00123');
   await page.getByLabel('Exam PIN').fill('synthetic PIN');

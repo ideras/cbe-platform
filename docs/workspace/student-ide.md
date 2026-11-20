@@ -6,18 +6,25 @@ are P4-1 to P4-13 in `DECISIONS.md`.
 ## What the student sees
 
 ```
-┌ exam toolbar: title, time chip, ● Connected, Saved 12:03:44, Server copy 12:03:00, A− A+ ───────────┐
-├ Instructions ┐ ┌ [Run] [Check] [› Terminal]                                          [Save]   ┤
-│ TODO  ☐ ☐ ☑   │ ├ list.cpp ● │ main.cpp ────────────────────────────────────────── A− A+ ⋯ ✕ ┤
-├ Files ────────┤ │  editor (CodeMirror 6, highlighting only): all the room there is              │
-│ ▾ src         │ │                                                                               │
-│    list.cpp   │ ├ Run ✓ │ Terminal 1 ───────────────────────────────────────────── + ✕ ⌄ ───┤  only while a
-└───────────────┘ │  terminal (xterm.js), about a third of the room                              │  terminal is wanted
-                  └───────────────────────────────────────────────────────────────────────────────┘
+┌ exam toolbar: title, time chip, ● Connected, Saved 12:03:44, Server copy 12:03:00, A− A+ ─────────────────────┐
+├ 📖 Instructions ┐ ┌ [Run] [Check] [› Terminal]                                        [Save] [Finish exam…] ┤
+│    In front·left │ ├ 📖 Instructions ── A− A+ ⫿ ⋯ ✕ ┤ ┌ list.cpp ● │ main.cpp ─── A− A+ ⫿ ⋯ ✕ ┤
+├ TODO 1/3 ▬▬──── ┤ │  the exam's text, read-only     ┊ │  editor (CodeMirror 6, highlighting    │
+│ ☑ ☐ ☐           │ │                                 ┊ │  only), or an SVG's picture             │
+├ Files  + ▢ ✎ 🗑 ┤ ├ Run ✓ │ Terminal 1 ─────────────────────────────────────────── + ✕ A− A+ ⌄ ┤  only while a
+│ ▾ src       R    │ │  terminal (xterm.js), under both panes                                       │  terminal is wanted
+└──────────────────┘ └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
-- **Instructions and TODO**: the exam's text (sanitized like every exam text) and its TODO list; a tick is the student's own record and is
-  kept by the server.
+- **Instructions** (WS-4): the exam's text (sanitized like every exam text) is a read-only tab of the editor, in front across the
+  editor when the exam starts. **A file opened from the tree never covers it**: while the instructions are in front of the pane last
+  used, the file opens in the other pane (made when there is one). The tab closes like any (its ×, Ctrl+W), and moves like any (⫿);
+  **Close all, Close others and Close saved never close it**. The **Instructions** entry at the top of the left column says where
+  they are (in front, left or right; behind a file; closed) and brings them to the front, or opens them again; an empty pane offers
+  them too. The pane's A− and A+ size their text, and a wide table scrolls in the pane instead of breaking its words.
+- **TODO** (WS-4): under the instructions' entry, its heading (with how many are ticked, and a bar) always in view, the list scrolling
+  under it; as tall as it needs, up to a share of the column that the splitter above the files sets (35 %, 10 % to 80 %). A tick is
+  the student's own record and is kept by the server.
 - **Files**: a tree; new file, new folder, rename and delete (which asks first) act on the selected item; the tree follows what the
   terminal and the programs do to the files within about 0.3 s.
 - **Editor**: one tab per open file, a dot on a file with unsaved changes, saved as the student types; a tab brought back to the front
@@ -109,10 +116,10 @@ which reads the code for any of those APIs.
 
 | Where | What |
 |---|---|
-| `apps/student/frontend/tests/workspace-*.test.js`, `paste-guard.test.js` | The model (42), paths, the tree's rows, the paste guard, the no-storage check. Run with the others by `npm test`. |
+| `apps/student/frontend/tests/workspace-*.test.js`, `paste-guard.test.js` | The model (43), paths, the tree's rows, the paste guard, the no-storage check. Run with the others by `npm test`. |
 | `apps/student/frontend/tests/workspace-picture.test.js` | Which files are pictures, whether a text starts as an SVG, the `data:` address (a `#`, a `%`, accents, 1 MiB), Fit and the zoom steps, and that the picture is an `<img>` and never the SVG put into the page. |
 | `tests/ui/workspace-picture.spec.js` (Playwright, 16) | SVG files: the picture and its source, each keeping its place behind the other and while another tab is in front, a file made again in the terminal, a half-written one (a notice, no error), **that nothing in an SVG runs or is fetched**, Fit, the zoom and the scroll (buttons, keys, Ctrl and the wheel), a picture in the other pane beside the code (drawn again there; its zoom kept when it moves), the window's size, the white ground, other files as before, unsaved edits in the picture, an SVG being typed, the connection lost, that ticks, Run and other files do not draw the picture again or move it, the keyboard, axe, no storage. Run in Chromium and in WebKit. |
-| `tests/ui/workspace.spec.js` (Playwright, 56) | The whole page against the in-memory stand-in (`tests/fake-workspace-server.js` and the workspace part of `tests/fake-api.js`): editing and autosave, closing tabs (Ctrl+W, and not in a terminal; a middle click; the ⋯ menu with the mouse and the keyboard), two panes (opening on the other side, the pane last used, the tree's marks, a moved tab's unsaved text, undo, cursor and scroll, a file changed in the terminal in the right pane, Ctrl+1, Ctrl+2, Ctrl+Page Down and Up, F6, the splitter), a tab's cursor and scroll after a trip to another tab, Ctrl+S, Run and Check, terminals, the tree's operations, conflicts, TODO, Save, the drop and the return of the connection (also with a 30-second drop on a fake clock), pastes, keyboard, no terminal, lock and unlock, no storage, accessibility (axe), sizes, text size (the toolbar's and the editor's), the terminal panel's showing and hiding, F6, that an autosave (or a tick, a Run, a file changed elsewhere) does not draw the editor again, move its scroll or move what is around it, and that the arrow keys and a click land on the right line after any change of the text size. Run in Chromium (`npm run test:ui`) and in WebKit. |
+| `tests/ui/workspace.spec.js` (Playwright, 58) | The whole page against the in-memory stand-in (`tests/fake-workspace-server.js` and the workspace part of `tests/fake-api.js`): editing and autosave, the instructions' tab (in front at the start, a file beside them, closed and opened again, never closed by Close all, axe with them and with an empty pane), the TODO list in the column (its heading in view, its splitter), closing tabs (Ctrl+W, and not in a terminal; a middle click; the ⋯ menu with the mouse and the keyboard), two panes (opening on the other side, the pane last used, the tree's marks, a moved tab's unsaved text, undo, cursor and scroll, a file changed in the terminal in the right pane, Ctrl+1, Ctrl+2, Ctrl+Page Down and Up, F6, the splitter), a tab's cursor and scroll after a trip to another tab, Ctrl+S, Run and Check, terminals, the tree's operations, conflicts, TODO, Save, the drop and the return of the connection (also with a 30-second drop on a fake clock), pastes, keyboard, no terminal, lock and unlock, no storage, accessibility (axe), sizes, text size (the toolbar's and the editor's), the terminal panel's showing and hiding, F6, that an autosave (or a tick, a Run, a file changed elsewhere) does not draw the editor again, move its scroll or move what is around it, and that the arrow keys and a click land on the right line after any change of the text size. Run in Chromium (`npm run test:ui`) and in WebKit. |
 | `apps/student/cmd/student/menu_test.go` | The macOS menu bar has no key that closes, reloads or zooms the window, and keeps the Edit keys (WS-3). |
 | `apps/student/internal/client/workspace_test.go` | The connection: token, requests and ids, output batching and order, input frames, a dropped connection and the requests waiting on it, 423, 401, the end of the exam, another window, the exam's lock, and the service's own way of telling a workspace from a question exam. |
 | `apps/student/internal/client/real_workspace_test.go` | A student finishing the example package through the real client, run against the real server and a container by phase D of `deploy/workspace/test-server.sh`. |

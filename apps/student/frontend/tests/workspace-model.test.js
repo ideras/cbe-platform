@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { WorkspaceModel, AUTOSAVE_MS, REFRESH_MS, MAX_TERMINALS } from '../src/workspace/model.js';
-import { ZOOMS, DEFAULT_ZOOM, DEFAULT_SHARE, MIN_SHARE, MAX_SHARE, MIN_SIDE, MAX_SIDE, WIDE_SIDE, MIN_INSTRUCTIONS, MAX_INSTRUCTIONS, DEFAULT_INSTRUCTIONS } from '../src/workspace/sizes.js';
+import { WorkspaceModel, AUTOSAVE_MS, REFRESH_MS, MAX_TERMINALS, INSTRUCTIONS } from '../src/workspace/model.js';
+import { ZOOMS, DEFAULT_ZOOM, DEFAULT_SHARE, MIN_SHARE, MAX_SHARE, MIN_SIDE, MAX_SIDE, MIN_TODO, MAX_TODO, DEFAULT_TODO } from '../src/workspace/sizes.js';
 import { FakeWorkspaceServer, versionOf } from './fake-workspace-server.js';
 
 // A clock the test moves, so a second of idle is no real second.
@@ -678,13 +678,12 @@ test('the size the student gives the terminals is kept by the model, between its
   assert.equal(changes, 1, 'the zoom back to the start was the only change');
 });
 
-test('the column of the instructions and the files keeps the width and the height the student gives it, and Wider goes to half and back', async () => {
+test('the left column keeps the width the student gives it, and the TODO list the most of its height', async () => {
   const h = setup();
   await h.connect();
   const start = h.model.snapshot();
   assert.equal(start.sideShare, null, 'the usual width until the student changes it');
-  assert.equal(start.sideWide, false);
-  assert.equal(start.instructionsShare, DEFAULT_INSTRUCTIONS);
+  assert.equal(start.todoShare, DEFAULT_TODO);
 
   // A share of the width is kept between its limits, and a share that is not a number is the usual width again.
   h.model.setSideShare(0.3);
@@ -696,39 +695,58 @@ test('the column of the instructions and the files keeps the width and the heigh
   h.model.setSideShare(null);
   assert.equal(h.model.snapshot().sideShare, null);
 
-  // Wider: half the window, and back to the usual width; from a width the student chose, back to that width.
-  h.model.toggleSideWide();
-  assert.deepEqual([h.model.snapshot().sideShare, h.model.snapshot().sideWide], [WIDE_SIDE, true]);
-  h.model.toggleSideWide();
-  assert.deepEqual([h.model.snapshot().sideShare, h.model.snapshot().sideWide], [null, false]);
-  h.model.setSideShare(0.3);
-  h.model.toggleSideWide();
-  assert.equal(h.model.snapshot().sideShare, WIDE_SIDE);
-  h.model.toggleSideWide();
-  assert.equal(h.model.snapshot().sideShare, 0.3);
-  // A column dragged wider than half is wide: Wider takes it back.
-  h.model.setSideShare(0.6);
-  assert.equal(h.model.snapshot().sideWide, true);
-  h.model.toggleSideWide();
-  assert.equal(h.model.snapshot().sideShare, 0.3);
-
-  // The instructions' share of the column's height.
-  h.model.setInstructionsShare(0.7);
-  assert.equal(h.model.snapshot().instructionsShare, 0.7);
-  h.model.setInstructionsShare(1);
-  assert.equal(h.model.snapshot().instructionsShare, MAX_INSTRUCTIONS);
-  h.model.setInstructionsShare(-1);
-  assert.equal(h.model.snapshot().instructionsShare, MIN_INSTRUCTIONS);
-  h.model.setInstructionsShare(NaN);
-  assert.equal(h.model.snapshot().instructionsShare, DEFAULT_INSTRUCTIONS);
+  // The TODO list's share of the column's height.
+  h.model.setTodoShare(0.7);
+  assert.equal(h.model.snapshot().todoShare, 0.7);
+  h.model.setTodoShare(1);
+  assert.equal(h.model.snapshot().todoShare, MAX_TODO);
+  h.model.setTodoShare(-1);
+  assert.equal(h.model.snapshot().todoShare, MIN_TODO);
+  h.model.setTodoShare(NaN);
+  assert.equal(h.model.snapshot().todoShare, DEFAULT_TODO);
 
   // A drag sends the same share many times: only a change says the snapshot changed.
   const before = h.model.revision;
-  h.model.setInstructionsShare(DEFAULT_INSTRUCTIONS);
+  h.model.setTodoShare(DEFAULT_TODO);
   h.model.setSideShare(0.3);
-  assert.equal(h.model.revision - before, 0, 'the same shares again are no change');
-  h.model.setSideShare(0.35);
   assert.equal(h.model.revision - before, 1);
+  h.model.setSideShare(0.3);
+  assert.equal(h.model.revision - before, 1, 'the same shares again are no change');
+});
+
+test('the instructions are a tab: a file opened from the tree never covers them, and they close and open again', async () => {
+  const h = setup();
+  await h.connect();
+  await h.model.toggleFolder('src');
+  h.model.openInstructions();
+  assert.deepEqual(panes(h), [{ items: [INSTRUCTIONS], active: INSTRUCTIONS }]);
+  // The first file goes beside them, and so does the next while they are in front of the pane last used.
+  await h.model.openFile('src/main.cpp');
+  assert.deepEqual(panes(h), [{ items: [INSTRUCTIONS], active: INSTRUCTIONS }, { items: ['src/main.cpp'], active: 'src/main.cpp' }]);
+  h.model.activate(INSTRUCTIONS);
+  await h.model.openFile('notes.txt');
+  assert.deepEqual(panes(h)[1], { items: ['src/main.cpp', 'notes.txt'], active: 'notes.txt' });
+  // With a file in front of the left pane, a file goes there.
+  h.model.moveTab('notes.txt');
+  assert.deepEqual(panes(h)[0], { items: [INSTRUCTIONS, 'notes.txt'], active: 'notes.txt' });
+  await h.model.openFile('Makefile');
+  assert.deepEqual(panes(h)[0], { items: [INSTRUCTIONS, 'notes.txt', 'Makefile'], active: 'Makefile' });
+  // Closing them is only their tab; a file closes as before; they open again first in the pane last used, and in front.
+  assert.equal(await h.model.closeTab(INSTRUCTIONS), true);
+  assert.deepEqual(panes(h)[0], { items: ['notes.txt', 'Makefile'], active: 'Makefile' });
+  h.model.usePane(1);
+  h.model.openInstructions();
+  assert.deepEqual(panes(h)[1], { items: [INSTRUCTIONS, 'src/main.cpp'], active: INSTRUCTIONS });
+  assert.equal(h.model.activePath, INSTRUCTIONS);
+  // A rename, a save of everything and a re-read of the open files pass them by.
+  assert.equal(await h.model.rename('src', 'source'), '');
+  assert.deepEqual(panes(h)[1].items, [INSTRUCTIONS, 'source/main.cpp']);
+  assert.equal(await h.model.saveAll(), true);
+  assert.ok(!h.server.requests.some(r => (r.path ?? '').includes('instructions')));
+  // Opened again where they are, they come to the front there.
+  h.model.usePane(0);
+  h.model.openInstructions();
+  assert.equal(h.model.activePane, 1);
 });
 
 test('a shell that ends by itself closes its tab, whatever its status; a program the exam started, or a shell that was stopped, stays and says how it ended', async () => {

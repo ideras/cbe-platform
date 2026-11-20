@@ -23,7 +23,8 @@ async function start(page, options = {}, viewport = { width: 1280, height: 800 }
     }
   });
   await page.goto('/');
-  await page.evaluate(value => window.__studentHarness.useWorkspace(value), { files: project, ...options });
+  // Unless a test is about them, the exam has no instructions, whose tab would put the first file opened in a second pane.
+  await page.evaluate(value => window.__studentHarness.useWorkspace(value), { files: project, instructions: '', ...options });
   await page.getByLabel('I have read these rules').check();
   await page.getByLabel('Account number').fill('00123');
   await page.getByLabel('Exam PIN').fill('synthetic PIN');
@@ -46,9 +47,11 @@ async function openSrc(page) {
   return openFile(page, 'list.cpp');
 }
 
+const examText = '<p>Build the program and make <code>make check</code> pass.</p>';
+
 test('the workspace shows the exam text, the files and the status, and none of the question-exam page', async ({ page }) => {
-  const errors = await start(page);
-  await expect(page.getByRole('region', { name: 'Instructions and TODO list' })).toContainText('make check');
+  const errors = await start(page, { instructions: examText });
+  await expect(page.getByRole('region', { name: 'Instructions', exact: true })).toContainText('make check');
   await expect(page.getByRole('checkbox', { name: /Implement push_front/ })).toBeVisible();
   await expect(page.getByRole('checkbox', { name: /Add a test of your own/ })).toBeVisible();
   // The connection and the saves are told in the toolbar, with the time, and there is no bar of them below the editor.
@@ -1185,9 +1188,9 @@ const width = async (page, selector) => (await page.locator(selector).boundingBo
 const rem = page => page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).fontSize));
 const height = async (page, selector) => (await page.locator(selector).boundingBox()).height;
 
-test('a splitter gives the instructions and the files more of the width, with the pointer and the keys, and the editor keeps its room', async ({ page }) => {
-  await start(page, { instructions: wideInstructions }, { width: 1280, height: 800 });
-  const splitter = page.getByRole('separator', { name: 'Resize the instructions and the files' });
+test('a splitter gives the left column more of the width, with the pointer and the keys, and the editor keeps its room', async ({ page }) => {
+  await start(page, {}, { width: 1280, height: 800 });
+  const splitter = page.getByRole('separator', { name: 'Resize the left column' });
   await expect(splitter).toBeVisible();
   const usual = await width(page, '.side');
   const r = await rem(page);
@@ -1237,86 +1240,129 @@ test('a splitter gives the instructions and the files more of the width, with th
   expect(await page.evaluate(() => window.__storage.length)).toBe(0);
 });
 
-test('Wider gives the instructions and the files half of the window, and a second press gives the editor its room back', async ({ page }) => {
-  await start(page, { instructions: wideInstructions }, { width: 1280, height: 800 });
-  const wider = page.getByRole('button', { name: 'Wider instructions' });
-  await expect(wider).toHaveAttribute('aria-pressed', 'false');
-  const usual = await width(page, '.side');
-  const panes = await width(page, '.panes');
-  // Long instructions scrolled to their end still have the button at the top of their panel.
-  await page.locator('.todo-box').evaluate(box => { box.scrollTop = box.scrollHeight; });
-  await expect.poll(() => page.locator('.todo-box').evaluate(box => box.scrollTop)).toBeGreaterThan(50);
-  const panel = await page.locator('.todo-box').boundingBox();
-  const button = await wider.boundingBox();
-  expect(button.y).toBeGreaterThanOrEqual(panel.y);
-  expect(button.y + button.height).toBeLessThan(panel.y + 3 * button.height);
-  await page.locator('.todo-box').evaluate(box => { box.scrollTop = 0; });
-  // The table of the instructions is squeezed by the usual column (its long cells broken over many lines), and has its room in the wide one.
-  const table = page.getByRole('region', { name: 'Instructions and TODO list' }).locator('table');
-  const squeezed = await table.boundingBox();
-  await wider.click();
-  await expect(wider).toHaveAttribute('aria-pressed', 'true');
-  await expect.poll(async () => Math.abs((await width(page, '.side')) / panes - 0.5)).toBeLessThan(0.03);
-  await expect.poll(async () => (await table.boundingBox()).width).toBeGreaterThan(squeezed.width + 150);
-  expect((await table.boundingBox()).height).toBeLessThan(squeezed.height);
-  await wider.click();
-  await expect(wider).toHaveAttribute('aria-pressed', 'false');
-  await expect.poll(() => width(page, '.side')).toBeLessThanOrEqual(usual + 1);
-  await expect.poll(async () => Math.abs((await table.boundingBox()).width - squeezed.width)).toBeLessThan(2);
-  // From a width the student chose, Wider and back return to it.
-  const splitter = page.getByRole('separator', { name: 'Resize the instructions and the files' });
-  await splitter.focus();
-  await page.keyboard.press('End');
-  await page.keyboard.press('ArrowRight');
-  await expect(splitter).toHaveAttribute('aria-valuenow', '18');
-  await wider.click();
-  await expect(splitter).toHaveAttribute('aria-valuenow', '50');
-  await wider.click();
-  await expect(splitter).toHaveAttribute('aria-valuenow', '18');
+const manyTodos = Array.from({ length: 14 }, (_, i) => ({ id: `t${i + 1}`, text_html: `Item ${i + 1} of the list` }));
+
+test('the instructions are a tab in front at the start; the first file opens beside them, and a wide table has the room of a pane', async ({ page }) => {
+  await start(page, { instructions: wideInstructions }, { width: 1366, height: 768 });
+  const reading = page.getByRole('region', { name: 'Instructions', exact: true });
+  await expect(reading).toContainText('Read every exercise.');
+  await expect(page.getByRole('tab', { name: /Instructions/ })).toHaveAttribute('aria-selected', 'true');
+  const entry = page.getByRole('button', { name: /^Instructions/ });
+  await expect(entry).toContainText('In front');
+  // Read-only: the exam's text, not an editor.
+  await expect(page.getByRole('textbox', { name: /Editor for/ })).toHaveCount(0);
+  await expect(reading).toContainText('read-only, part of the exam');
+  // Its table has the room of the editor.
+  expect((await reading.locator('table').boundingBox()).width).toBeGreaterThan(500);
+  // The first file opened goes beside them, never over them; so does the next while they are in front of the pane last used.
+  await openFile(page, 'notes.txt');
+  await expect(page.getByRole('region', { name: 'Editor (left)' }).getByRole('tab')).toHaveText([/Instructions/]);
+  await expect(page.getByRole('region', { name: 'Editor (right)' }).getByRole('tab')).toHaveText([/notes\.txt/]);
+  await expect(reading).toBeVisible();
+  await expect(entry).toContainText('In front · left');
+  await reading.click();
+  await openFile(page, 'Makefile');
+  await expect(page.getByRole('region', { name: 'Editor (right)' }).getByRole('tab')).toHaveText([/notes\.txt/, /Makefile/]);
+  await expect(reading).toBeVisible();
 });
 
-test('a splitter between the instructions and the files shares the height of the column', async ({ page }) => {
-  await start(page, { instructions: wideInstructions }, { width: 1280, height: 800 });
-  const splitter = page.getByRole('separator', { name: 'Resize the instructions', exact: true });
-  await expect(splitter).toBeVisible();
-  await expect(splitter).toHaveAttribute('aria-valuenow', '40');
-  const usual = { instructions: await height(page, '.todo-box'), files: await height(page, '.tree-box') };
+test('the instructions close like a tab and come back from the left column, and Close all leaves them open', async ({ page }) => {
+  await start(page, { instructions: examText });
+  const reading = page.getByRole('region', { name: 'Instructions', exact: true });
+  const entry = page.getByRole('button', { name: /^Instructions/ });
+  await openFile(page, 'notes.txt');
+  // Moved into the pane of the file, they are behind it there (the left pane, left with nothing, goes).
+  await page.getByRole('region', { name: 'Editor (left)' }).getByRole('tab', { name: /Instructions/ }).click();
+  await page.getByRole('button', { name: 'Move to the other side (left)' }).click();
+  await expect(page.getByRole('region', { name: 'Editor', exact: true }).getByRole('tab')).toHaveText([/notes\.txt/, /Instructions/]);
+  await page.getByRole('tab', { name: /notes\.txt/ }).click();
+  await expect(entry).toContainText('Open · behind a file');
+  await expect(reading).toBeHidden();
+  // Close all closes the files and leaves the instructions, which come to the front.
+  await page.getByRole('button', { name: 'Tab actions' }).click();
+  await page.getByRole('menuitem', { name: 'Close all' }).click();
+  await expect(page.getByRole('tab')).toHaveText([/Instructions/]);
+  await expect(reading).toBeVisible();
+  // Ctrl+W closes them too; the pane offers them again, and so does the left column.
+  await reading.focus();
+  await page.keyboard.press('Control+w');
+  await expect(page.getByRole('tab', { name: /Instructions/ })).toHaveCount(0);
+  await expect(entry).toContainText('Closed');
+  await expect(page.getByRole('button', { name: 'Open the instructions' })).toBeVisible();
+  await entry.click();
+  await expect(reading).toBeVisible();
+  await expect(reading).toBeFocused();
+  await expect(entry).toContainText('In front');
+  await page.getByRole('button', { name: 'Close Instructions' }).click();
+  await page.getByRole('button', { name: 'Open the instructions' }).click();
+  await expect(reading).toBeVisible();
+});
 
-  // Dragging down gives the instructions room, and the files lose it.
+test('the TODO list is in the left column above the files, its heading in view however long the list, and a splitter sets how tall it may be', async ({ page }) => {
+  await start(page, { instructions: examText, todos: manyTodos }, { width: 1280, height: 800 });
+  const heading = page.getByRole('heading', { name: /TODO/ });
+  await expect(heading).toContainText('0/14');
+  await page.getByRole('checkbox', { name: 'Item 1 of the list' }).check();
+  await expect(heading).toContainText('1/14');
+  // The list scrolls under its heading, and the files are in view below it.
+  await page.locator('#todo-panel ul').evaluate(ul => { ul.scrollTop = ul.scrollHeight; });
+  await expect(page.getByRole('checkbox', { name: 'Item 14 of the list' })).toBeInViewport();
+  await expect(heading).toBeInViewport();
+  await expect(page.getByRole('treeitem', { name: 'Makefile' })).toBeInViewport();
+  const splitter = page.getByRole('separator', { name: 'Resize the TODO list' });
+  await expect(splitter).toHaveAttribute('aria-valuenow', '35');
+  const usual = { todo: await height(page, '.todo-box'), files: await height(page, '.tree-box') };
+  // Dragging down lets the list take more of the column, and the files less.
   const handle = await splitter.boundingBox();
-  const x = handle.x + handle.width / 2;
-  const y = handle.y + handle.height / 2;
-  await page.mouse.move(x, y);
+  await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
   await page.mouse.down();
-  await page.mouse.move(x, y + 150, { steps: 8 });
+  await page.mouse.move(handle.x + handle.width / 2, handle.y + 120, { steps: 8 });
   await page.mouse.up();
-  await expect.poll(() => height(page, '.todo-box')).toBeGreaterThan(usual.instructions + 120);
-  expect(await height(page, '.tree-box')).toBeLessThan(usual.files - 120);
-  await expect(page.getByRole('treeitem', { name: 'Makefile' })).toBeVisible();
-
-  // The keys: down is more for the instructions, up less; Home and End the ends; Enter or a double click the usual share.
+  await expect.poll(() => height(page, '.todo-box')).toBeGreaterThan(usual.todo + 90);
+  expect(await height(page, '.tree-box')).toBeLessThan(usual.files - 90);
+  // The keys: down is more for the list, up less; Home and End the ends; Enter or a double click the usual share.
   await splitter.focus();
   await page.keyboard.press('Home');
-  await expect(splitter).toHaveAttribute('aria-valuenow', '85');
-  await page.keyboard.press('ArrowUp');
   await expect(splitter).toHaveAttribute('aria-valuenow', '80');
   await page.keyboard.press('End');
-  await expect(splitter).toHaveAttribute('aria-valuenow', '15');
+  await expect(splitter).toHaveAttribute('aria-valuenow', '10');
   await page.keyboard.press('ArrowDown');
-  await expect(splitter).toHaveAttribute('aria-valuenow', '20');
+  await expect(splitter).toHaveAttribute('aria-valuenow', '15');
   await page.keyboard.press('Enter');
-  await expect(splitter).toHaveAttribute('aria-valuenow', '40');
-  await expect.poll(async () => Math.abs((await height(page, '.todo-box')) - usual.instructions)).toBeLessThan(3);
+  await expect(splitter).toHaveAttribute('aria-valuenow', '35');
+  await expect.poll(async () => Math.abs((await height(page, '.todo-box')) - usual.todo)).toBeLessThan(3);
   await page.keyboard.press('PageDown');
-  await expect(splitter).toHaveAttribute('aria-valuenow', '55');
+  await expect(splitter).toHaveAttribute('aria-valuenow', '50');
   await splitter.dblclick();
-  await expect(splitter).toHaveAttribute('aria-valuenow', '40');
+  await expect(splitter).toHaveAttribute('aria-valuenow', '35');
+  // A short list takes only its own room.
+  await start(page, { instructions: examText }, { width: 1280, height: 800 });
+  expect(await height(page, '.todo-box')).toBeLessThan(usual.todo - 50);
+});
+
+test('the instructions, the TODO list and two panes have no critical accessibility problems', async ({ page }) => {
+  await start(page, { instructions: wideInstructions });
+  const scan = async label => {
+    const result = await new AxeBuilder({ page }).exclude('header.toolbar').analyze();
+    const serious = result.violations.filter(violation => ['critical', 'serious'].includes(violation.impact));
+    expect(serious.map(v => `${v.impact} ${v.id}: ${v.help} :: ${v.nodes.map(n => n.target.join(' ')).join(' | ')}`), label).toEqual([]);
+  };
+  await scan('the instructions in front');
+  await openFile(page, 'notes.txt');
+  await expect(page.getByRole('region', { name: 'Editor (right)' })).toBeVisible();
+  await scan('the instructions beside a file');
+  await page.getByRole('button', { name: 'Close Instructions' }).click();
+  await page.getByRole('button', { name: 'Close notes.txt' }).click();
+  await expect(page.getByRole('button', { name: 'Open the instructions' })).toBeVisible();
+  await scan('an empty pane');
 });
 
 test('in a narrow window the column is the whole width above the editor, with nothing to resize', async ({ page }) => {
   await start(page, { instructions: wideInstructions }, { width: 820, height: 900 });
-  await expect(page.getByRole('region', { name: 'Instructions and TODO list' })).toBeVisible();
-  await expect(page.getByRole('separator', { name: /Resize the instructions/ })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: /TODO/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Instructions/ })).toBeVisible();
+  await expect(page.getByRole('separator', { name: 'Resize the TODO list' })).toBeHidden();
+  await expect(page.getByRole('separator', { name: 'Resize the left column' })).toBeHidden();
   await expect(page.getByRole('button', { name: 'Wider instructions' })).toHaveCount(0);
 });
 

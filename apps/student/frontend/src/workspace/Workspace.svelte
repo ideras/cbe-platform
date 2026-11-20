@@ -7,28 +7,30 @@
   import NameDialog from './NameDialog.svelte';
   import TerminalPane from './TerminalPane.svelte';
   import TodoPanel from './TodoPanel.svelte';
-  import { WorkspaceModel } from './model.js';
+  import { WorkspaceModel, INSTRUCTIONS } from './model.js';
   import { EditorStore } from './editor-store.js';
   import { PasteGuard, guardWindow } from './paste-guard.js';
   import { makeTransport, decodeOutput } from './transport.js';
   import { basename, dirname } from './paths.js';
   import { MIN_PANE, MAX_PANE, DEFAULT_PANE, PANE_STEP } from './sizes.js';
-  import { MIN_SHARE, MAX_SHARE, DEFAULT_SHARE, SHARE_STEP, MIN_SIDE, MAX_SIDE, SIDE_STEP, MIN_INSTRUCTIONS, MAX_INSTRUCTIONS, DEFAULT_INSTRUCTIONS,
-    INSTRUCTIONS_STEP } from './sizes.js';
+  import { MIN_SHARE, MAX_SHARE, DEFAULT_SHARE, SHARE_STEP, MIN_SIDE, MAX_SIDE, SIDE_STEP, MIN_TODO, MAX_TODO, DEFAULT_TODO, TODO_STEP } from './sizes.js';
 
-  // The student's workspace: instructions and TODO list, the files, the editor, the terminals, and what the connection is doing. The
+  // The student's workspace: the instructions (a tab of the editor), the TODO list and the files in the left column, the editor's panes,
+  // the terminals, and what the connection is doing. The
   // application's Go side holds the connection; this page shows what the model (model.js) makes of it and tells it what the student
   // does. `workspace` is the application's view of it, `api` the application's calls, `notify` posts a toast, and `onStatus` hears the
   // connection and the saves, which the application tells in its toolbar (the room below is the editor's).
   let { api, workspace, notify, onFinish, finishing = false, onStatus = () => {} } = $props();
+  // Many changes in a burst (a build writing files) are drawn once: `queued` says a drawing is coming (schedule, below).
+  let queued = false;
   const model = new WorkspaceModel({
     transport: makeTransport(api),
     notify: note => notify(note),
     onChange: () => schedule(),
   });
+  // The exam starts with its instructions in front, across the editor: the first file opened goes beside them (model.openFile).
+  if (workspace.instructions) model.openInstructions();
   let snap = $state(model.snapshot());
-  let queued = false;
-  // Many changes in a burst (a build writing files) are drawn once.
   function schedule() {
     if (queued) return;
     queued = true;
@@ -109,17 +111,18 @@
     event.preventDefault();
   }
 
-  // The column of the instructions and the files has two splitters, as the terminals have one: the one at its right edge gives it more or less
-  // of the width (an exam's instructions with a wide table need it), and the one between the instructions and the files shares its height.
-  // Their keys are the terminals' splitter's: the arrows a step, Page Up and Page Down three, Home and End the ends, Enter the usual size.
+  // The left column has two splitters, as the terminals have one: the one at its right edge gives it more or less of the width, and the one
+  // between the TODO list and the files sets the most of the height the list takes (a short list takes only its own room). Their keys are the
+  // terminals' splitter's: the arrows a step, Page Up and Page Down three, Home and End the ends, Enter the usual size.
   let panesBox;
   let sideBox;
+  let todoBox = $state(null);
   let panesWidth = $state(0);
   let sideWidth = $state(0);
   // Until the student moves it, the column is at its usual width, whose share is measured.
   const sideNow = $derived(snap.sideShare ?? (panesWidth > 0 ? sideWidth / panesWidth : MIN_SIDE));
   let sideDragging = $state(false);
-  let instructionsDragging = $state(false);
+  let todoDragging = $state(false);
   function startSplit(event) {
     if (event.button !== 0) return false;
     event.preventDefault();
@@ -131,10 +134,10 @@
     const box = panesBox.getBoundingClientRect();
     if (box.width > 0) model.setSideShare((event.clientX - box.left) / box.width);
   }
-  function instructionsDrag(event) {
-    if (!instructionsDragging || !sideBox) return;
-    const box = sideBox.getBoundingClientRect();
-    if (box.height > 0) model.setInstructionsShare((event.clientY - box.top) / box.height);
+  function todoDrag(event) {
+    if (!todoDragging || !sideBox || !todoBox) return;
+    const height = sideBox.getBoundingClientRect().height;
+    if (height > 0) model.setTodoShare((event.clientY - todoBox.getBoundingClientRect().top) / height);
   }
   // A key moves from what the model has now: the snapshot the page draws is a frame behind, and keys repeat faster than that.
   function sideKeys(event) {
@@ -147,16 +150,25 @@
     else return;
     event.preventDefault();
   }
-  function instructionsKeys(event) {
-    // Up moves the splitter up, which gives the instructions less room.
-    const moves = { ArrowDown: INSTRUCTIONS_STEP, ArrowUp: -INSTRUCTIONS_STEP, PageDown: 3 * INSTRUCTIONS_STEP, PageUp: -3 * INSTRUCTIONS_STEP };
-    if (event.key in moves) model.setInstructionsShare(model.instructionsShare + moves[event.key]);
-    else if (event.key === 'Home') model.setInstructionsShare(MAX_INSTRUCTIONS);
-    else if (event.key === 'End') model.setInstructionsShare(MIN_INSTRUCTIONS);
-    else if (event.key === 'Enter') model.setInstructionsShare(DEFAULT_INSTRUCTIONS);
+  function todoKeys(event) {
+    // Up moves the splitter up, which gives the TODO list less room.
+    const moves = { ArrowDown: TODO_STEP, ArrowUp: -TODO_STEP, PageDown: 3 * TODO_STEP, PageUp: -3 * TODO_STEP };
+    if (event.key in moves) model.setTodoShare(model.todoShare + moves[event.key]);
+    else if (event.key === 'Home') model.setTodoShare(MAX_TODO);
+    else if (event.key === 'End') model.setTodoShare(MIN_TODO);
+    else if (event.key === 'Enter') model.setTodoShare(DEFAULT_TODO);
     else return;
     event.preventDefault();
   }
+  // The instructions' entry at the top of the column: where the instructions are, and a click that brings them to the front (or opens them
+  // again, when they were closed).
+  const instructionsPane = $derived(snap.panes.findIndex(pane => pane.items.includes(INSTRUCTIONS)));
+  const instructionsFront = $derived(instructionsPane >= 0 && snap.panes[instructionsPane].active === INSTRUCTIONS);
+  const instructionsWhere = $derived(instructionsPane < 0 ? 'Closed · click to open them again' : !instructionsFront ? 'Open · behind a file'
+    : snap.panes.length > 1 ? `In front · ${instructionsPane === 0 ? 'left' : 'right'}` : 'In front');
+  function showInstructions() { model.openInstructions(); focusEditor(model.paneOf(INSTRUCTIONS)); }
+  // The instructions' tab, in the list of a pane's tabs.
+  const instructionsTab = { id: 'instructions', path: INSTRUCTIONS, state: 'instructions', dirty: false };
   // The column's width and the share of its height go to the CSS as fractions (the editor keeps at least 24rem, the column 15rem).
   const sideColumns = $derived(snap.sideShare === null ? null
     : `minmax(15rem, ${Math.round(snap.sideShare * 1000)}fr) minmax(24rem, ${Math.round((1 - snap.sideShare) * 1000)}fr)`);
@@ -346,35 +358,50 @@
     </p>
   {/if}
   <div class="panes" bind:this={panesBox} bind:clientWidth={panesWidth} style:--side-columns={sideColumns}>
-    <aside class="side" id="side-panel" bind:this={sideBox} bind:clientWidth={sideWidth}
-      style:--instructions-share="{Math.round(snap.instructionsShare * 1000)}fr" style:--files-share="{Math.round((1 - snap.instructionsShare) * 1000)}fr">
-      <div data-pane="todo" class="todo-box" id="instructions-panel"><TodoPanel instructions={workspace.instructions} todos={workspace.todos} done={snap.todo} disabled={disabled}
-        onToggle={(id, done) => model.setTodo(id, done)} wide={snap.sideWide} onWiden={() => model.toggleSideWide()} /></div>
+    <aside class="side" id="side-panel" bind:this={sideBox} bind:clientWidth={sideWidth} style:--todo-max="{Math.round(snap.todoShare * 100)}%">
+      {#if workspace.instructions || workspace.todos.length}
+        <!-- F6 stops here first: the instructions' entry and the TODO list. -->
+        <div data-pane="todo" class="top-box">
+          {#if workspace.instructions}
+            <button type="button" class="instructions-entry" class:front={instructionsFront} onclick={showInstructions}>
+              <span class="book"><Icon name="book" size={16} /></span>
+              <span class="what"><span class="name">Instructions</span><span class="where">{instructionsWhere}</span></span>
+              <Icon name="chevron" size={14} />
+            </button>
+          {/if}
+          {#if workspace.todos.length}
+            <div class="todo-box" id="todo-panel" bind:this={todoBox}><TodoPanel todos={workspace.todos} done={snap.todo} disabled={disabled} onToggle={(id, done) => model.setTodo(id, done)} /></div>
+          {/if}
+        </div>
+      {/if}
       <div data-pane="tree" class="tree-box" bind:this={tree}>
-        <!-- The splitter between the instructions and the files sits in the gap above the files. -->
-        <div class="side-splitter across" class:dragging={instructionsDragging} role="separator" aria-orientation="horizontal" aria-label="Resize the instructions"
-          aria-controls="instructions-panel" tabindex="0" aria-valuemin={Math.round(MIN_INSTRUCTIONS * 100)} aria-valuemax={Math.round(MAX_INSTRUCTIONS * 100)}
-          aria-valuenow={Math.round(snap.instructionsShare * 100)} aria-valuetext="The instructions take {Math.round(snap.instructionsShare * 100)} percent of the height"
-          title="Drag to give the instructions or the files more room, or use the up and down arrows. Double click: usual size"
-          onpointerdown={event => { if (startSplit(event)) instructionsDragging = true; }} onpointermove={instructionsDrag}
-          onpointerup={() => { instructionsDragging = false; }} onpointercancel={() => { instructionsDragging = false; }} onlostpointercapture={() => { instructionsDragging = false; }}
-          onkeydown={instructionsKeys} ondblclick={() => model.setInstructionsShare(DEFAULT_INSTRUCTIONS)}></div>
+        {#if workspace.todos.length}
+          <!-- The splitter between the TODO list and the files sits on the line above the files. -->
+          <div class="side-splitter across" class:dragging={todoDragging} role="separator" aria-orientation="horizontal" aria-label="Resize the TODO list"
+            aria-controls="todo-panel" tabindex="0" aria-valuemin={Math.round(MIN_TODO * 100)} aria-valuemax={Math.round(MAX_TODO * 100)}
+            aria-valuenow={Math.round(snap.todoShare * 100)} aria-valuetext="The TODO list takes at most {Math.round(snap.todoShare * 100)} percent of the height"
+            title="Drag to give the TODO list or the files more room, or use the up and down arrows. Double click: usual size"
+            onpointerdown={event => { if (startSplit(event)) todoDragging = true; }} onpointermove={todoDrag}
+            onpointerup={() => { todoDragging = false; }} onpointercancel={() => { todoDragging = false; }} onlostpointercapture={() => { todoDragging = false; }}
+            onkeydown={todoKeys} ondblclick={() => model.setTodoShare(DEFAULT_TODO)}></div>
+        {/if}
         <FileTree folders={snap.folders} expanded={snap.expanded} activePath={snap.activePath} readOnly={disabled} {openIn} unsaved={unsavedPaths}
           onToggle={path => model.toggleFolder(path)} onOpen={open}
           onNew={(kind, folder) => { naming = { kind, folder }; }} onRename={path => { naming = { kind: 'rename', path, folder: dirname(path) }; }} onDelete={path => { deleting = path; }} />
       </div>
       <!-- The splitter between the column and the editor sits in the gap at the column's right. -->
-      <div class="side-splitter upright" class:dragging={sideDragging} role="separator" aria-orientation="vertical" aria-label="Resize the instructions and the files"
+      <div class="side-splitter upright" class:dragging={sideDragging} role="separator" aria-orientation="vertical" aria-label="Resize the left column"
         aria-controls="side-panel" tabindex="0" aria-valuemin={Math.round(MIN_SIDE * 100)} aria-valuemax={Math.round(MAX_SIDE * 100)} aria-valuenow={Math.round(sideNow * 100)}
-        aria-valuetext="The instructions and the files take {Math.round(sideNow * 100)} percent of the width"
-        title="Drag to give the instructions or the editor more room, or use the left and right arrows. Double click: usual width"
+        aria-valuetext="The left column takes {Math.round(sideNow * 100)} percent of the width"
+        title="Drag to give the left column or the editor more room, or use the left and right arrows. Double click: usual width"
         onpointerdown={event => { if (startSplit(event)) sideDragging = true; }} onpointermove={sideDrag}
         onpointerup={() => { sideDragging = false; }} onpointercancel={() => { sideDragging = false; }} onlostpointercapture={() => { sideDragging = false; }}
         onkeydown={sideKeys} ondblclick={() => model.setSideShare(null)}></div>
     </aside>
     <div class="main" class:with-terminal={terminalVisible} style:--editor-share="{Math.round((1 - snap.terminalShare) * 1000)}fr" style:--terminal-share="{Math.round(snap.terminalShare * 1000)}fr">
       <div class="actions" role="toolbar" aria-label="Run, check and save">
-        {#if snap.canRun}<button type="button" onclick={() => run('run')} disabled={disabled}><Icon name="arrowRight" size={16} />Run</button>{/if}
+        <!-- Run is what a student does most: it is the main button (the owner's mock). -->
+        {#if snap.canRun}<button type="button" class="primary" onclick={() => run('run')} disabled={disabled}><Icon name="arrowRight" size={16} />Run</button>{/if}
         {#if snap.canCheck}<button type="button" onclick={() => run('check')} disabled={disabled}><Icon name="check" size={16} />Check</button>{/if}
         <!-- The terminals take room only when wanted: this shows the panel (opening a terminal if there is none) and hides it again. -->
         {#if snap.terminalAllowed || snap.terminals.length > 0}
@@ -385,7 +412,7 @@
         {/if}
         <span class="spacer"></span>
         {#if snap.lastSubmit}<span class="submitted" role="status">Last Save {clock(snap.lastSubmit.at)}</span>{/if}
-        <button type="button" class="primary" onclick={submit} disabled={disabled || submitting}><Icon name="fileCheck" size={16} />Save</button>
+        <button type="button" onclick={submit} disabled={disabled || submitting}><Icon name="fileCheck" size={16} />Save</button>
         <button type="button" onclick={() => { confirmingFinish = true; }} disabled={disabled}><Icon name="done" size={16} />Finish exam…</button>
       </div>
       <!-- The editor: one pane, or two side by side with a splitter in the gap between them. A pane is kept by its id, so the one left when the
@@ -402,7 +429,9 @@
                 onpointerup={() => { paneDragging = false; }} onpointercancel={() => { paneDragging = false; }} onlostpointercapture={() => { paneDragging = false; }}
                 onkeydown={paneKeys} ondblclick={() => model.setPaneShare(DEFAULT_PANE)}></div>
             {/if}
-            <EditorPane bind:this={editors[pane.id]} {model} {store} paneId={pane.id} tabs={pane.items.map(path => tabsByPath.get(path)).filter(Boolean)} allTabs={snap.tabs}
+            <EditorPane bind:this={editors[pane.id]} {model} {store} paneId={pane.id} allTabs={snap.tabs}
+              tabs={pane.items.map(path => (path === INSTRUCTIONS ? instructionsTab : tabsByPath.get(path))).filter(Boolean)}
+              instructions={workspace.instructions} instructionsOpen={instructionsPane >= 0} onOpenInstructions={showInstructions}
               activePath={pane.active} side={twoPanes ? (index === 0 ? 'left' : 'right') : ''} used={!twoPanes || index === snap.activePane}
               canMove={twoPanes || pane.items.length > 1} readOnly={disabled} onClose={path => model.closeTab(path)} onCloseMany={paths => model.closeTabs(paths)}
               onMove={path => { model.moveTab(path); focusEditor(); }} />
@@ -463,9 +492,19 @@
   .banner button { margin: 0 0 0 auto; }
   /* The column of the instructions and the files is 15 to 21rem until the student gives it a share of the width (--side-columns). */
   .panes { flex: 1 1 0; min-height: 0; display: grid; grid-template-columns: var(--side-columns, minmax(15rem, 21rem) minmax(0, 1fr)); gap: var(--space-2); }
-  .side { position: relative; display: grid; grid-template-rows: minmax(0, var(--instructions-share, 400fr)) minmax(0, var(--files-share, 600fr)); gap: var(--space-2); min-height: 0; min-width: 0; }
-  .todo-box { min-height: 0; overflow: auto; padding-right: .15rem; }
-  .tree-box { position: relative; min-height: 0; display: grid; }
+  /* The left column: the instructions' entry, the TODO list (as tall as it needs, up to its share of the column, --todo-max), and the files. */
+  .side { position: relative; display: flex; flex-direction: column; gap: var(--space-2); min-height: 0; min-width: 0; }
+  .top-box { display: flex; flex-direction: column; gap: var(--space-2); flex: 0 1 auto; min-height: 0; max-height: calc(var(--todo-max, 35%) + 4.5rem); }
+  .todo-box { flex: 0 1 auto; min-height: 3.5rem; max-height: 100%; display: grid; grid-template-rows: minmax(0, 1fr); background: var(--bg-raised); border: 1px solid var(--border-subtle); border-radius: var(--radius-ctl); overflow: hidden; }
+  .tree-box { position: relative; flex: 1 1 0; min-height: 8rem; display: grid; }
+  .instructions-entry { display: flex; flex: none; align-items: center; gap: .6rem; margin: 0; padding: .5rem .65rem; border: 1px solid var(--border-subtle); border-radius: var(--radius-ctl); background: var(--bg-raised); box-shadow: none; color: var(--text-main); text-align: left; }
+  .instructions-entry:hover { background: var(--hover-fill); }
+  .instructions-entry.front { border-color: var(--action-primary); background: var(--selection-fill); }
+  .instructions-entry .book { display: grid; place-items: center; width: 1.9rem; height: 1.9rem; border-radius: var(--radius-ctl); background: var(--selection-fill); color: var(--action-primary); }
+  .instructions-entry.front .book { background: var(--bg-raised); }
+  .instructions-entry .what { display: grid; flex: 1; min-width: 0; }
+  .instructions-entry .name { font-weight: 700; }
+  .instructions-entry .where { color: var(--text-main); font-size: var(--text-xs); }
   /* The column's splitters are strips of the gaps (out of the grid's flow): at the column's right edge, and above the files. */
   .side-splitter { position: absolute; z-index: 1; touch-action: none; border-radius: 4px; display: grid; place-items: center; }
   .side-splitter::before { content: ''; border-radius: 2px; background: var(--text-muted); opacity: .5; }
@@ -505,8 +544,9 @@
   @media (max-width: 900px) {
     .ide { height: auto; }
     .panes { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(36rem, 1fr); }
-    .side { grid-template-rows: auto minmax(12rem, 16rem); }
+    .top-box { max-height: none; }
     .todo-box { max-height: 16rem; }
+    .tree-box { flex: none; height: 16rem; }
     /* The column is the whole width, above the editor: nothing to resize. Two panes are one above the other. */
     .side-splitter, .pane-splitter { display: none; }
     .editors.two { grid-template-columns: minmax(0, 1fr); grid-auto-rows: minmax(14rem, 1fr); }
