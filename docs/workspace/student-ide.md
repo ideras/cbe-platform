@@ -23,7 +23,15 @@ are P4-1 to P4-13 in `DECISIONS.md`.
 - **Editor**: one tab per open file, a dot on a file with unsaved changes, saved as the student types; a tab brought back to the front
   is where it was left (cursor and scroll). A tab closes with its ×, a middle click, Delete on the tab or **Ctrl+W** (Cmd+W on a Mac)
   anywhere but a terminal; the **⋯** menu has **Close all**, **Close others** and **Close saved** (WS-1, WS-2). A file is saved before
-  its tab closes, and one that cannot be saved stays open. A file that is not text, or over
+  its tab closes, and one that cannot be saved stays open.
+- **Two panes** (WS-5): the editor can show two files side by side, each pane with its own tabs, **A−**, **A+**, **⫿** and **⋯**, and
+  the terminals under both. Alt+click (or Ctrl+Enter) in the files opens a file on the other side; **⫿** or ⋯ › Move sends the tab in
+  front there; a file is in one pane at a time and keeps its text, undo history, cursor and scroll (an SVG its view and zoom) when it
+  moves. A file opened from the tree goes to the pane last used (a click or the keyboard in a pane makes it so; its tab in front is
+  marked in blue, the other pane's in grey). A pane left with no tab goes. A splitter between the panes (each keeps 16rem) moves with
+  the pointer or the keys, Enter or a double click for half and half. The tree marks open files L or R (a dot with one pane) and files
+  with unsaved changes. Below 900 px the two panes are one above the other.
+- A file that is not text, or over
   1 MiB, is named and not opened. It has all the room the window leaves, and its own **A−** and **A+** (the size of the code only,
   seven steps from 85 % to 200 %, also Ctrl and + − 0), on top of the toolbar's A− and A+ (which size the whole workspace, files,
   buttons and terminals too).
@@ -56,9 +64,12 @@ are P4-1 to P4-13 in `DECISIONS.md`.
 |---|---|
 | Ctrl+S | Save every file (not in a terminal) |
 | Ctrl+W (Cmd+W on a Mac) | Close the file in front, saving it first (not in a terminal, where bash deletes a word and nano searches with it) |
-| F6, Shift+F6 | Next, previous pane (instructions, files, editor, terminal; a hidden terminal panel is skipped) |
+| F6, Shift+F6 | Next, previous pane (instructions, files, each editor pane, terminal; a hidden terminal panel is skipped) |
+| Ctrl+1, Ctrl+2 (Cmd on a Mac) | The keyboard to the left, the right editor pane (not in a terminal) |
+| Ctrl+Page Down, Ctrl+Page Up | The next, the previous tab of the pane last used (not in a terminal) |
 | Ctrl and +, Ctrl and −, Ctrl and 0 | Larger, smaller, normal size of the code text (in the editor) |
 | Arrows, Home, End, Enter | Move in the file tree, open a file, open or close a folder |
+| Ctrl+Enter, Alt+click | Open the file on the other side of the editor (in the file tree) |
 | F2, Delete | Rename, delete the selected file or folder |
 | Arrows, Home, End | Move between tabs; Delete closes the file |
 | Arrows, Home, End, Enter, Escape | In the ⋯ menu: move, do the action, close the menu |
@@ -77,8 +88,10 @@ Svelte page                                     Go (apps/student/internal/client
   takes a transport and a clock, and keeps: the folders it has listed, the open files with their version and whether they are saved, the
   terminals, the TODO ticks, and the connection's state. **An edit is never dropped**: it stays in memory and marks its file as unsaved
   until it is written, and a write always names the version the student last saw.
-- `EditorPane.svelte` keeps one CodeMirror state per tab (undo history, cursor, scroll) and tells the model when the text changes; the
-  model decides when to write. `TerminalView.svelte` is one xterm.js terminal; what the program prints reaches it through the model,
+- `EditorPane.svelte` is one pane: its tabs and one CodeMirror editor, which tells the model when the text changes; the model decides
+  when to write, and keeps which files are in which pane (`panes`, `activePane`). What a tab is (its CodeMirror state with the undo
+  history and the cursor, its scroll, an SVG's view and zoom) is in `editor-store.js`, shared by the panes: a pane that shows a tab
+  the other pane still shows takes its state from that pane's editor, never an older copy. `TerminalView.svelte` is one xterm.js terminal; what the program prints reaches it through the model,
   which keeps output that comes before the view exists.
 - `paste-guard.js` is the paste control (P4-7). `transport.js` is the page's side of the three calls and the output encoding.
 - `Workspace.svelte` stays mounted while the exam is locked (hidden behind the lock screen), so unsaved text survives the lock.
@@ -96,16 +109,16 @@ which reads the code for any of those APIs.
 
 | Where | What |
 |---|---|
-| `apps/student/frontend/tests/workspace-*.test.js`, `paste-guard.test.js` | The model (38), paths, the tree's rows, the paste guard, the no-storage check. Run with the others by `npm test`. |
+| `apps/student/frontend/tests/workspace-*.test.js`, `paste-guard.test.js` | The model (42), paths, the tree's rows, the paste guard, the no-storage check. Run with the others by `npm test`. |
 | `apps/student/frontend/tests/workspace-picture.test.js` | Which files are pictures, whether a text starts as an SVG, the `data:` address (a `#`, a `%`, accents, 1 MiB), Fit and the zoom steps, and that the picture is an `<img>` and never the SVG put into the page. |
-| `tests/ui/workspace-picture.spec.js` (Playwright, 15) | SVG files: the picture and its source, each keeping its place behind the other and while another tab is in front, a file made again in the terminal, a half-written one (a notice, no error), **that nothing in an SVG runs or is fetched**, Fit, the zoom and the scroll (buttons, keys, Ctrl and the wheel), the window's size, the white ground, other files as before, unsaved edits in the picture, an SVG being typed, the connection lost, that ticks, Run and other files do not draw the picture again or move it, the keyboard, axe, no storage. Run in Chromium and in WebKit. |
-| `tests/ui/workspace.spec.js` (Playwright, 51) | The whole page against the in-memory stand-in (`tests/fake-workspace-server.js` and the workspace part of `tests/fake-api.js`): editing and autosave, closing tabs (Ctrl+W, and not in a terminal; a middle click; the ⋯ menu with the mouse and the keyboard), a tab's cursor and scroll after a trip to another tab, Ctrl+S, Run and Check, terminals, the tree's operations, conflicts, TODO, Save, the drop and the return of the connection (also with a 30-second drop on a fake clock), pastes, keyboard, no terminal, lock and unlock, no storage, accessibility (axe), sizes, text size (the toolbar's and the editor's), the terminal panel's showing and hiding, F6, that an autosave (or a tick, a Run, a file changed elsewhere) does not draw the editor again, move its scroll or move what is around it, and that the arrow keys and a click land on the right line after any change of the text size. Run in Chromium (`npm run test:ui`) and in WebKit. |
+| `tests/ui/workspace-picture.spec.js` (Playwright, 16) | SVG files: the picture and its source, each keeping its place behind the other and while another tab is in front, a file made again in the terminal, a half-written one (a notice, no error), **that nothing in an SVG runs or is fetched**, Fit, the zoom and the scroll (buttons, keys, Ctrl and the wheel), a picture in the other pane beside the code (drawn again there; its zoom kept when it moves), the window's size, the white ground, other files as before, unsaved edits in the picture, an SVG being typed, the connection lost, that ticks, Run and other files do not draw the picture again or move it, the keyboard, axe, no storage. Run in Chromium and in WebKit. |
+| `tests/ui/workspace.spec.js` (Playwright, 56) | The whole page against the in-memory stand-in (`tests/fake-workspace-server.js` and the workspace part of `tests/fake-api.js`): editing and autosave, closing tabs (Ctrl+W, and not in a terminal; a middle click; the ⋯ menu with the mouse and the keyboard), two panes (opening on the other side, the pane last used, the tree's marks, a moved tab's unsaved text, undo, cursor and scroll, a file changed in the terminal in the right pane, Ctrl+1, Ctrl+2, Ctrl+Page Down and Up, F6, the splitter), a tab's cursor and scroll after a trip to another tab, Ctrl+S, Run and Check, terminals, the tree's operations, conflicts, TODO, Save, the drop and the return of the connection (also with a 30-second drop on a fake clock), pastes, keyboard, no terminal, lock and unlock, no storage, accessibility (axe), sizes, text size (the toolbar's and the editor's), the terminal panel's showing and hiding, F6, that an autosave (or a tick, a Run, a file changed elsewhere) does not draw the editor again, move its scroll or move what is around it, and that the arrow keys and a click land on the right line after any change of the text size. Run in Chromium (`npm run test:ui`) and in WebKit. |
 | `apps/student/cmd/student/menu_test.go` | The macOS menu bar has no key that closes, reloads or zooms the window, and keeps the Edit keys (WS-3). |
 | `apps/student/internal/client/workspace_test.go` | The connection: token, requests and ids, output batching and order, input frames, a dropped connection and the requests waiting on it, 423, 401, the end of the exam, another window, the exam's lock, and the service's own way of telling a workspace from a question exam. |
 | `apps/student/internal/client/real_workspace_test.go` | A student finishing the example package through the real client, run against the real server and a container by phase D of `deploy/workspace/test-server.sh`. |
 
 ## What it does not do (v1)
 
-No search across files, no split editor, no drag-and-drop in the tree, no language server or autocompletion (highlighting only, as in the
+No search across files, no more than two editor panes and no file in both, no dragging of tabs, no drag-and-drop in the tree, no language server or autocompletion (highlighting only, as in the
 exam's code answers), no binary or very large files (so no PNG or PDF picture: an SVG is text, and is shown), no graphical programs, no
 installing packages.

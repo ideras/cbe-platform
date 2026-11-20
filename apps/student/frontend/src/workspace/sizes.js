@@ -28,3 +28,10 @@ export const MAX_INSTRUCTIONS = 0.85;
 export const DEFAULT_INSTRUCTIONS = 0.4;
 export const INSTRUCTIONS_STEP = 0.05;
 export const clampInstructions = share => Number.isFinite(share) ? Math.max(MIN_INSTRUCTIONS, Math.min(MAX_INSTRUCTIONS, share)) : DEFAULT_INSTRUCTIONS;
+
+// The left pane's share of the width of the editors when there are two side by side (each keeps at least 16rem, in the page's CSS).
+export const MIN_PANE = 0.2;
+export const MAX_PANE = 0.8;
+export const DEFAULT_PANE = 0.5;
+export const PANE_STEP = 0.05;
+export const clampPane = share => Number.isFinite(share) ? Math.max(MIN_PANE, Math.min(MAX_PANE, share)) : DEFAULT_PANE;

@@ -1,5 +1,5 @@
 import { dirname, basename, join, isInside, moved, sortEntries } from './paths.js';
-import { DEFAULT_ZOOM, DEFAULT_SHARE, stepZoom, clampShare, WIDE_SIDE, clampSide, DEFAULT_INSTRUCTIONS, clampInstructions } from './sizes.js';
+import { DEFAULT_ZOOM, DEFAULT_SHARE, stepZoom, clampShare, WIDE_SIDE, clampSide, DEFAULT_INSTRUCTIONS, clampInstructions, DEFAULT_PANE, clampPane } from './sizes.js';
 
 // The state and the rules of a student's workspace: the files they have open, what is saved and what is not, the terminals, the TODO
 // ticks. It knows nothing of the page; the components show its snapshot and call its methods. Everything it does to the workspace is
@@ -35,7 +35,13 @@ export class WorkspaceModel {
     this.folders = new Map(); // path -> { entries, loaded, error }
     this.expanded = new Set(['']);
     this.tabs = [];
-    this.activePath = null;
+    // The editor's panes: one, or two side by side. Each lists the files open in it, in the order of its tabs, and which one is in front;
+    // a file is open in one pane at most. The pane last used is the one a file opened from the tree goes to, and its file in front is
+    // `activePath`. `paneShare` is the left pane's share of the width when there are two.
+    this.panes = [{ id: 1, items: [], active: null }];
+    this.paneSeq = 1;
+    this.activePane = 0;
+    this.paneShare = DEFAULT_PANE;
     this.terminals = [];
     this.activeTerm = null;
     // How the student has sized the terminals, kept here (not in the views, which come and go with each terminal) for as long as the workspace is open:
@@ -70,6 +76,8 @@ export class WorkspaceModel {
   // ----- what the page reads -----------------------------------------------------------------------------------------------------
 
   get readOnly() { return this.connection !== 'connected'; }
+  // The file in front of the pane last used.
+  get activePath() { return this.panes[this.activePane]?.active ?? null; }
 
   snapshot() {
     return {
@@ -77,6 +85,7 @@ export class WorkspaceModel {
       terminalAllowed: this.terminalAllowed, canRun: this.canRun, canCheck: this.canCheck,
       folders: new Map([...this.folders].map(([path, folder]) => [path, { ...folder }])), expanded: new Set(this.expanded),
       tabs: this.tabs.map(tab => ({ ...tab })), activePath: this.activePath,
+      panes: this.panes.map(pane => ({ id: pane.id, items: [...pane.items], active: pane.active })), activePane: this.activePane, paneShare: this.paneShare,
       terminals: this.terminals.map(term => ({ ...term })), activeTerm: this.activeTerm, terminalZoom: this.terminalZoom, terminalShare: this.terminalShare,
       sideShare: this.sideShare, sideWide: this.sideShare !== null && this.sideShare >= WIDE_SIDE, instructionsShare: this.instructionsShare,
       todo: { ...this.todo }, lastSave: this.lastSave, lastSubmit: this.lastSubmit,
@@ -85,6 +94,7 @@ export class WorkspaceModel {
   }
   changed() { this.revision += 1; if (!this.closed) this.onChange(); }
   tab(path) { return this.tabs.find(tab => tab.path === path); }
+  paneOf(path) { return this.panes.findIndex(pane => pane.items.includes(path)); }
   terminal(term) { return this.terminals.find(item => item.term === term); }
 
   // ----- the connection ----------------------------------------------------------------------------------------------------------
@@ -182,11 +192,14 @@ export class WorkspaceModel {
   // The editor of a tab says its text changed; it knows the tab by its id, which a rename does not change.
   editedById(id) { const tab = this.tabs.find(item => item.id === id); if (tab) this.edited(tab.path); }
 
-  async openFile(path) {
+  // A file opens in the pane last used, after the tab in front there; `side` opens it in the other pane (made if there is one pane). A file
+  // that is open already comes to the front where it is, or, with `side`, moves to the other pane.
+  async openFile(path, { side = false } = {}) {
     const existing = this.tab(path);
-    if (existing) { this.activate(path); return; }
+    if (existing) { if (side) this.moveTab(path); else this.activate(path); return; }
     const tab = { id: (this.tabSeq += 1), path, state: 'loading', version: '', savedText: '', initial: '', dirty: false, conflict: null, missing: false, message: '' };
     this.tabs.push(tab);
+    this.place(path, side ? this.ensurePane(1 - this.activePane) : this.activePane);
     this.activate(path);
     await this.readInto(tab);
   }
@@ -216,8 +229,70 @@ export class WorkspaceModel {
   }
 
   activate(path) {
+    const index = this.paneOf(path);
+    if (index < 0) return;
     if (this.activePath && this.activePath !== path) this.save(this.activePath).catch(() => {});
-    this.activePath = path;
+    this.panes[index].active = path;
+    this.activePane = index;
+    this.changed();
+  }
+
+  // ----- the panes ---------------------------------------------------------------------------------------------------------------
+
+  // The pane at an index, made when it is the second and there is one.
+  ensurePane(index) {
+    if (index < this.panes.length) return index;
+    this.panes.push({ id: (this.paneSeq += 1), items: [], active: null });
+    return this.panes.length - 1;
+  }
+  // A file's tab goes into a pane, after the tab in front there (or last).
+  place(path, index) {
+    const pane = this.panes[index];
+    const after = pane.active === null ? pane.items.length : pane.items.indexOf(pane.active) + 1;
+    pane.items.splice(after, 0, path);
+  }
+  // A file's tab leaves its pane: the tab after it comes to the front there (or the one before), and a second pane left with nothing goes.
+  unplace(path) {
+    const index = this.paneOf(path);
+    if (index < 0) return;
+    const pane = this.panes[index];
+    const at = pane.items.indexOf(path);
+    pane.items.splice(at, 1);
+    if (pane.active === path) pane.active = pane.items[Math.min(at, pane.items.length - 1)] ?? null;
+    if (pane.items.length === 0 && this.panes.length > 1) {
+      this.panes.splice(index, 1);
+      if (this.activePane >= index) this.activePane = Math.max(0, this.activePane - 1);
+    }
+  }
+  // The student works in a pane (a click or the keyboard in it): files opened from the tree go there.
+  usePane(index) {
+    if (index === this.activePane || !this.panes[index]) return;
+    this.activePane = index;
+    this.changed();
+  }
+  // A tab goes to the other pane, in front there; the other pane is made when there is one. One pane with one tab has nowhere to send it.
+  canMove(path) { return this.paneOf(path) >= 0 && !(this.panes.length === 1 && this.panes[0].items.length === 1); }
+  moveTab(path) {
+    if (!this.canMove(path)) return;
+    const from = this.paneOf(path);
+    const target = this.panes[this.ensurePane(1 - from)];
+    this.unplace(path);
+    this.place(path, this.panes.indexOf(target));
+    target.active = path;
+    this.activePane = this.panes.indexOf(target);
+    this.changed();
+  }
+  // The next or the previous tab of the pane last used comes to the front.
+  cycleTab(delta) {
+    const pane = this.panes[this.activePane];
+    if (!pane || pane.items.length < 2) return;
+    const at = pane.items.indexOf(pane.active);
+    this.activate(pane.items[(at + delta + pane.items.length) % pane.items.length]);
+  }
+  setPaneShare(share) {
+    const next = clampPane(share);
+    if (Math.abs(next - this.paneShare) < 0.0005) return;
+    this.paneShare = next;
     this.changed();
   }
 
@@ -251,7 +326,7 @@ export class WorkspaceModel {
     if (index < 0) return;
     this.tabs.splice(index, 1);
     this.cancelAutosave(path);
-    if (this.activePath === path) this.activePath = this.tabs[Math.min(index, this.tabs.length - 1)]?.path ?? null;
+    this.unplace(path);
     this.changed();
   }
 
@@ -451,7 +526,10 @@ export class WorkspaceModel {
         tab.path = next;
       }
     }
-    this.activePath = this.activePath && moved(this.activePath, path, to);
+    for (const pane of this.panes) {
+      pane.items = pane.items.map(item => moved(item, path, to));
+      pane.active = pane.active && moved(pane.active, path, to);
+    }
     const expanded = [...this.expanded].map(item => moved(item, path, to));
     this.expanded = new Set(expanded);
     for (const key of [...this.folders.keys()]) if (isInside(key, path) && key !== '') this.folders.delete(key);

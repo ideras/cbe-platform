@@ -157,7 +157,7 @@ test('a middle click closes a tab, and the ⋯ menu closes all of them, the othe
   const actions = page.getByRole('button', { name: 'Tab actions' });
   await actions.click();
   const menu = page.getByRole('menu', { name: 'Tab actions' });
-  await expect(menu.getByRole('menuitem')).toHaveText([/^Close all\s*3$/, /^Close others\s*2$/, /^Close saved\s*2$/, /^Close notes\.txt\s*Ctrl\+W$/]);
+  await expect(menu.getByRole('menuitem')).toHaveText([/^Close all\s*3$/, /^Close others\s*2$/, /^Close saved\s*2$/, /^Move notes\.txt to the right$/, /^Close notes\.txt\s*Ctrl\+W$/]);
   await menu.getByRole('menuitem', { name: 'Close saved' }).click();
   await expect(menu).toHaveCount(0);
   await expect(openTabs(page)).toHaveText([/notes\.txt/]);
@@ -203,6 +203,157 @@ test('the ⋯ menu works from the keyboard: the arrows open and move, Enter acts
   await page.getByRole('textbox', { name: /Editor for notes\.txt/ }).click();
   await expect(menu).toHaveCount(0);
   await expect(openTabs(page)).toHaveText([/notes\.txt/]);
+});
+
+const pane = (page, side) => page.getByRole('region', { name: `Editor (${side})` });
+
+test('Alt+click or Ctrl+Enter opens a file on the other side, the next file goes to the pane last used, and the tree says where each file is', async ({ page }) => {
+  await start(page);
+  await openFile(page, 'notes.txt');
+  await expect(page.getByRole('region', { name: 'Editor', exact: true })).toBeVisible();
+  await page.getByRole('treeitem', { name: 'Makefile', exact: true }).click({ modifiers: ['Alt'] });
+  await expect(pane(page, 'left').getByRole('tab')).toHaveText([/notes\.txt/]);
+  await expect(pane(page, 'right').getByRole('tab')).toHaveText([/Makefile/]);
+  await expect(page.getByRole('textbox', { name: 'Editor for Makefile' })).toBeFocused();
+  // The tree marks which pane each open file is in.
+  const row = name => page.getByRole('treeitem', { name, exact: true });
+  await expect(row('notes.txt').locator('.where')).toHaveText('L');
+  await expect(row('Makefile').locator('.where')).toHaveText('R');
+  // The right pane was used last: the next file goes there, after the tab in front.
+  await page.getByRole('treeitem', { name: 'src', exact: true }).click();
+  await openFile(page, 'list.cpp');
+  await expect(pane(page, 'right').getByRole('tab')).toHaveText([/Makefile/, /list\.cpp/]);
+  // Working in the left pane makes it the one last used, and Ctrl+Enter in the tree opens on the other side of it, the right.
+  await page.getByRole('textbox', { name: 'Editor for notes.txt' }).click();
+  await server(page, 'server.diskFull = true');
+  await page.keyboard.type('x');
+  await expect(row('notes.txt').locator('.unsaved')).toBeVisible();
+  await row('main.cpp').focus();
+  await page.keyboard.press('Control+Enter');
+  await expect(pane(page, 'right').getByRole('tab')).toHaveText([/Makefile/, /list\.cpp/, /main\.cpp/]);
+  // Enter opens it where it is, and Alt+click on a file that is open moves it to the other side.
+  await row('Makefile').click({ modifiers: ['Alt'] });
+  await expect(pane(page, 'left').getByRole('tab')).toHaveText([/notes\.txt/, /Makefile/]);
+  await expect(row('Makefile').locator('.where')).toHaveText('L');
+});
+
+test('a tab moved to the other pane keeps its unsaved text, its undo history, its cursor and its scroll, and a pane left with nothing goes', async ({ page }) => {
+  await start(page, { files: { ...project, 'big.txt': bigFile } }, { width: 1366, height: 768 });
+  await openFile(page, 'notes.txt');
+  const editor = await openFile(page, 'big.txt');
+  await editor.click();
+  await page.keyboard.press('Control+Home');
+  for (let i = 0; i < 120; i += 1) await page.keyboard.press('ArrowDown');
+  await server(page, 'server.diskFull = true');
+  await page.keyboard.type('typed before the move');
+  const where = () => page.evaluate(() => {
+    const view = document.querySelector('[aria-label="Editor for big.txt"]').closest('.cm-editor');
+    return { line: Number(view.querySelector('.cm-activeLineGutter')?.textContent), scroll: Math.round(view.querySelector('.cm-scroller').scrollTop) };
+  });
+  const before = await where();
+  expect(before.scroll).toBeGreaterThan(1000);
+  await page.getByRole('button', { name: 'Move to the other side', exact: true }).click();
+  await expect(pane(page, 'right').getByRole('tab')).toHaveText([/big\.txt/]);
+  await expect(pane(page, 'left').getByRole('tab')).toHaveText([/notes\.txt/]);
+  const moved = page.getByRole('textbox', { name: 'Editor for big.txt' });
+  await expect(moved).toBeFocused();
+  await expect(moved).toContainText('typed before the move');
+  await expect(pane(page, 'right').getByRole('img', { name: 'unsaved changes' })).toBeVisible();
+  await expect.poll(where).toEqual(before);
+  // What is written is what the editor shows, once the disk has room again.
+  await server(page, 'server.diskFull = false');
+  await page.keyboard.press('Control+s');
+  await expect.poll(() => file(page, 'big.txt')).toContain('typed before the move');
+  // The undo history came along: Ctrl+Z takes the typing back.
+  for (let i = 0; i < 3; i += 1) await page.keyboard.press('Control+z');
+  await expect(moved).not.toContainText('typed before');
+  await expect.poll(() => file(page, 'big.txt')).toBe(bigFile);
+  // Moved back, the right pane is left with nothing and goes; the tab is where it was again.
+  const back = await where();
+  await page.getByRole('button', { name: 'Move to the other side (right)' }).click();
+  await expect(page.getByRole('region', { name: 'Editor', exact: true }).getByRole('tab')).toHaveText([/notes\.txt/, /big\.txt/]);
+  await expect(page.getByRole('separator', { name: 'Resize the two panes of the editor' })).toHaveCount(0);
+  await expect.poll(where).toEqual(back);
+});
+
+test('a file in the right pane is reloaded when it changes in the terminal, and asks when it has edits', async ({ page }) => {
+  await start(page);
+  await openFile(page, 'Makefile');
+  await page.getByRole('treeitem', { name: 'notes.txt', exact: true }).click({ modifiers: ['Alt'] });
+  const editor = page.getByRole('textbox', { name: 'Editor for notes.txt' });
+  await expect(editor).toBeVisible();
+  await page.evaluate(() => window.__studentHarness.workspaceServer.externalWrite('notes.txt', 'rewritten in the terminal\n'));
+  await expect(editor).toContainText('rewritten in the terminal');
+  await editor.click();
+  await page.keyboard.press('Control+End');
+  await page.keyboard.type('my own line');
+  await page.evaluate(() => window.__studentHarness.workspaceServer.externalWrite('notes.txt', 'rewritten again\n'));
+  const prompt = pane(page, 'right').getByRole('alert').filter({ hasText: 'This file changed in the terminal' });
+  await expect(prompt).toBeVisible();
+  await prompt.getByRole('button', { name: 'Keep yours' }).click();
+  await expect.poll(() => file(page, 'notes.txt')).toContain('my own line');
+  await expect(page.getByRole('textbox', { name: 'Editor for Makefile' })).toContainText('all:');
+});
+
+test('Ctrl+1 and Ctrl+2 go to the panes, Ctrl+Page Down and Up go round the tabs, F6 stops at both panes, and a terminal keeps those keys', async ({ page }) => {
+  await start(page);
+  await openFile(page, 'notes.txt');
+  await openFile(page, 'Makefile');
+  // With one pane, Ctrl+2 says how to make the second.
+  await page.keyboard.press('Control+2');
+  await expect(page.getByRole('status').filter({ hasText: 'There is one pane' })).toBeVisible();
+  await page.getByRole('treeitem', { name: 'src', exact: true }).click();
+  await page.getByRole('treeitem', { name: 'list.cpp', exact: true }).click({ modifiers: ['Alt'] });
+  await expect(page.getByRole('textbox', { name: 'Editor for src/list.cpp' })).toBeFocused();
+  await page.keyboard.press('Control+1');
+  await expect(page.getByRole('textbox', { name: 'Editor for Makefile' })).toBeFocused();
+  await page.keyboard.press('Control+PageDown');
+  await expect(page.getByRole('textbox', { name: 'Editor for notes.txt' })).toBeFocused();
+  await page.keyboard.press('Control+PageUp');
+  await expect(page.getByRole('textbox', { name: 'Editor for Makefile' })).toBeFocused();
+  await page.keyboard.press('Control+2');
+  await expect(page.getByRole('textbox', { name: 'Editor for src/list.cpp' })).toBeFocused();
+  // F6 goes round the panes that are there; both editor panes are stops.
+  await page.keyboard.press('Shift+F6');
+  await expect(page.getByRole('textbox', { name: 'Editor for Makefile' })).toBeFocused();
+  await page.keyboard.press('F6');
+  await expect(page.getByRole('textbox', { name: 'Editor for src/list.cpp' })).toBeFocused();
+  // In a terminal those keys are the program's.
+  await openTerminal(page);
+  await page.getByRole('textbox', { name: 'Terminal 1 input' }).focus();
+  await page.keyboard.press('Control+1');
+  await page.keyboard.press('Control+PageDown');
+  await expect(page.getByRole('textbox', { name: 'Terminal 1 input' })).toBeFocused();
+  await expect(pane(page, 'left').getByRole('tab', { selected: true })).toHaveText(/Makefile/);
+});
+
+test('a splitter shares the width between the two panes, with the pointer and the keys, and closing the last tab of a pane closes it', async ({ page }) => {
+  await start(page, {}, { width: 1366, height: 768 });
+  await openFile(page, 'notes.txt');
+  await page.getByRole('treeitem', { name: 'Makefile', exact: true }).click({ modifiers: ['Alt'] });
+  const splitter = page.getByRole('separator', { name: 'Resize the two panes of the editor' });
+  await expect(splitter).toHaveAttribute('aria-valuenow', '50');
+  const width = side => pane(page, side).boundingBox().then(box => box.width);
+  const half = await width('left');
+  await splitter.focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(splitter).toHaveAttribute('aria-valuenow', '55');
+  await page.keyboard.press('Home');
+  await expect(splitter).toHaveAttribute('aria-valuenow', '80');
+  await expect.poll(() => width('left')).toBeGreaterThan(half * 1.4);
+  await page.keyboard.press('Enter');
+  await expect(splitter).toHaveAttribute('aria-valuenow', '50');
+  const box = await splitter.boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x - 150, box.y + box.height / 2, { steps: 5 });
+  await page.mouse.up();
+  await expect.poll(async () => Number(await splitter.getAttribute('aria-valuenow'))).toBeLessThan(40);
+  // Closing the last tab of the right pane closes the pane: the left one has all the width again.
+  await page.getByRole('button', { name: 'Close Makefile' }).click();
+  await expect(splitter).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Editor', exact: true })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
 test('Run and Check show their output in terminals of their own, after saving the files', async ({ page }) => {
@@ -529,6 +680,11 @@ test('the workspace has no critical accessibility problems', async ({ page }) =>
     expect(serious.map(v => `${v.impact} ${v.id}: ${v.help} :: ${v.nodes.map(n => `${n.target.join(' ')} ${n.failureSummary?.replace(/\n/g, ' ')}`).join(' | ')}`), label).toEqual([]);
   };
   await scan('workspace');
+  await page.getByRole('treeitem', { name: 'Makefile', exact: true }).click({ modifiers: ['Alt'] });
+  await expect(page.getByRole('region', { name: 'Editor (right)' })).toBeVisible();
+  await scan('two panes');
+  await page.getByRole('button', { name: 'Close Makefile' }).click();
+  await expect(page.getByRole('region', { name: 'Editor', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Tab actions' }).click();
   await expect(page.getByRole('menu', { name: 'Tab actions' })).toBeVisible();
   await scan('the tab actions menu');
@@ -715,6 +871,8 @@ test('F6 goes round the panes that are there: a hidden terminal panel is not one
   await page.keyboard.press('Shift+F6');
   await expect(page.getByRole('textbox', { name: /Editor for/ })).toBeFocused();
   await openTerminal(page);
+  // A terminal shown takes the keyboard (a frame later): only then is it put back in the editor.
+  await expect(page.getByRole('textbox', { name: 'Terminal 1 input' })).toBeFocused();
   await page.getByRole('textbox', { name: /Editor for/ }).focus();
   await page.keyboard.press('F6');
   await expect(page.locator('[data-pane="terminal"] :focus')).toHaveCount(1);
