@@ -39,7 +39,7 @@ Install Git and the following project toolchain:
 | Go | **1.26.8 or newer**, as declared by the Go modules |
 | Node.js | **22.22.3**, as declared by both frontend packages |
 | npm | **11.17.0**, as declared by both frontend packages |
-| Wails | **v3.0.0-beta.29**, pinned in the Makefile and desktop Go modules |
+| Wails | **v3.1.0**, pinned in the Makefile and desktop Go modules |
 | GNU Make | Required for root `make` commands; manual alternatives appear below |
 | OpenSSL and curl | Used in this guide to generate credentials and check the API |
 
@@ -69,7 +69,7 @@ Check the native libraries and the pinned Wails environment:
 
 ```sh
 pkg-config --modversion gtk4 webkitgtk-6.0
-go run github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.29 doctor
+go run github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0 doctor
 ```
 
 For other Linux distributions, use the equivalent native packages. The [Wails installation documentation](https://v3.wails.io/getting-started/installation/) describes the platform dependencies. This repository's default Linux build uses GTK4 and WebKitGTK 6.0.
@@ -91,7 +91,7 @@ Install the Go, Node.js and npm versions above, Git, and the Microsoft Edge WebV
 Run the pinned Wails environment check in PowerShell:
 
 ```powershell
-go run github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.29 doctor
+go run github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0 doctor
 ```
 
 Follow any additional platform requirements it reports. End-user Windows computers need WebView2 as well.
@@ -162,7 +162,7 @@ The student Taskfile performs these steps from `apps/student`:
 
 ```sh
 cd apps/student
-go run github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.29 generate bindings -b -f '-tags bindings' ./cmd/student
+go run github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0 generate bindings -b -f '-tags bindings' ./cmd/student
 npm --prefix frontend ci
 npm --prefix frontend run build
 mkdir -p ../../build
@@ -180,7 +180,7 @@ The proctor Taskfile performs these steps from `apps/proctor`:
 
 ```sh
 cd apps/proctor
-go run github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.29 generate bindings -b -f '-tags bindings' ./cmd/proctor
+go run github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0 generate bindings -b -f '-tags bindings' ./cmd/proctor
 npm --prefix frontend ci
 npm --prefix frontend run build
 mkdir -p ../../build
@@ -216,14 +216,14 @@ $env:GO111MODULE = "on"
 New-Item -ItemType Directory -Force build | Out-Null
 
 Push-Location apps/student
-go run github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.29 generate bindings -b -f '-tags bindings' ./cmd/student
+go run github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0 generate bindings -b -f '-tags bindings' ./cmd/student
 npm --prefix frontend ci
 npm --prefix frontend run build
 go build -tags production -o ../../build/cbe-portal-student.exe ./cmd/student
 Pop-Location
 
 Push-Location apps/proctor
-go run github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.29 generate bindings -b -f '-tags bindings' ./cmd/proctor
+go run github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0 generate bindings -b -f '-tags bindings' ./cmd/proctor
 npm --prefix frontend ci
 npm --prefix frontend run build
 go build -tags production -o ../../build/cbe-portal-proctor.exe ./cmd/proctor

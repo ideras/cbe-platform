@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { connect } from './helpers.js';
+import { confirmImportKind, connect } from './helpers.js';
 
 async function token(page, name) {
   return page.evaluate(name => {
@@ -78,6 +78,7 @@ test('the import confirmation becomes the one primary button while a validated p
   await connect(page, { openClass: 'Mathematics 10A', prepare: () => window.ProctorHarness.examFile({ file: 'theme.md', valid: true, title: 'Theme fixture', exercise_count: 1, slot_count: 1, navigation: 'free', duration_seconds: 600 }) });
   const choose = page.getByRole('button', { name: 'Import exam…' });
   await choose.click();
+  await confirmImportKind(page);
   await expect(choose).not.toHaveClass(/primary/);
   await expect(page.getByRole('button', { name: 'Import exam', exact: true })).toHaveClass(/primary/);
   await expect(page.locator('button.primary')).toHaveCount(1);

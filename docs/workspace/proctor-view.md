@@ -5,8 +5,8 @@ change a student's files; it is all reading, and two downloads.
 
 ## Importing a workspace exam, and its image (Phase 7)
 
-The exam list of a class has **Import workspace exam…** beside **Import exam…**. It asks for the package's `workspace.md`, compiles the folder that holds it (with the same compiler as
-`build/examc`) and shows what it made of it, storing nothing: the title, the time, the **TODO items** (said to be self-reported), the project's starter files, the hidden tests (kept on the
+In the class's exam list, choose **Import exam…** and select the package's `workspace.md`. The picker detects that filename as **Workspace Exam**; other Markdown filenames default to **Traditional Exam**. Confirm or change the kind, then select **Validate as Workspace Exam** or **Validate as Traditional Exam**. This validates the selected file as that kind; it does not convert it.
+For a workspace exam, the app compiles the folder that holds the manifest (with the same compiler as `build/examc`) and shows what it made of it, storing nothing: the title, the time, the **TODO items** (said to be self-reported), the project's starter files, the hidden tests (kept on the
 server, never sent to students), the container's limits, and whether the exam has **its own image**, with the Containerfile checker's warnings. A package with problems shows them all and
 cannot be imported. The PIN is chosen here, as for a question exam. The server checks everything again; what it refuses is shown in its words, and the package is used up whatever it says, so an unclear
 failure never imports an exam twice. An exam is imported, never published.

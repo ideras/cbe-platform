@@ -19,7 +19,7 @@ v = lambda *c: subprocess.check_output(c, text=True).strip()
 with open(sys.argv[1], "w", encoding="utf-8") as f:
     json.dump({"commit": v("git", "rev-parse", "HEAD"), "os": "macos", "architectures": ["x86_64", "arm64"],
                "go": v("go", "version"), "node": v("node", "--version"), "npm": v("npm", "--version"),
-               "wails": "v3.0.0-beta.29", "minimum_macos": os.environ["MACOSX_DEPLOYMENT_TARGET"],
+               "wails": "v3.1.0", "minimum_macos": os.environ["MACOSX_DEPLOYMENT_TARGET"],
                "signing": "ad-hoc; not notarized"}, f, indent=2)
     f.write("\n")
 PY

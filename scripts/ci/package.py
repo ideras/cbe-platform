@@ -56,7 +56,7 @@ def main():
     manifest = {"commit": version("git", "rev-parse", "HEAD"), "os": args.os,
                 "architectures": [args.arch], "go": version("go", "version"),
                 "node": version("node", "--version"), "npm": version("npm", "--version"),
-                "wails": "v3.0.0-beta.29", "signing": "unsigned"}
+                "wails": "v3.1.0", "signing": "unsigned"}
     notice = ROOT / "apps/proctor/frontend/public/icons-LICENSE.txt"
     for app in APPS:
         binary = args.input / (f"cbe-portal-{app}" + suffix)

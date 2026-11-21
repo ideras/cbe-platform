@@ -93,7 +93,7 @@
   // tab either way: its text, its saves and its conflicts are the model's, as for any file, and the editor keeps its state (cursor,
   // scroll, undo) behind the picture. Which of the two a tab shows is the student's choice, kept in the store while the tab is open, with
   // where its picture was (its zoom and its scroll), for when the tab comes to the front again: the picture is made anew for it.
-  const views = store.views;
+  const views = untrack(() => store.views); // the pane keeps the same editor store for its lifetime
   const placeOf = id => { if (!store.pictures.has(id)) store.pictures.set(id, {}); return store.pictures.get(id); };
   const activeSvg = $derived(activePath !== null && isSvgPath(activePath));
   const activeVersion = $derived(active?.version ?? '');
@@ -245,6 +245,7 @@
     {#if active && ['binary', 'toolarge', 'error'].includes(active.state)}<p class="message" role="status">{active.message}</p>{/if}
     {#if hasInstructions}
       <!-- The exam's instructions: its own text, read-only, sized by the pane's A− and A+. -->
+      <!-- svelte-ignore a11y_no_noninteractive_tabindex (Keyboard users need a focus stop to scroll the read-only instructions.) -->
       <div class="reading" role="region" aria-label="Instructions" tabindex="0" hidden={!instructionsShown} bind:this={reading} use:keepScroll>
         <p class="read-only"><Icon name="book" size={13} /><strong>Instructions</strong> · read-only, part of the exam</p>
         <article class="doc"><RichText html={instructions} /></article>

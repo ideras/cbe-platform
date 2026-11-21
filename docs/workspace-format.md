@@ -243,7 +243,7 @@ and `build/examc -json testdata/workspace/lab-listas` prints [`lab-listas.json`]
 
 ## How the package is used
 
-1. **Compile.** `examc`, and **Import workspace exam…** in the proctor application, read the package folder and produce the document and the bundles (starter, grading and, when the package has `image/`, the image's build context). The document has `"kind": "workspace"`; the document of a question exam has no `kind` and is read as `"question"`, so existing exams are unchanged.
+1. **Compile.** `examc` and the proctor application's **Import exam…** flow, after you select `workspace.md` and confirm **Workspace Exam**, read the package folder and produce the document and the bundles (starter, grading and, when the package has `image/`, the image's build context). The document has `"kind": "workspace"`; the document of a question exam has no `kind` and is read as `"question"`, so existing exams are unchanged.
 2. **Import.** The server stores the document and the bundles. The grading bundle is never sent to a student's application, and the compiled document holds only its hash.
 2b. **Build the image** (only when the package has `image/`). The proctor builds the exam's own image from the exam's Image button; it is built once, with network, checked, and kept. The exam cannot be published until it is built.
 3. **First login.** The student's container is created from the course image (or from the exam's own image, when it has one), with the limits of `resources`, and the starter bundle is copied into `/work`.

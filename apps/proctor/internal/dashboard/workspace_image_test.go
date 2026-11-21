@@ -86,7 +86,7 @@ func TestAWorkspacePackageIsPreviewedAndImportedWithItsImageBundle(t *testing.T)
 		}
 		return false
 	})
-	preview, err := f.ChooseWorkspaceExam(classID)
+	preview, err := f.previewWorkspaceFixture(classID)
 	if err != nil || !preview.Valid || len(preview.Problems) != 0 {
 		t.Fatalf("%+v %v", preview, err)
 	}
@@ -109,7 +109,7 @@ func TestAWorkspacePackageIsPreviewedAndImportedWithItsImageBundle(t *testing.T)
 
 	// A PIN is needed, and a bad one is refused before anything is sent.
 	for _, pin := range []string{"", "   ", "two\nlines", strings.Repeat("x", 257)} {
-		if _, err := f.ImportWorkspaceExam(classID, pin); err == nil {
+		if _, err := f.ImportWorkspaceExam(classID, f.importFixtureID(), pin); err == nil {
 			t.Errorf("the PIN %q was taken", pin)
 		}
 	}
@@ -117,10 +117,10 @@ func TestAWorkspacePackageIsPreviewedAndImportedWithItsImageBundle(t *testing.T)
 		t.Fatal("a refused PIN sent the exam")
 	}
 	// A package previewed for another class is not imported into this one.
-	if _, err := f.ImportWorkspaceExam(otherClass, "pin-1234"); err == nil || !strings.Contains(err.Error(), "Choose a workspace package for this class first") {
+	if _, err := f.ImportWorkspaceExam(otherClass, f.importFixtureID(), "pin-1234"); err == nil || !strings.Contains(err.Error(), "Choose a workspace package for this class first") {
 		t.Errorf("another class: %v", err)
 	}
-	result, err := f.ImportWorkspaceExam(classID, "pin-1234")
+	result, err := f.ImportWorkspaceExam(classID, f.importFixtureID(), "pin-1234")
 	if err != nil || result.ExamID != otherExam {
 		t.Fatalf("%+v %v", result, err)
 	}
@@ -139,7 +139,7 @@ func TestAWorkspacePackageIsPreviewedAndImportedWithItsImageBundle(t *testing.T)
 		t.Errorf("the document: %v", document)
 	}
 	// The package is used up: importing again would be the same exam twice.
-	if _, err := f.ImportWorkspaceExam(classID, "pin-1234"); err == nil || len(sent()) != 1 {
+	if _, err := f.ImportWorkspaceExam(classID, f.importFixtureID(), "pin-1234"); err == nil || len(sent()) != 1 {
 		t.Errorf("a second import: %v (%d sent)", err, len(sent()))
 	}
 }
@@ -161,11 +161,11 @@ func TestAPackageWithoutAnImageOrGradingSendsOnlyWhatItHas(t *testing.T) {
 		}
 		return false
 	})
-	preview, err := f.ChooseWorkspaceExam(classID)
+	preview, err := f.previewWorkspaceFixture(classID)
 	if err != nil || !preview.Valid || preview.OwnImage || preview.HasGrading || preview.ImageFiles != 0 {
 		t.Fatalf("%+v %v", preview, err)
 	}
-	if _, err := f.ImportWorkspaceExam(classID, "pin-1234"); err != nil {
+	if _, err := f.ImportWorkspaceExam(classID, f.importFixtureID(), "pin-1234"); err != nil {
 		t.Fatal(err)
 	}
 	post := f.server.seen("POST", "/admin/class/"+classID+"/workspace-exam")
@@ -190,7 +190,7 @@ func TestAPackageThatDoesNotCompileIsShownItsProblemsAndStoresNothing(t *testing
 		t.Fatal(err)
 	}
 	f.chosen = filepath.Join(dir, "workspace.md")
-	preview, err := f.ChooseWorkspaceExam(classID)
+	preview, err := f.previewWorkspaceFixture(classID)
 	if err != nil || preview.Valid || len(preview.Problems) < 2 {
 		t.Fatalf("%+v %v", preview, err)
 	}
@@ -200,15 +200,15 @@ func TestAPackageThatDoesNotCompileIsShownItsProblemsAndStoresNothing(t *testing
 			t.Errorf("the problems do not say %q:\n%s", want, joined)
 		}
 	}
-	if _, err := f.ImportWorkspaceExam(classID, "pin-1234"); err == nil {
+	if _, err := f.ImportWorkspaceExam(classID, f.importFixtureID(), "pin-1234"); err == nil {
 		t.Error("a package with problems was imported")
 	}
 	// Cancelling the dialog is not an error and keeps nothing.
 	f.chosen = ""
-	if cancelled, err := f.ChooseWorkspaceExam(classID); err != nil || !cancelled.Cancelled {
+	if cancelled, err := f.ChooseExamSource(classID); err != nil || !cancelled.Cancelled {
 		t.Errorf("cancelled: %+v %v", cancelled, err)
 	}
-	if _, err := f.ChooseWorkspaceExam("not an id"); err == nil {
+	if _, err := f.previewWorkspaceFixture("not an id"); err == nil {
 		t.Error("a class that is not an ID")
 	}
 }
@@ -224,14 +224,14 @@ func TestWhatTheServerRefusesOnImportIsSaid(t *testing.T) {
 		}
 		return false
 	})
-	if preview, err := f.ChooseWorkspaceExam(classID); err != nil || !preview.Valid {
+	if preview, err := f.previewWorkspaceFixture(classID); err != nil || !preview.Valid {
 		t.Fatalf("%+v %v", preview, err)
 	}
-	_, err := f.ImportWorkspaceExam(classID, "pin-1234")
+	_, err := f.ImportWorkspaceExam(classID, f.importFixtureID(), "pin-1234")
 	if err == nil || !strings.Contains(err.Error(), "does not have the course image cbe/cpp20") || !strings.Contains(err.Error(), "VOLUME is not allowed") {
 		t.Fatalf("the refusal: %v", err)
 	}
-	if _, err := f.ImportWorkspaceExam(classID, "pin-1234"); err == nil || !strings.Contains(err.Error(), "Choose a workspace package") {
+	if _, err := f.ImportWorkspaceExam(classID, f.importFixtureID(), "pin-1234"); err == nil || !strings.Contains(err.Error(), "Choose a workspace package") {
 		t.Errorf("the package was kept after the server refused it: %v", err)
 	}
 }

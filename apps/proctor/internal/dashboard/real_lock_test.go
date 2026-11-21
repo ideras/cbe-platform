@@ -120,10 +120,10 @@ func TestBuiltServerSettingsAndUnlockFromTheDashboard(t *testing.T) {
 		t.Fatal(err)
 	}
 	chosen = write("Quiz.md", "---\ntitle: Quiz\nduration: 10m\n---\n## One\n{{q1}}\n")
-	if preview, err := s.ChooseExam(class.ID); err != nil || !preview.Valid || preview.GraceSeconds != 45 {
+	if preview, err := s.previewTraditionalFixture(class.ID); err != nil || !preview.Valid || preview.GraceSeconds != 45 {
 		t.Fatalf("exam preview = %+v, %v", preview, err)
 	}
-	imported, err := s.ImportExam(class.ID, "quiz-pin", false)
+	imported, err := s.ImportExam(class.ID, s.importFixtureID(), "quiz-pin", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -235,10 +235,10 @@ func TestBuiltServerOneComputerPerAccountFromTheDashboard(t *testing.T) {
 		t.Fatal(err)
 	}
 	chosen = write("Quiz.md", "---\ntitle: Quiz\nduration: 10m\n---\n## One\n{{q1}}\n")
-	if preview, err := s.ChooseExam(class.ID); err != nil || !preview.Valid {
+	if preview, err := s.previewTraditionalFixture(class.ID); err != nil || !preview.Valid {
 		t.Fatalf("exam preview = %+v, %v", preview, err)
 	}
-	imported, err := s.ImportExam(class.ID, "quiz-pin", false)
+	imported, err := s.ImportExam(class.ID, s.importFixtureID(), "quiz-pin", false)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -8,6 +8,12 @@ export default defineConfig(({ command, mode }) => {
     plugins: [svelte()], base: './',
     server: { fs: { allow: [fileURLToPath(new URL('.', import.meta.url)), fileURLToPath(new URL('../../../shared/theme', import.meta.url)), fileURLToPath(new URL('../../../shared/exam', import.meta.url))] } },
     resolve: { alias: { '$proctor-api': fileURLToPath(new URL(mode === 'ui-test' ? './tests/fake-api.js' : './src/api.js', import.meta.url)) } },
-    build: { rolldownOptions: { external: ['/wails/runtime.js'] } },
+    build: {
+      rolldownOptions: {
+        external: ['/wails/runtime.js'],
+        // The transcript terminal is the largest dependency in the dashboard bundle.
+        output: { codeSplitting: { groups: [{ name: 'terminal', test: /\/node_modules\/@xterm\// }] } },
+      },
+    },
   };
 });

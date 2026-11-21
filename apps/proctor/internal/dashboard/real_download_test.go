@@ -135,10 +135,10 @@ func TestRealServerDownloadedSubmissionsAreTheExamWithAnswers(t *testing.T) {
 	if err := os.WriteFile(chosen, []byte(source), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if preview, err := s.ChooseExam(klass.ID); err != nil || !preview.Valid {
+	if preview, err := s.previewTraditionalFixture(klass.ID); err != nil || !preview.Valid {
 		t.Fatalf("exam preview = %+v, %v", preview, err)
 	}
-	imported, err := s.ImportExam(klass.ID, "download-pin", false)
+	imported, err := s.ImportExam(klass.ID, s.importFixtureID(), "download-pin", false)
 	if err != nil {
 		t.Fatal(err)
 	}

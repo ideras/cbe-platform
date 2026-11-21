@@ -34,6 +34,11 @@ export async function connect(page, { prepare, openClass = '' } = {}) {
 export const calls = page => page.evaluate(() => window.ProctorHarness.calls);
 export const harness = (page, run) => page.evaluate(run);
 
+export async function confirmImportKind(page) {
+  const dialog = page.getByRole('dialog', { name: 'Confirm the exam kind' });
+  await dialog.getByRole('button', { name: /^Validate as / }).click();
+}
+
 // Ticks what the publish dialog asks for: the override when students are still working in the exam it replaces, then the plain
 // confirmation. The override only exists in that case. A tick already made is left alone, since clicking a label toggles it.
 export async function tickPublish(dialog) {

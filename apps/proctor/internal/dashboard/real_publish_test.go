@@ -184,19 +184,19 @@ func TestBuiltServerStartedEmptyIsPreparedAndPublishedFromTheDashboard(t *testin
 
 	// Exams are imported into a class: a broken file is explained, valid ones are stored without admitting anyone.
 	chosen = write("broken.md", "---\n---\nNo title, no duration, no exercises.\n")
-	if preview, err := s.ChooseExam(classA.ID); err != nil || preview.Valid || len(preview.Problems) < 3 {
+	if preview, err := s.previewTraditionalFixture(classA.ID); err != nil || preview.Valid || len(preview.Problems) < 3 {
 		t.Fatalf("broken exam = %+v, %v", preview, err)
 	}
-	if _, err := s.ImportExam(classA.ID, "p", false); err == nil {
+	if _, err := s.ImportExam(classA.ID, s.importFixtureID(), "p", false); err == nil {
 		t.Fatal("a broken exam was imported")
 	}
 	exam := func(class, title, pin string) string {
 		chosen = write(strings.ReplaceAll(title, " ", "-")+".md", "---\ntitle: "+title+"\nduration: 10m\ngrace: 30s\nmin_volume: 60\n---\n## One\n{{q1}}\n\n## Two\n```answer {#q2}\n```\n")
-		preview, err := s.ChooseExam(class)
+		preview, err := s.previewTraditionalFixture(class)
 		if err != nil || !preview.Valid || preview.Title != title || preview.ExerciseCount != 2 || preview.SlotCount != 2 || preview.MinVolumePercent != 60 {
 			t.Fatalf("exam preview = %+v, %v", preview, err)
 		}
-		result, err := s.ImportExam(class, pin, false)
+		result, err := s.ImportExam(class, s.importFixtureID(), pin, false)
 		if err != nil || !validID(result.ExamID) {
 			t.Fatalf("import = %+v, %v", result, err)
 		}

@@ -1,10 +1,11 @@
 <script>
   import { formatTime } from '../../../../shared/exam/timing.js';
-  import { onDestroy } from 'svelte';
+  import { onDestroy, tick } from 'svelte';
   import * as api from '$proctor-api';
   import ExamCard from './ExamCard.svelte';
   import CloseAdmissionDialog from './CloseAdmissionDialog.svelte';
   import PublishDialog from './PublishDialog.svelte';
+  import ExamKindDialog from './ExamKindDialog.svelte';
   import ExamImport from './ExamImport.svelte';
   import WorkspaceImport from './WorkspaceImport.svelte';
   import ImageBuildDialog from './ImageBuildDialog.svelte';
@@ -20,8 +21,12 @@
   // what the file leaves out: the PIN and whether students may go back to an exercise.
   let { view, entry: klass, disabled = false, onSelected, onRefresh } = $props();
 
+  let source = $state(null);
+  let choosingKind = $state(false);
+  let importButton = $state();
+  let importGeneration = 0;
   let examPreview = $state(null);
-  // A workspace package that was previewed (Phase 7), with its own PIN field: only one of the two previews is open at a time.
+  // Only one of the two previews is open at a time.
   let workspacePreview = $state(null);
   let workspacePin = $state('');
   let workspaceShowPin = $state(false);
@@ -95,33 +100,67 @@
     working = true; problem = ''; status = ''; lastFolder = '';
     try { await work(); } catch (err) { problem = String(err); } finally { working = false; }
   }
-  const chooseExam = () => run(async () => {
-    const preview = await api.ChooseExam(klass.class_id);
-    if (!preview.cancelled) { await closeWorkspace(); examPreview = preview; showPin = false; pin = ''; forwardOnly = preview.navigation === 'forward_only'; }
-  });
-  const chooseWorkspace = () => run(async () => {
-    const preview = await api.ChooseWorkspaceExam(klass.class_id);
-    if (!preview.cancelled) {
-      if (examPreview) { examPreview = null; showPin = false; pin = ''; await api.DiscardImport().catch(() => {}); }
-      workspacePreview = preview; workspaceShowPin = false; workspacePin = '';
-    }
-  });
-  const importWorkspace = () => run(async () => {
-    const title = workspacePreview.title, own = workspacePreview.own_image;
-    try {
-      await api.ImportWorkspaceExam(klass.class_id, workspacePin);
-      status = `Imported “${title}” into ${klass.name}. It is stored but not published: students cannot log in to it yet.${own ? ' It has its own image: build it with the exam’s Image button before you publish.' : ''}`;
-    } finally { workspacePreview = null; workspaceShowPin = false; workspacePin = ''; await onRefresh(); }
-  });
-  async function closeWorkspace() { if (!workspacePreview) return; workspacePreview = null; workspaceShowPin = false; workspacePin = ''; await api.DiscardWorkspaceExam().catch(() => {}); }
-  const importExam = () => run(async () => {
-    const title = examPreview.title;
-    try { await api.ImportExam(klass.class_id, pin, forwardOnly); status = `Imported “${title}” into ${klass.name}. It is stored but not published: students cannot log in to it yet.`; }
-    finally { examPreview = null; showPin = false; pin = ''; await onRefresh(); }
-  });
-  async function cancelExam() { examPreview = null; showPin = false; pin = ''; await api.DiscardImport().catch(() => {}); }
-  // Leaving the class with a preview open forgets the file the native side was keeping for it.
-  onDestroy(() => { if (examPreview) api.DiscardImport().catch(() => {}); if (workspacePreview) api.DiscardWorkspaceExam().catch(() => {}); });
+  function discardSource() {
+    importGeneration++;
+    if (source) api.DiscardExamImport(source.classID, source.id).catch(() => {});
+    source = null; choosingKind = false;
+    examPreview = null; workspacePreview = null;
+    showPin = false; pin = ''; forwardOnly = false;
+    workspaceShowPin = false; workspacePin = '';
+  }
+  async function cancelKind() {
+    discardSource();
+    await tick();
+    importButton?.focus();
+  }
+  function chooseSource() {
+    if (locked || choosingKind) return;
+    discardSource();
+    const generation = importGeneration, classID = klass.class_id;
+    return run(async () => {
+      const selected = await api.ChooseExamSource(classID);
+      if (selected.cancelled) return;
+      if (generation !== importGeneration) {
+        await api.DiscardExamImport(classID, selected.id).catch(() => {});
+        return;
+      }
+      source = { ...selected, classID };
+      choosingKind = true;
+    });
+  }
+  function prepareImport(kind) {
+    if (locked || !source || !choosingKind) return;
+    const generation = importGeneration;
+    return run(async () => {
+      try {
+        const result = await api.PrepareExamImport(source.classID, source.id, kind);
+        if (generation !== importGeneration) return;
+        choosingKind = false;
+        examPreview = result.traditional ?? null;
+        workspacePreview = result.workspace ?? null;
+        forwardOnly = examPreview?.navigation === 'forward_only';
+      } catch (err) {
+        if (generation !== importGeneration) return;
+        discardSource();
+        throw err;
+      }
+    });
+  }
+  function storeExam() {
+    const preview = examPreview ?? workspacePreview;
+    if (locked || !source || !preview?.valid) return;
+    const { classID, id } = source, className = klass.name;
+    const workspace = !!workspacePreview;
+    return run(async () => {
+      try {
+        if (workspace) await api.ImportWorkspaceExam(classID, id, workspacePin);
+        else await api.ImportExam(classID, id, pin, forwardOnly);
+        status = `Imported “${preview.title}” into ${className}. It is stored but not published: students cannot log in to it yet.${preview.own_image ? ' It has its own image: build it with the exam’s Image button before you publish.' : ''}`;
+      } finally { discardSource(); await onRefresh(); }
+    });
+  }
+  // Classes.svelte keys this view by class. Clean up the selection even if a picker or validation is still returning.
+  onDestroy(discardSource);
   function contents(entry) {
     const parts = [plural(entry.exercise_count, 'exercise'), plural(entry.slot_count, 'answer field')];
     if (entry.points != null) parts.push(`${entry.points} points`);
@@ -217,7 +256,7 @@
 
 <div class="exams">
 <section class="panel" aria-label="Exams">
-  <header class="panel-head"><h2>Exams</h2><span class="sub">Newest first</span><div class="tools"><button class:primary={!examPreview?.valid && !workspacePreview?.valid} disabled={locked} onclick={chooseExam}><Icon name="download" size={16} />Import exam…</button><button disabled={locked} onclick={chooseWorkspace} title="Import a workspace exam: a folder with workspace.md, a project and, perhaps, hidden tests and an image of its own"><Icon name="terminal" size={16} />Import workspace exam…</button></div></header>
+  <header class="panel-head"><h2>Exams</h2><span class="sub">Newest first</span><div class="tools"><button class:primary={!examPreview?.valid && !workspacePreview?.valid} disabled={locked} bind:this={importButton} onclick={chooseSource}><Icon name="download" size={16} />Import exam…</button></div></header>
   <div class="panel-body">
   {#if unreachable}
     <p class="wide" role="alert">Cannot load the exams from the server. {view.error}</p>
@@ -231,12 +270,12 @@
       contents={contents(examPreview)} duration={formatTime(examPreview.duration_seconds)} grace={formatTime(examPreview.grace_seconds)}
       calculator={calculatorText(examPreview.calculator)} logins={span(examPreview)}
       bind:pin bind:showPin bind:forwardOnly {locked} {working}
-      onImport={importExam} onCancel={cancelExam} onChoose={chooseExam} />
+      onImport={storeExam} onCancel={discardSource} onChoose={chooseSource} />
   {/if}
 
   {#if workspacePreview}
     <WorkspaceImport preview={workspacePreview} className={klass.name} bind:pin={workspacePin} bind:showPin={workspaceShowPin} {locked} {working}
-      onImport={importWorkspace} onCancel={closeWorkspace} onChoose={chooseWorkspace} />
+      onImport={storeExam} onCancel={discardSource} onChoose={chooseSource} />
   {/if}
 
   {#if view.catalog_loaded}
@@ -254,6 +293,9 @@
   </div>
 </section>
 </div>
+{#if choosingKind}
+  <ExamKindDialog file={source.file} detected={source.kind} {locked} {working} onCancel={cancelKind} onValidate={prepareImport} />
+{/if}
 {#if modal?.kind === 'publish'}<PublishDialog details={modal} working={workingNow} onClose={() => modal = null} onPublished={published} onFailed={() => onRefresh().catch(() => {})} onMonitor={() => monitorExam(view, modal.entry.exam_id, onSelected)} />
 {:else if modal}<CloseAdmissionDialog details={modal} working={workingNow} busy={modalBusy} error={modalError} onCancel={() => modal = null} onConfirm={confirm} />{/if}
 {#if downloadExam}<DownloadDialog exam={downloadExam} onClose={() => downloadExam = null} onDownloaded={downloaded} />{/if}

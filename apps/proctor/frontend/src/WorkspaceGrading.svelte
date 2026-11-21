@@ -16,7 +16,7 @@
   let notice = $state('');
   let busy = $state(false);
   let submission = $state(0); // 0 is the latest
-  let box;
+  let box = $state();
   const rowNodes = {};
   let alive = true;
   let asked = 0;

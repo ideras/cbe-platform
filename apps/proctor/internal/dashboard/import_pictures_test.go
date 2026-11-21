@@ -47,7 +47,7 @@ func TestImportedExamEmbedsItsPicturesAndKeepsTheReferenceInTheSource(t *testing
 		t.Fatal(err)
 	}
 
-	preview, err := f.ChooseExam(classID)
+	preview, err := f.previewTraditionalFixture(classID)
 	if err != nil || !preview.Valid || len(preview.Problems) != 0 {
 		t.Fatalf("preview = %+v, %v", preview, err)
 	}
@@ -60,7 +60,7 @@ func TestImportedExamEmbedsItsPicturesAndKeepsTheReferenceInTheSource(t *testing
 	if err := os.RemoveAll(dir); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.ImportExam(classID, "announced-pin", false); err != nil {
+	if _, err := f.ImportExam(classID, f.importFixtureID(), "announced-pin", false); err != nil {
 		t.Fatal(err)
 	}
 	stored := sentExam(t, f.server.seen("POST", examRoute)[1].Body)
@@ -78,7 +78,7 @@ func TestImportedExamEmbedsItsPicturesAndKeepsTheReferenceInTheSource(t *testing
 func TestExamWithAMissingPictureShowsTheProblem(t *testing.T) {
 	f := newPublishFixture(t, examID)
 	f.chosen = writeTemp(t, "midterm.md", []byte(strings.Replace(examDocument, "Answer: {{x}}", "![Lost](lost.png)\n\nAnswer: {{x}}", 1)))
-	preview, err := f.ChooseExam(classID)
+	preview, err := f.previewTraditionalFixture(classID)
 	if err != nil || preview.Valid || len(preview.Problems) != 1 || !strings.Contains(preview.Problems[0], `image "lost.png": the file does not exist next to the exam`) {
 		t.Fatalf("preview = %+v, %v", preview, err)
 	}
