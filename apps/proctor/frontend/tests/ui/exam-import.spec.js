@@ -77,7 +77,7 @@ test('PIN, navigation flag and preview dialog are accessible, keyboard operable 
   await expect(previewButton.locator('.preview-icon svg')).toHaveAttribute('aria-hidden', 'true');
   await previewButton.focus();
   await previewButton.press('Enter');
-  const dialog = page.getByRole('dialog', { name: 'Preview — Prueba manual de calculadora', exact: true });
+  const dialog = page.getByRole('dialog', { name: 'Prueba manual de calculadora', exact: true });
   await expect(dialog).toBeVisible();
   await expect(dialog.locator('.exam-preview')).toBeVisible();
   await expect(file.locator('.exam-preview')).toHaveCount(0);
@@ -142,7 +142,7 @@ for (const width of [1000, 400]) {
     if (width < 480) expect(value.y).toBeGreaterThan(label.y);
     else expect(value.x - label.x).toBe(116);
     await stack.getByRole('button', { name: 'Preview the exam', exact: true }).click();
-    const dialog = page.getByRole('dialog', { name: 'Preview — Prueba manual de calculadora', exact: true });
+    const dialog = page.getByRole('dialog', { name: 'Prueba manual de calculadora', exact: true });
     await expect(dialog.locator('.exam-preview')).toBeVisible();
     const dialogBounds = await dialog.boundingBox();
     expect(dialogBounds.x).toBeGreaterThanOrEqual(0);
@@ -157,7 +157,7 @@ for (const width of [1000, 400]) {
 test('the import dialog previews an exam without a calculator without fetching or discarding it', async ({ page }) => {
   const stack = await openImport(page, { withCalculator: false });
   await stack.getByRole('button', { name: 'Preview the exam', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'Preview — Prueba manual de calculadora', exact: true });
+  const dialog = page.getByRole('dialog', { name: 'Prueba manual de calculadora', exact: true });
   await expect(dialog).toContainText('This exam has no calculator.');
   await expect(dialog).not.toContainText('after importing it');
   await expect(dialog.locator('.exam-preview')).toBeVisible();

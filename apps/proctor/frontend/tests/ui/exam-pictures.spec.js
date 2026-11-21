@@ -23,7 +23,7 @@ test('the exam preview shows the embedded pictures and drops any other <img>', a
   }), { png, svg });
   await page.getByRole('button', { name: 'Import exam…' }).click();
   await page.locator('.import-stack').getByRole('button', { name: 'Preview the exam', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'Preview — Prueba con figuras', exact: true });
+  const dialog = page.getByRole('dialog', { name: 'Prueba con figuras', exact: true });
   const preview = dialog.locator('.exam-preview');
   await expect(preview).toBeVisible();
   for (const name of ['Autómata de ejemplo', 'Un punto', 'Otro punto']) {
@@ -33,9 +33,13 @@ test('the exam preview shows the embedded pictures and drops any other <img>', a
     await expect(figure).toHaveCSS('background-color', 'rgb(255, 255, 255)');
   }
   await expect(preview.locator('img')).toHaveCount(3);
-  // The fields beside the pictures are still marked with their IDs.
+  const textAnswer = preview.getByRole('textbox', { name: 'Answer 2' });
+  await expect(textAnswer).toHaveAttribute('rows', '4');
+  await textAnswer.fill('A trial answer');
+  await dialog.getByRole('button', { name: 'Field names' }).click();
   await expect(preview.getByText('1.cell', { exact: true })).toBeVisible();
   await expect(preview.getByText('1.answer · text, 4 lines')).toBeVisible();
+  await expect(preview.getByText('A trial answer', { exact: true })).toBeVisible();
   expect(await page.evaluate(() => window.__unsafe)).toBeUndefined();
   expect(external).toEqual([]);
 });
