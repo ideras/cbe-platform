@@ -1,5 +1,5 @@
 import { dirname, basename, join, isInside, moved, sortEntries } from './paths.js';
-import { DEFAULT_ZOOM, DEFAULT_SHARE, stepZoom, clampShare, WIDE_SIDE, clampSide, DEFAULT_INSTRUCTIONS, clampInstructions, DEFAULT_PANE, clampPane } from './sizes.js';
+import { DEFAULT_ZOOM, DEFAULT_SHARE, stepZoom, clampShare, clampSide, DEFAULT_TODO, clampTodo, DEFAULT_PANE, clampPane } from './sizes.js';
 
 // The state and the rules of a student's workspace: the files they have open, what is saved and what is not, the terminals, the TODO
 // ticks. It knows nothing of the page; the components show its snapshot and call its methods. Everything it does to the workspace is
@@ -10,6 +10,9 @@ import { DEFAULT_ZOOM, DEFAULT_SHARE, stepZoom, clampShare, WIDE_SIDE, clampSide
 // meantime is a question for the student ("Reload or keep yours?"), never a silent overwrite.
 
 export const MAX_TERMINALS = 4;
+// The exam's instructions are a tab of the editor too (read-only, not a file): this is their place in a pane's list of tabs, which no file's
+// path can be.
+export const INSTRUCTIONS = '\u0000instructions';
 export const AUTOSAVE_MS = 1000;
 // Folder listings and re-reads after a change are gathered for this long, so a build that writes a hundred files is one listing.
 export const REFRESH_MS = 150;
@@ -51,8 +54,7 @@ export class WorkspaceModel {
     // The column of the instructions and the files: its share of the width (null: the usual width) and the instructions' share of its height. Kept
     // here, like the terminals' sizes, for as long as the page is open: nothing of the workspace is written to the student's computer.
     this.sideShare = null;
-    this.sideBeforeWide = null;
-    this.instructionsShare = DEFAULT_INSTRUCTIONS;
+    this.todoShare = DEFAULT_TODO;
     this.todo = {};
     this.lastSave = null;
     this.lastSubmit = null;
@@ -87,7 +89,7 @@ export class WorkspaceModel {
       tabs: this.tabs.map(tab => ({ ...tab })), activePath: this.activePath,
       panes: this.panes.map(pane => ({ id: pane.id, items: [...pane.items], active: pane.active })), activePane: this.activePane, paneShare: this.paneShare,
       terminals: this.terminals.map(term => ({ ...term })), activeTerm: this.activeTerm, terminalZoom: this.terminalZoom, terminalShare: this.terminalShare,
-      sideShare: this.sideShare, sideWide: this.sideShare !== null && this.sideShare >= WIDE_SIDE, instructionsShare: this.instructionsShare,
+      sideShare: this.sideShare, todoShare: this.todoShare,
       todo: { ...this.todo }, lastSave: this.lastSave, lastSubmit: this.lastSubmit,
       unsaved: this.tabs.some(tab => tab.dirty),
     };
@@ -194,12 +196,14 @@ export class WorkspaceModel {
 
   // A file opens in the pane last used, after the tab in front there; `side` opens it in the other pane (made if there is one pane). A file
   // that is open already comes to the front where it is, or, with `side`, moves to the other pane.
+  // A file opened from the tree never covers the instructions: when they are in front of the pane last used, the file goes to the other pane.
   async openFile(path, { side = false } = {}) {
     const existing = this.tab(path);
     if (existing) { if (side) this.moveTab(path); else this.activate(path); return; }
     const tab = { id: (this.tabSeq += 1), path, state: 'loading', version: '', savedText: '', initial: '', dirty: false, conflict: null, missing: false, message: '' };
     this.tabs.push(tab);
-    this.place(path, side ? this.ensurePane(1 - this.activePane) : this.activePane);
+    const other = side || this.panes[this.activePane]?.active === INSTRUCTIONS;
+    this.place(path, other ? this.ensurePane(1 - this.activePane) : this.activePane);
     this.activate(path);
     await this.readInto(tab);
   }
@@ -296,8 +300,16 @@ export class WorkspaceModel {
     this.changed();
   }
 
-  // Closing a tab saves it first; a tab that cannot be saved stays open, with its edits. `quiet` leaves the telling to the caller.
+  // The instructions' tab: brought to the front where it is, or opened again first in the pane last used.
+  openInstructions() {
+    if (this.paneOf(INSTRUCTIONS) < 0) this.panes[this.activePane].items.unshift(INSTRUCTIONS);
+    this.activate(INSTRUCTIONS);
+  }
+
+  // Closing a tab saves it first; a tab that cannot be saved stays open, with its edits. `quiet` leaves the telling to the caller. The
+  // instructions' tab only goes (the left column opens it again).
   async closeTab(path, { quiet = false } = {}) {
+    if (path === INSTRUCTIONS) { this.unplace(path); this.changed(); return true; }
     const tab = this.tab(path);
     if (!tab) return true;
     if (tab.dirty) {
@@ -684,30 +696,18 @@ export class WorkspaceModel {
     this.changed();
   }
 
-  // The column of the instructions and the files: a share of the width between the limits of sizes.js, or null for the usual width. A width that
-  // is not wide is the one the Wider button goes back to.
+  // The left column: a share of the width between the limits of sizes.js, or null for the usual width.
   setSideShare(share) {
     const next = clampSide(share);
     if (next === this.sideShare || (next !== null && this.sideShare !== null && Math.abs(next - this.sideShare) < 0.0005)) return;
     this.sideShare = next;
-    if (next === null || next < WIDE_SIDE) this.sideBeforeWide = next;
     this.changed();
   }
-  // The Wider button: half the window at once, and then back to the last width that was not wide (the usual width, when the student had not
-  // changed it).
-  toggleSideWide() {
-    if (this.sideShare !== null && this.sideShare >= WIDE_SIDE) this.sideShare = this.sideBeforeWide;
-    else {
-      this.sideBeforeWide = this.sideShare;
-      this.sideShare = WIDE_SIDE;
-    }
-    this.changed();
-  }
-  // The share of the column's height that the instructions take, above the files.
-  setInstructionsShare(share) {
-    const next = clampInstructions(share);
-    if (Math.abs(next - this.instructionsShare) < 0.0005) return;
-    this.instructionsShare = next;
+  // The most of the column's height the TODO list takes, above the files.
+  setTodoShare(share) {
+    const next = clampTodo(share);
+    if (Math.abs(next - this.todoShare) < 0.0005) return;
+    this.todoShare = next;
     this.changed();
   }
 

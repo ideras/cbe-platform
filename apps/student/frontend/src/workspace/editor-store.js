@@ -38,6 +38,7 @@ export class EditorStore {
     this.views = new SvelteMap(); // tab id -> 'picture' | 'source'
     this.pictures = new Map(); // tab id -> { zoom, left, top } of its picture
     this.zooms = new WeakMap(); // EditorView -> its pane's zoom(delta): the keys of a state go to the pane that shows it
+    this.instructionsScroll = 0; // where the instructions' tab was scrolled, in whichever pane
   }
 
   // The state of a tab now, and its text.

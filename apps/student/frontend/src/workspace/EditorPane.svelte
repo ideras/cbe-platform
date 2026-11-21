@@ -10,6 +10,8 @@
   import { access, sizing, sizeTheme, accessConfig } from './editor-store.js';
   import PictureView from './PictureView.svelte';
   import MenuButton from './MenuButton.svelte';
+  import RichText from '../RichText.svelte';
+  import { INSTRUCTIONS } from './model.js';
 
   // A pane of the editor: the tabs of the files open in it, and one CodeMirror editor that shows the state of the tab in front. There are
   // one or two panes; what each tab is (its editor state, with its undo history and its cursor, where it was scrolled, and an SVG's picture)
@@ -19,8 +21,11 @@
   // `tabs` are this pane's, in order, and `allTabs` every open file's (two tabs with the same name say which folder they are in, in whichever
   // pane). `side` is '' with one pane and 'left' or 'right' with two; `used` says this is the pane last used, whose tab in front is marked.
   // `onClose` closes one tab, `onCloseMany` several (the ⋯ menu's Close all, Close others and Close saved), and `onMove` sends one to the
-  // other pane.
+  // other pane. The exam's instructions are a tab too (`instructions`, their HTML): read-only, shown as the exam's text and not in the
+  // editor, sized by the pane's A− and A+, and never closed by Close all, Close others or Close saved. `instructionsOpen` says whether they
+  // are open in a pane, and `onOpenInstructions` opens them again (an empty pane offers it).
   let { model, store, paneId, tabs, allTabs = tabs, activePath, readOnly, side = '', used = true, canMove = false,
+    instructions = '', instructionsOpen = true, onOpenInstructions = () => {},
     onClose, onCloseMany = () => {}, onMove = () => {} } = $props();
   let host = $state(null);
   let view;
@@ -36,7 +41,20 @@
   const active = $derived(tabs.find(tab => tab.path === activePath) ?? null);
   const showing = $derived(active?.state === 'ready');
   let picture = $state(null);
-  const label = tab => allTabs.some(other => other.id !== tab.id && basename(other.path) === basename(tab.path)) ? `${basename(tab.path)} (${dirname(tab.path) || '/'})` : basename(tab.path);
+  const label = tab => tab.path === INSTRUCTIONS ? 'Instructions'
+    : allTabs.some(other => other.id !== tab.id && basename(other.path) === basename(tab.path)) ? `${basename(tab.path)} (${dirname(tab.path) || '/'})` : basename(tab.path);
+  // The instructions: shown while their tab is in front, and kept on the page while it is in this pane, so they stay where they were scrolled.
+  const hasInstructions = $derived(tabs.some(tab => tab.path === INSTRUCTIONS));
+  const instructionsShown = $derived(activePath === INSTRUCTIONS);
+  let reading = $state(null);
+  // Where the instructions were scrolled is the store's, so a move to the other pane keeps it too.
+  function keepScroll(node) {
+    node.scrollTop = store.instructionsScroll ?? 0;
+    const keep = () => { if (!node.hidden) store.instructionsScroll = node.scrollTop; };
+    node.addEventListener('scroll', keep, { passive: true });
+    return { destroy: () => node.removeEventListener('scroll', keep) };
+  }
+  $effect(() => { if (instructionsShown && reading) untrack(() => { reading.scrollTop = store.instructionsScroll ?? 0; }); });
 
   // The size of the code text, on top of the application's A− and A+ (which size the whole workspace, files and buttons too): a student
   // who wants bigger code need not make everything else bigger, which would take the room the code needs. Ctrl and + − 0 do it from the
@@ -45,7 +63,7 @@
   const zoom = delta => { zoomIndex = stepZoom(zoomIndex, delta); };
   $effect(() => { zoomIndex; if (view) tick().then(resize); });
   // A click leaves the focus where the student was working (the editor); a key press on the button keeps it on the button.
-  const zoomClick = (delta, event) => { zoom(delta); if (event.detail > 0) view?.focus(); };
+  const zoomClick = (delta, event) => { zoom(delta); if (event.detail > 0) (instructionsShown ? reading : view)?.focus(); };
 
   // The tab in front changes: the pane lets go of the one that was, and shows the state of the one that is (taken from the other pane when
   // the tab was just moved from there).
@@ -131,6 +149,7 @@
   // the next snapshot puts it (else it would go into an editor about to be hidden behind a picture, and from there to nowhere).
   export function focus() {
     const front = model.panes.find(pane => pane.id === paneId)?.active ?? null;
+    if (front === INSTRUCTIONS) { requestAnimationFrame(() => tick().then(() => reading?.focus())); return; }
     if (!pictureShown && !isSvgPath(front ?? '')) { view?.focus(); return; }
     requestAnimationFrame(() => tick().then(() => { if (pictureShown) picture?.focus(); else view?.focus(); }));
   }
@@ -151,11 +170,12 @@
   // The ⋯ menu: Close all, Close others (all but the one in front) and Close saved (the tabs with no unsaved changes) of this pane, with how
   // many each closes; then, for the tab in front, Move to the other side and Close with its key. Each tab is saved before it closes.
   const shortcut = typeof navigator !== 'undefined' && /Mac/.test(navigator.platform || navigator.userAgent) ? '⌘W' : 'Ctrl+W';
-  const others = $derived(tabs.filter(tab => tab.path !== activePath).map(tab => tab.path));
-  const saved = $derived(tabs.filter(tab => !tab.dirty).map(tab => tab.path));
+  const files = $derived(tabs.filter(tab => tab.path !== INSTRUCTIONS));
+  const others = $derived(files.filter(tab => tab.path !== activePath).map(tab => tab.path));
+  const saved = $derived(files.filter(tab => !tab.dirty).map(tab => tab.path));
   const otherSide = $derived(side === 'right' ? 'left' : 'right');
   const tabActions = $derived([
-    { label: 'Close all', detail: tabs.length, disabled: tabs.length === 0, run: () => onCloseMany(tabs.map(tab => tab.path)) },
+    { label: 'Close all', detail: files.length, disabled: files.length === 0, run: () => onCloseMany(files.map(tab => tab.path)) },
     { label: 'Close others', detail: others.length, disabled: others.length === 0, run: () => onCloseMany(others) },
     { label: 'Close saved', detail: saved.length, disabled: saved.length === 0, run: () => onCloseMany(saved) },
     'separator',
@@ -165,18 +185,19 @@
 </script>
 <section class="editor" class:used aria-label={named('Editor')} style:--code-zoom={ZOOMS[zoomIndex]}>
   <div class="tabbar">
-    <div class="tabs" role="tablist" aria-label={named('Open files')}>
+    <!-- A list of tabs is one while it has tabs (an empty one is no tab list); an empty pane says so in its body. -->
+    <div class="tabs" role={tabs.length ? 'tablist' : undefined} aria-label={tabs.length ? named('Open files') : undefined}>
       {#each tabs as tab, index (tab.id)}
         <button type="button" role="tab" class="tab" class:front={tab.path === activePath} id="file-tab-{tab.id}" aria-selected={tab.path === activePath} aria-controls="editor-panel-{paneId}"
-          tabindex={tab.path === activePath ? 0 : -1} title={tab.path} onclick={() => model.activate(tab.path)} onkeydown={event => tabKeys(event, index)}
+          class:instructions={tab.path === INSTRUCTIONS} tabindex={tab.path === activePath ? 0 : -1} title={tab.path === INSTRUCTIONS ? 'Instructions (read-only)' : tab.path}
+          onclick={() => model.activate(tab.path)} onkeydown={event => tabKeys(event, index)}
           onmousedown={event => { if (middle(event)) event.preventDefault(); }} onauxclick={event => { if (middle(event)) { event.preventDefault(); onClose(tab.path); } }}>
-          {label(tab)}<span class="mark">{#if tab.dirty}<span class="dot" role="img" aria-label="unsaved changes">●</span>{/if}</span>
+          {#if tab.path === INSTRUCTIONS}<Icon name="book" size={14} />{/if}{label(tab)}<span class="mark">{#if tab.dirty}<span class="dot" role="img" aria-label="unsaved changes">●</span>{/if}</span>
           <!-- The mouse's ways to close a tab are this and a middle click; the keyboard's are Delete on the tab, Ctrl+W anywhere but a terminal,
                and the ⋯ menu and the button next to the tabs. -->
           <span class="close" aria-hidden="true" onclick={event => { event.stopPropagation(); onClose(tab.path); }}><Icon name="close" size={14} /></span>
         </button>
       {/each}
-      {#if tabs.length === 0}<span class="none">No file open. Open one from the file tree.</span>{/if}
     </div>
     {#if choosing}
       <div class="views" role="group" aria-label="Show {basename(active.path)} as">
@@ -222,7 +243,19 @@
     </div>
     {#if active && active.state === 'loading'}<p class="message" role="status">Opening {basename(active.path)}…</p>{/if}
     {#if active && ['binary', 'toolarge', 'error'].includes(active.state)}<p class="message" role="status">{active.message}</p>{/if}
-    {#if !active}<p class="message">Open a file from the file tree to edit it. Changes are saved as you type.</p>{/if}
+    {#if hasInstructions}
+      <!-- The exam's instructions: its own text, read-only, sized by the pane's A− and A+. -->
+      <div class="reading" role="region" aria-label="Instructions" tabindex="0" hidden={!instructionsShown} bind:this={reading} use:keepScroll>
+        <p class="read-only"><Icon name="book" size={13} /><strong>Instructions</strong> · read-only, part of the exam</p>
+        <article class="doc"><RichText html={instructions} /></article>
+      </div>
+    {/if}
+    {#if !active}
+      <div class="empty">
+        <p class="message">No file open. Open one from the file tree; changes are saved as you type.</p>
+        {#if instructions && !instructionsOpen}<button type="button" onclick={onOpenInstructions}><Icon name="book" size={15} />Open the instructions</button>{/if}
+      </div>
+    {/if}
   </div>
 </section>
 <style>
@@ -249,7 +282,6 @@
   .dot { color: var(--warn-text); font-size: .7em; }
   /* The place of the dot is kept when there is none, so the tab does not widen and move the ones after it at every edit and every save. */
   .mark { display: inline-block; width: .8em; text-align: center; }
-  .none { padding: .5rem .75rem; color: var(--text-muted); font-size: var(--text-sm); }
   .panel { position: relative; display: flex; flex-direction: column; min-height: 0; }
   .stage { position: relative; flex: 1 1 0; min-height: 0; display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); }
   .stage[hidden] { display: none; }
@@ -263,4 +295,23 @@
   .choices { display: flex; gap: var(--space-1); }
   .choices button { margin: 0; }
   .message { margin: 0; padding: var(--space-4); color: var(--text-muted); }
+  .empty { display: grid; justify-items: start; gap: var(--space-2); padding-bottom: var(--space-4); }
+  .empty button { display: inline-flex; align-items: center; gap: .35rem; margin: 0 var(--space-4); }
+  .tab.instructions { color: var(--action-hover); }
+  .tab :global(svg) { flex: none; }
+  /* The instructions read as a document: a line that says they are read-only stays at the top while they scroll. */
+  .reading { flex: 1 1 0; min-height: 0; overflow: auto; font-size: calc(var(--text-base) * var(--code-zoom, 1)); }
+  .reading[hidden] { display: none; }
+  .reading:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--focus-halo); }
+  .read-only { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: .4rem; margin: 0; padding: .35rem 1rem; background: var(--bg-primary); border-bottom: 1px solid var(--border-subtle); color: var(--text-muted); font-size: var(--text-xs); }
+  .read-only strong { color: var(--action-primary); }
+  .doc { max-width: 62rem; padding: 1rem 1.5rem 2rem; line-height: 1.6; }
+  .doc :global(h1) { margin: 0 0 .4em; font-size: 1.6em; line-height: 1.2; }
+  .doc :global(h2) { margin: 1.3em 0 .45em; padding-bottom: .25em; border-bottom: 1px solid var(--border-subtle); color: var(--action-hover); font-size: 1.15em; }
+  .doc :global(h3) { margin: 1.1em 0 .35em; color: var(--action-hover); font-size: 1.02em; }
+  .doc :global(p), .doc :global(ul), .doc :global(ol) { margin: 0 0 .7em; }
+  /* A table wider than the pane scrolls on its own, and its words are not broken in two. */
+  .doc :global(table) { display: block; max-width: 100%; overflow-x: auto; }
+  .doc :global(th), .doc :global(td) { overflow-wrap: normal; }
+  .doc :global(td code) { white-space: nowrap; }
 </style>
