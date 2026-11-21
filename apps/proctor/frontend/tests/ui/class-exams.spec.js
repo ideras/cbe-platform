@@ -74,13 +74,19 @@ test('an exam file is previewed as students see it, imported into the class with
   await expect(preview).toContainText('kept at 70% or louder'); await expect(preview).toContainText('any time');
   await expect(preview).toContainText('Importing stores the exam in Mathematics 10A');
   await preview.getByRole('button', { name: 'Preview the exam', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'Preview — Midterm B', exact: true });
+  const dialog = page.getByRole('dialog', { name: 'Midterm B', exact: true });
   const student = dialog.locator('.exam-preview');
+  const facts = dialog.getByRole('group', { name: 'Exam details' });
+  await expect(facts).toContainText('2 exercises');
+  await expect(facts).toContainText('2 answer fields');
+  await expect(facts).toContainText('01:00:00 + 30 s grace');
+  await expect(student.getByRole('textbox', { name: 'Answer 2' })).toHaveValue('main:\n');
+  await dialog.getByRole('button', { name: 'Field names' }).click();
   await expect(student.getByRole('cell', { name: '1a.alu' })).toBeVisible();
-  await expect(student).toContainText('2.code · code (mips)'); await expect(student).toContainText('main:');
+  await expect(student).toContainText('2.code · code (mips)');
   await expect(student.locator('img')).toHaveCount(0);
   expect(await page.evaluate(() => window.__unsafe)).toBeUndefined();
-  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Close preview', exact: true }).click();
   // The file asked for forward-only navigation; the proctor can change it before importing.
   const forward = preview.getByRole('checkbox', { name: /Students cannot go back to an exercise once they move on/ });
   await expect(forward).toBeChecked();
@@ -1183,20 +1189,21 @@ test('the import preview and the exam row say which calculator the exam gives it
   await expect(published.getByText('Calculator:')).toHaveCount(0);
 });
 
-test("the exam row preview action opens the exam; its calculator waits for the tools button and floats", async ({ page, context }) => {
+test('the exam preview opens a movable calculator dialog without resizing the exam', async ({ page, context }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   const exams = await connect(page);
   const row = examCard(exams, 'Draft quiz');
   // The action sits after the monitor action; the Draft quiz declares the calculator.
   await row.getByRole('button', { name: 'Preview Draft quiz' }).click();
-  const dialog = page.getByRole('dialog', { name: 'Preview — Draft quiz' });
+  const dialog = page.getByRole('dialog', { name: 'Draft quiz', exact: true });
   await expect(dialog).toBeVisible();
-  // No calculator on open: the tools button waits in the top-left corner.
-  await expect(dialog.locator('.calc-floating')).toHaveCount(0);
+  await expect(dialog.getByRole('group', { name: 'Exam details' })).toContainText('00:15:00 + 30 s grace');
+  const calculator = dialog.getByRole('dialog', { name: 'Calculator', exact: true });
+  const before = await dialog.boundingBox();
+  await expect(calculator).toHaveCount(0);
   const tools = dialog.getByRole('button', { name: 'Open the calculator' });
   await expect(tools).toBeVisible();
   await tools.click();
-  const calculator = dialog.locator('.calc-floating');
   await expect(calculator).toBeVisible();
   await expect(calculator).toContainText('Nothing here is recorded');
   await expect(calculator.getByRole('tab', { name: 'Programmer' })).toBeVisible(); // both modes from the exam
@@ -1205,20 +1212,94 @@ test("the exam row preview action opens the exam; its calculator waits for the t
   await expect(calculator.locator('.calc-result')).toContainText('= 14');
   await calculator.getByRole('button', { name: 'Copy answer', exact: true }).click();
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('14');
-  const before = await calculator.boundingBox();
+  expect((await dialog.boundingBox()).width).toBe(before.width);
+  await expect(calculator).toHaveCSS('position', 'fixed');
+  const calcBounds = await calculator.boundingBox();
   await calculator.getByRole('button', { name: 'Move calculator' }).press('ArrowLeft');
-  expect((await calculator.boundingBox()).x).toBeCloseTo(before.x - 10, 0);
-  // Non-modal: the exam content stays visible and usable behind the floating panel.
-  await expect(dialog.getByText('The exam as students see it')).toBeVisible();
+  expect((await calculator.boundingBox()).x).toBeCloseTo(calcBounds.x - 10, 0);
+  await expect(dialog.getByText(/The exam as students see it\./)).toBeVisible();
   // The tools button reflects the state, and the panel's own close button closes just the calculator.
   await expect(tools).toHaveAttribute('aria-expanded', 'true');
   await calculator.getByRole('button', { name: 'Close the calculator' }).click();
-  await expect(dialog.locator('.calc-floating')).toHaveCount(0);
+  await expect(calculator).toHaveCount(0);
   await expect(dialog).toBeVisible(); // the preview dialog itself stays open
+  await expect(tools).toBeFocused();
   // An exam without a calculator offers no tools button.
-  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Close preview', exact: true }).click();
   const published = examCard(exams, 'Databases midterm');
   await published.getByRole('button', { name: 'Preview Databases midterm' }).click();
-  await expect(page.getByRole('dialog', { name: 'Preview — Databases midterm' })).toContainText('This exam has no calculator');
-  await expect(page.getByRole('dialog', { name: 'Preview — Databases midterm' }).getByRole('button', { name: 'Open the calculator' })).toHaveCount(0);
+  const withoutCalc = page.getByRole('dialog', { name: 'Databases midterm', exact: true });
+  await expect(withoutCalc).toContainText('This exam has no calculator');
+  await expect(withoutCalc.getByRole('button', { name: 'Open the calculator' })).toHaveCount(0);
+});
+
+test('the exam preview can be resized from its bottom-right corner', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 820 });
+  const exams = await connect(page);
+  await examCard(exams, 'Draft quiz').getByRole('button', { name: 'Preview Draft quiz' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Draft quiz', exact: true });
+  await expect(dialog.getByRole('textbox', { name: 'Answer 1' })).toBeVisible();
+  const before = await dialog.boundingBox();
+  const x = before.x + before.width - 6, y = before.y + before.height - 6;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + 120, y - 100, { steps: 8 });
+  await page.mouse.up();
+  const after = await dialog.boundingBox();
+  expect(after.width).toBeGreaterThan(before.width + 50);
+  expect(after.height).toBeLessThan(before.height - 50);
+  await expect(dialog.getByRole('heading', { name: 'Draft quiz' })).toBeInViewport();
+  await expect(dialog.getByRole('button', { name: 'Close preview' })).toBeInViewport();
+  await page.setViewportSize({ width: 400, height: 650 });
+  await expect.poll(async () => (await dialog.boundingBox()).width).toBeLessThan(400);
+  await expect(dialog.getByRole('button', { name: 'Close preview' })).toBeInViewport();
+});
+
+test('the preview jumps to exercises and keeps trial answers only until clear or close', async ({ page }) => {
+  const exams = await connect(page);
+  await page.setViewportSize({ width: 410, height: 680 });
+  const opener = examCard(exams, 'Draft quiz').getByRole('button', { name: 'Preview Draft quiz' });
+  await opener.click();
+  const dialog = page.getByRole('dialog', { name: 'Draft quiz', exact: true });
+  const clear = dialog.getByRole('button', { name: 'Clear answers' });
+  const close = dialog.getByRole('button', { name: 'Close preview' });
+  await expect(clear).toBeDisabled();
+  await expect(close).toBeInViewport();
+
+  const jumps = dialog.getByRole('navigation', { name: 'Exercises' });
+  await jumps.getByRole('button', { name: /Ejercicio 2/ }).click();
+  await expect(dialog.getByRole('region', { name: /Ejercicio 2/ })).toBeFocused();
+  const code = dialog.getByRole('textbox', { name: 'Answer 2' });
+  await code.fill('main:\n  <sample code>');
+  await expect(jumps.getByRole('button', { name: /Ejercicio 2.*has trial answers/ })).toHaveCount(1);
+  const fields = dialog.getByRole('button', { name: 'Field names' });
+  const student = dialog.getByRole('button', { name: 'Student view' });
+  await fields.click();
+  await expect(fields).toHaveAttribute('aria-pressed', 'true');
+  await expect(code).toHaveCount(0);
+  await expect(dialog.getByText('2.code · code (mips)', { exact: true })).toBeVisible();
+  await expect(dialog.getByText(/<sample code>/)).toBeVisible();
+  await student.click();
+  await expect(code).toHaveValue('main:\n  <sample code>');
+  await clear.click();
+  await expect(code).toHaveValue('main:\n');
+  await expect(clear).toBeDisabled();
+  await expect(jumps.getByRole('button', { name: /has trial answers/ })).toHaveCount(0);
+
+  const tools = dialog.getByRole('button', { name: 'Open the calculator' });
+  await tools.click();
+  const calculator = dialog.getByRole('dialog', { name: 'Calculator', exact: true });
+  await expect(calculator.getByRole('textbox', { name: 'Expression' })).toBeFocused();
+  const calcBounds = await calculator.boundingBox();
+  expect(calcBounds.x).toBeGreaterThanOrEqual(0);
+  expect(calcBounds.x + calcBounds.width).toBeLessThanOrEqual(410);
+  await expect(close).toBeInViewport();
+  await page.keyboard.press('Escape');
+  await expect(tools).toBeFocused();
+  await expect(dialog).toBeVisible();
+  await code.fill('not retained');
+  await close.click();
+  await expect(opener).toBeFocused();
+  await opener.click();
+  await expect(code).toHaveValue('main:\n');
 });

@@ -43,7 +43,7 @@
   // The exam being deleted, and what the Download submissions dialog opened from there last wrote, which the delete dialog repeats.
   let deleteExam = $state(null);
   let deleteDownload = $state('');
-  let previewExamID = $state(null);
+  let previewEntry = $state(null);
   let lastFolder = $state('');
 
   const exams = $derived((view.catalog?.exams ?? []).filter(exam => exam.class_id === klass.class_id));
@@ -246,7 +246,7 @@
       <div class="exam-list">{#each exams as entry (entry.exam_id)}
         <ExamCard {entry} monitored={entry.exam_id === view.exam_id} {locked} deemphasized={!!examPreview?.valid}
           monitorable={monitorable(entry)} calculator={calculatorText(entry.tools?.calculator)} logins={span(entry)} admission={admission(entry)}
-          onMonitor={monitor} onPreview={entry => previewExamID = entry.exam_id} onPublish={entry => ask('publish', entry)} onUnpublish={entry => ask('unpublish', entry)}
+          onMonitor={monitor} onPreview={entry => previewEntry = entry} onPublish={entry => ask('publish', entry)} onUnpublish={entry => ask('unpublish', entry)}
           onImage={entry => imageExam = entry} onDownload={download} onPurge={entry => purgeExam = entry} onDelete={entry => { deleteDownload = ''; deleteExam = entry; }} />
       {/each}</div>
     {/if}
@@ -260,7 +260,7 @@
 {#if purgeExam}<PurgeDialog exam={purgeExam} onClose={() => purgeExam = null} onPurged={purged} onFailed={() => onRefresh().catch(() => {})} />{/if}
 {#if deleteExam}<DeleteExamDialog exam={deleteExam} live={deleting} className={klass.name} downloadNote={deleteDownload} onDownload={download} onClose={() => deleteExam = null} onDeleted={deleted} onFailed={() => onRefresh().catch(() => {})} />{/if}
 {#if imageExam}<ImageBuildDialog entry={imageExam} {locked} onClose={() => imageExam = null} onChanged={() => onRefresh().catch(() => {})} />{/if}
-{#if previewExamID}<PreviewDialog examID={previewExamID} onClose={() => previewExamID = null} />{/if}
+{#if previewEntry}<PreviewDialog entry={previewEntry} onClose={() => previewEntry = null} />{/if}
 
 <style>
   .exams { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); min-width: 0; align-content: start; overflow-wrap: anywhere; }
