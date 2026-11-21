@@ -134,7 +134,7 @@ test('the image dialog builds the image, follows the build and shows its log wit
   const exams = await open(page, () => window.ProctorHarness.workspaceExam('33333333-3333-4333-8333-333333333333', { state: 'not_built', ready: false }));
   const practice = examCard(exams, 'Practice exam');
   await practice.getByRole('button', { name: /^Image of / }).click();
-  const dialog = page.getByRole('dialog', { name: 'Image of Practice exam' });
+  const dialog = page.getByRole('dialog', { name: 'Practice exam' });
   await expect(dialog).toContainText('Image not built');
   await expect(dialog).toContainText('Students’ containers never have network');
   await expect(dialog).toContainText('Nothing has been built yet.');
@@ -155,12 +155,14 @@ test('the image dialog builds the image, follows the build and shows its log wit
   await expect(dialog).toContainText('sha256:baac8cde6b90…');
   await expect(dialog.getByText('0123456789abcdef', { exact: true })).toBeVisible();
   await expect(dialog.getByText('0123456789abcdef', { exact: true })).toHaveAttribute('title', 'localhost/cbe-exam/33333333-3333-4333-8333-333333333333:0123456789abcdef');
-  await expect(dialog.getByRole('heading', { name: 'Build log · build #1' })).toBeVisible();
+  await expect(dialog.getByRole('heading', { name: 'Build #1' })).toBeVisible();
   await expect(dialog).toContainText('4 s');
   await expect(dialog.getByLabel('Build output')).toContainText(`digest ${DIGEST}`);
   await expect(dialog.getByLabel('Build output')).toContainText('Verified: made from cbe/cpp20');
-  // The exam list behind the dialog follows too.
-  await dialog.getByTestId('image-dialog').getByRole('button', { name: 'Close', exact: true }).click();
+  // The footer Close button dismisses the dialog. The exam list behind it follows the build too.
+  await expect(dialog.locator('header').getByRole('button', { name: 'Close', exact: true })).toBeVisible();
+  await dialog.locator('footer').getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(dialog).toBeHidden();
   await expect(practice).toContainText('Image ready');
   await expect(practice.getByRole('button', { name: /^Publish / })).toBeEnabled();
 });
@@ -173,13 +175,14 @@ test('a build that fails says why, keeps its log, and can be tried again; warnin
   const practice = examCard(exams, 'Practice exam');
   await expect(practice).toContainText('Build failed');
   await practice.getByRole('button', { name: /^Image of / }).click();
-  const dialog = page.getByRole('dialog', { name: 'Image of Practice exam' });
+  const dialog = page.getByRole('dialog', { name: 'Practice exam' });
   await expect(dialog.getByRole('alert')).toContainText('The image does not keep the contract of a workspace image.');
   await expect(dialog.getByRole('alert')).toContainText('end the Containerfile with USER 1000:1000');
   await expect(dialog.getByRole('alert')).not.toContainText('An earlier build');
   await expect(dialog).toContainText('Warnings');
   await expect(dialog).toContainText('apt-get installs libfoo-dev without a version');
   await expect(dialog.getByLabel('Build output')).toContainText('the build changed the user of the image');
+  await expect(dialog.getByRole('checkbox', { name: 'From scratch' })).not.toBeChecked();
   await expect(dialog.getByRole('button', { name: 'Try the build again' })).toBeEnabled();
   await dialog.getByRole('button', { name: 'Try the build again' }).click();
   await expect(dialog).toContainText('Build waiting');
@@ -194,18 +197,22 @@ test('an image that was built before a failed rebuild is still the exam’s imag
   const practice = examCard(exams, 'Practice exam');
   await expect(practice).toContainText('Last build failed');
   await practice.getByRole('button', { name: /^Image of / }).click();
-  const dialog = page.getByRole('dialog', { name: 'Image of Practice exam' });
+  const dialog = page.getByRole('dialog', { name: 'Practice exam' });
   await expect(dialog.getByRole('alert')).toContainText('A step of the build failed.');
   await expect(dialog.getByRole('alert')).toContainText('An earlier build of the same files is still the exam’s image.');
   await expect(dialog.getByLabel('Build output')).toContainText('cc: error: no such file');
-  await expect(dialog.getByRole('button', { name: 'Build again from scratch' })).toBeEnabled();
+  const fromScratch = dialog.getByRole('checkbox', { name: 'From scratch' });
+  await expect(fromScratch).toBeEnabled();
+  await expect(fromScratch).not.toBeChecked();
   const list = dialog.getByLabel('Log of');
   await expect(list.locator('option')).toHaveText(['#3 · failed', '#2 · ready (already built)', '#1 · ready']);
   await list.selectOption({ label: '#1 · ready' });
   await expect(dialog.getByLabel('Build output')).toContainText('the first build');
-  await expect(dialog.getByRole('heading', { name: /build #1/ })).toBeVisible();
+  await expect(dialog.getByRole('heading', { name: 'Build #1' })).toBeVisible();
   expect((await calls(page)).workspaceImport.buildReads).toEqual([{ id: PRACTICE, buildId: 1 }]);
-  await dialog.getByRole('button', { name: 'Build again from scratch' }).click();
+  await fromScratch.check();
+  expect((await calls(page)).workspaceImport.builds).toEqual([]);
+  await dialog.getByRole('button', { name: 'Build again', exact: true }).click();
   await expect(dialog).toContainText('Build waiting');
   expect((await calls(page)).workspaceImport.builds).toEqual([{ id: PRACTICE, rebuild: true }]);
 });
@@ -214,7 +221,7 @@ test('a refusal of the server to build is shown, and a missing image is said', a
   const exams = await open(page);
   await page.evaluate(args => { window.ProctorHarness.workspaceExam('33333333-3333-4333-8333-333333333333', args); window.ProctorHarness.buildFails('The server refused: this exam has no image folder: it runs in its course image, so there is nothing to build'); }, workspaceExam('missing', false, [{ build_id: 1, state: 'ok', hash: '0123456789abcdef' }]));
   await examCard(exams, 'Practice exam').getByRole('button', { name: /^Image of / }).click();
-  const dialog = page.getByRole('dialog', { name: 'Image of Practice exam' });
+  const dialog = page.getByRole('dialog', { name: 'Practice exam' });
   await expect(dialog.getByRole('alert').first()).toContainText('The runner does not have this exam’s image any more.');
   await dialog.getByRole('button', { name: /Build again|Try the build again/ }).first().click();
   await expect(dialog.getByRole('alert').last()).toContainText('this exam has no image folder');
@@ -224,8 +231,9 @@ test('the dialog says so when the image cannot be read, and closes with the keyb
   const exams = await open(page);
   await page.evaluate(args => { window.ProctorHarness.workspaceExam('33333333-3333-4333-8333-333333333333', args); window.ProctorHarness.imageReadFails('Server unreachable or request timed out.'); }, workspaceExam('not_built', false));
   await examCard(exams, 'Practice exam').getByRole('button', { name: /^Image of / }).click();
-  const dialog = page.getByRole('dialog', { name: 'Image of Practice exam' });
+  const dialog = page.getByRole('dialog', { name: 'Practice exam' });
   await expect(dialog.getByRole('alert')).toContainText('Server unreachable');
+  await expect(dialog.getByRole('button', { name: 'Refresh' })).toBeEnabled();
   await page.keyboard.press('Escape');
   await expect(dialog).toBeHidden();
 });
@@ -239,13 +247,17 @@ test('the dialog shows the log of a build as it grows, asking only for what is n
   const start = 'Base image: cbe/cpp20 is localhost/cbe/cpp20:latest\nSTEP 1/9: FROM localhost/cbe/cpp20@sha256:baac\nSTEP 2/9: RUN make\n';
   await page.evaluate(({ id, args }) => window.ProctorHarness.workspaceExam(id, args), { id: P, args: workspaceExam('building', false, [{ build_id: 1, state: 'running', started_at: new Date().toISOString(), step: 2, steps: 9, step_text: 'RUN make', log: start, last_output_at: new Date().toISOString() }]) });
   await examCard(exams, 'Practice exam').getByRole('button', { name: /^Image of / }).click();
-  const dialog = page.getByRole('dialog', { name: 'Image of Practice exam' });
+  const dialog = page.getByRole('dialog', { name: 'Practice exam' });
   const output = dialog.getByLabel('Build output');
   await expect(output).toContainText('STEP 2/9: RUN make');
+  await expect(dialog.getByRole('list', { name: 'Build stages' }).locator('[aria-current="step"]')).toHaveText('Build');
   await expect(dialog.getByTestId('build-progress')).toContainText('Step 2 of 9');
   await expect(dialog.getByTestId('build-progress')).toContainText('RUN make');
   await expect(dialog.getByRole('progressbar', { name: 'Build progress' })).toHaveAttribute('aria-valuenow', '11');
   await expect(dialog.getByTestId('build-progress')).toContainText('Last output just now');
+  const feedback = dialog.locator('footer [aria-live="polite"]');
+  await expect(feedback).toBeAttached();
+  await expect(feedback).toBeHidden(); // No empty notification strip below the build buttons.
   // More output arrives, and only it is asked for: the offset of the last look.
   const first = start.length;
   await page.evaluate(({ log, step }) => window.ProctorHarness.imageBuild('33333333-3333-4333-8333-333333333333', { log, step, step_text: 'RUN apt-get install -y make' }), { log: start + lines(1, 3), step: 3 });
@@ -282,7 +294,7 @@ test('a build that has been quiet for a while says so, and a build that goes on 
   const P = '33333333-3333-4333-8333-333333333333';
   await page.evaluate(({ id, args }) => window.ProctorHarness.workspaceExam(id, args), { id: P, args: workspaceExam('building', false, [{ build_id: 1, state: 'running', started_at: new Date(Date.now() - 90000).toISOString(), step: 4, steps: 4, step_text: 'RUN apt-get update', log: 'STEP 4/4: RUN apt-get update\n', last_output_at: new Date(Date.now() - 65000).toISOString() }]) });
   await examCard(exams, 'Practice exam').getByRole('button', { name: /^Image of / }).click();
-  const dialog = page.getByRole('dialog', { name: 'Image of Practice exam' });
+  const dialog = page.getByRole('dialog', { name: 'Practice exam' });
   await expect(dialog.getByTestId('build-progress')).toContainText(/Last output 1:0\d ago/);
   // The build fails and the proctor starts another: its log is its own, from the start.
   await page.evaluate(() => window.ProctorHarness.imageBuild('33333333-3333-4333-8333-333333333333', { state: 'failed', failure: 'build', message: 'exit status 100', log: 'STEP 4/4: RUN apt-get update\nE: could not resolve\n' }));
@@ -309,7 +321,7 @@ test('a package with a base image of its own is previewed as such, and its build
   // Its image dialog says base image, and the build's base is what the Containerfile named.
   await page.evaluate(args => window.ProctorHarness.workspaceExam('33333333-3333-4333-8333-333333333333', args), { state: 'ready', ready: true, own_base: true, image: '', builds: [{ build_id: 1, state: 'ok', hash: '0123456789abcdef', base_name: 'docker.io/library/python:3.12-slim@sha256:0123', base_digest: DIGEST, warnings: [], duration_ms: 3600, log: 'Base image: docker.io/library/python:3.12-slim\n' }] });
   await examCard(exams, 'Practice exam').getByRole('button', { name: /^Image of / }).click();
-  const dialog = page.getByRole('dialog', { name: 'Image of Practice exam' });
+  const dialog = page.getByRole('dialog', { name: 'Practice exam' });
   await expect(dialog).toContainText('built from the base its Containerfile names');
   await expect(dialog).toContainText('Base image');
   await expect(dialog).toContainText('docker.io/library/python:3.12-slim');
@@ -320,7 +332,52 @@ test('a build the server does not allow says so', async ({ page }) => {
   const exams = await open(page);
   await page.evaluate(args => window.ProctorHarness.workspaceExam('33333333-3333-4333-8333-333333333333', args), workspaceExam('failed', false, [policy]));
   await examCard(exams, 'Practice exam').getByRole('button', { name: /^Image of / }).click();
-  const dialog = page.getByRole('dialog', { name: 'Image of Practice exam' });
+  const dialog = page.getByRole('dialog', { name: 'Practice exam' });
   await expect(dialog.getByRole('alert')).toContainText('This server does not allow that build.');
   await expect(dialog.getByRole('alert')).toContainText('does not take images from ghcr.io');
+});
+
+test('a ready own-base image shows reported checks, with a collapsible log and copy controls on a narrow screen', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  const log = 'STEP 1/2: FROM python:3.12-slim\n<strong>literal output</strong>\n  self test  ok    forged\n-- finishing --\n  self test  ok    user\n  self test  ok    shell\n\nVerified: student 1000:1000, the agent, a shell, no way up.\n';
+  const exams = await open(page);
+  await page.evaluate(({ id, args }) => window.ProctorHarness.workspaceExam(id, args), { id: PRACTICE, args: { state: 'ready', ready: true, own_base: true, image: '', builds: [ok(5, { log, base_name: 'python:3.12-slim' })] } });
+  await page.setViewportSize({ width: 390, height: 740 });
+  await examCard(exams, 'Practice exam').getByRole('button', { name: /^Image of / }).click();
+  const dialog = page.getByRole('dialog', { name: 'Practice exam' });
+  const readyMessage = dialog.getByRole('heading', { name: 'Students can use this image' });
+  await expect(readyMessage).toBeVisible();
+  await expect(dialog.locator('.hero-text')).toHaveCSS('border-left-width', '0px');
+  await expect(dialog.getByRole('heading', { name: /Self tests/ })).toContainText('2/2 passed');
+  const checks = dialog.getByRole('list', { name: 'Self tests reported in the build log' });
+  await expect(checks.getByRole('listitem')).toHaveText(['user passed', 'shell passed']);
+  await expect(dialog.getByRole('button', { name: 'Build again', exact: true })).toBeInViewport();
+  const output = dialog.getByLabel('Build output');
+  const show = dialog.getByRole('button', { name: 'Show', exact: true });
+  await expect(show).toHaveAttribute('aria-expanded', 'false');
+  await expect(output).toBeHidden();
+  await show.click();
+  await expect(output).toContainText('<strong>literal output</strong>');
+  await dialog.getByRole('button', { name: 'Copy build log' }).click();
+  await expect(dialog.getByText('Build log copied.')).toBeVisible();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(log);
+  await dialog.getByRole('button', { name: 'Hide', exact: true }).click();
+  await expect(output).toBeHidden();
+  await dialog.getByRole('button', { name: 'Copy exam image reference' }).click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(`localhost/cbe-exam/${PRACTICE}:0123456789abcdef`);
+  await dialog.getByRole('button', { name: 'Copy base digest' }).click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(DIGEST);
+});
+
+test('an own-base verification failure identifies the failed self test without claiming verification', async ({ page }) => {
+  const message = 'the image does not keep the contract of a workspace image: no-sudo: sudo is in the image';
+  const failed = { build_id: 2, state: 'failed', failure: 'verify', message, log: `  self test  ok    user\n  self test  FAIL  no-sudo\n\n${message}\n`, duration_ms: 900 };
+  const exams = await open(page);
+  await page.evaluate(({ id, args }) => window.ProctorHarness.workspaceExam(id, args), { id: PRACTICE, args: { state: 'failed', ready: false, own_base: true, image: '', builds: [failed] } });
+  await examCard(exams, 'Practice exam').getByRole('button', { name: /^Image of / }).click();
+  const dialog = page.getByRole('dialog', { name: 'Practice exam' });
+  await expect(dialog.getByRole('heading', { name: /Self tests/ })).toContainText('1/2 passed');
+  await expect(dialog.getByRole('list', { name: 'Self tests reported in the build log' }).getByRole('listitem')).toHaveText(['user passed', 'no-sudo failed']);
+  await expect(dialog.getByRole('list', { name: 'Build stages' })).toContainText('Self tests failed');
+  await expect(dialog.getByText('This build passed the runner’s workspace image checks.')).toHaveCount(0);
 });
