@@ -37,7 +37,11 @@ let pruned = 2;
 let workingStudents = 1;
 // Students who log in to the published exam after the last time the dashboard looked, so the next change finds them working.
 let lateStudents = 0;
-let nextExamFile = null;
+let nextImportFile = null;
+let importDraft = null;
+let selectionID = 0;
+let holdValidation = false;
+let releaseValidation;
 let launchCredential = true;
 let rejected = false;
 let notice = '';
@@ -233,19 +237,48 @@ const sampleContent = { instructions: '<p>Read <strong>everything</strong>.</p><
   { id: '1', title: 'Ejercicio 1 — Tabla', points: 10, items: [{ id: '1a', title: 'a. Conteo', points: 10, body: '<table><tbody><tr><td>ALU</td><td><span class="slot" data-slot="1a.alu"></span></td></tr></tbody></table>', slots: [{ id: '1a.alu', kind: 'blank' }] }] },
   { id: '2', title: 'Ejercicio 2 — Código', body: '<p>Translate.</p><div class="slot" data-slot="2.code"></div>', slots: [{ id: '2.code', kind: 'code', language: 'mips', starter: 'main:\n' }] },
 ] };
-export async function ChooseExam(classId) {
+export async function ChooseExamSource(classId) {
   calls.chooseExam++; calls.chosenFor.push(classId);
-  if (!nextExamFile) return { cancelled: true, file: '', valid: false, problems: [] };
-  return { cancelled: false, problems: [], ...nextExamFile };
+  importDraft = null;
+  const selection = nextImportFile; nextImportFile = null;
+  if (!selection) return { cancelled: true };
+  const file = selection.preview.file ?? 'workspace.md';
+  importDraft = { ...selection, file, id: String(++selectionID), classId };
+  return { cancelled: false, id: importDraft.id, file, kind: file === 'workspace.md' ? 'workspace' : 'question' };
 }
-export async function ImportExam(classId, pin, forwardOnly) {
+export async function PrepareExamImport(classId, id, kind) {
+  const draft = importDraft;
+  if (draft?.classId !== classId || draft.id !== id || draft.confirmed) throw new Error('Choose an exam file for this class first.');
+  draft.confirmed = kind;
+  if (kind === 'workspace') calls.workspaceImport.chosen.push(classId);
+  if (holdValidation) await new Promise(resolve => releaseValidation = resolve);
+  if (importDraft !== draft) throw new Error('That exam selection is no longer current.');
+  const problem = kind === 'workspace' && draft.file !== 'workspace.md' ? 'A Workspace Exam requires the package’s workspace.md.'
+    : kind !== draft.format ? (kind === 'question' ? 'No exercises found in the traditional exam file.' : 'Workspace configuration is required.') : null;
+  const preview = problem ? { problems: [problem], file: draft.file, folder: draft.preview.folder ?? 'exam', valid: false }
+    : { problems: [], todos: [], image_warnings: [], ...structuredClone(draft.preview) };
+  draft.validated = preview.valid;
+  return kind === 'workspace' ? { workspace: preview } : { traditional: preview };
+}
+export async function DiscardExamImport(classId, id) {
+  if (importDraft?.classId !== classId || importDraft.id !== id) return;
+  if (importDraft.format === 'workspace') calls.workspaceImport.discarded++;
+  else calls.discardImport++;
+  importDraft = null;
+}
+function consumeExamImport(classId, id, kind) {
+  const draft = importDraft;
+  if (draft?.classId !== classId || draft.id !== id || draft.confirmed !== kind || !draft.validated) throw new Error('Choose an exam file for this class first.');
+  importDraft = null;
+  return draft.preview;
+}
+export async function ImportExam(classId, id, pin, forwardOnly) {
+  const file = consumeExamImport(classId, id, 'question');
   calls.importExam++; calls.imported.push({ classId, pin, forwardOnly });
   if (importFails) throw new Error('The server rejected the document: title is required.');
-  const file = nextExamFile; nextExamFile = null;
   exams = [{ exam_id: '55555555-5555-4555-8555-555555555555', class_id: classId, title: file.title, exercise_count: file.exercise_count, navigation: forwardOnly ? 'forward_only' : 'free', duration_seconds: file.duration_seconds, grace_seconds: file.grace_seconds, min_volume_percent: file.min_volume_percent, created_at: AT, opens_at: file.opens_at ?? null, closes_at: file.closes_at ?? null, total_sessions: 0 }, ...exams];
   return { exam_id: '55555555-5555-4555-8555-555555555555' };
 }
-export async function DiscardImport() { calls.discardImport++; nextExamFile = null; }
 export async function ChooseClassFile() {
   calls.chooseClassFile++;
   if (!nextClassFile) return { cancelled: true, file: '', suggested_name: '', valid: false, problems: [], students: 0, warning_count: 0, warnings: [] };
@@ -298,6 +331,7 @@ export async function ReplaceClassRoster(id, confirmed) {
 }
 export async function Disconnect() {
   calls.disconnect++;
+  importDraft = null;
   connected = false; connecting = false; selectedExam = '';
   return snapshot();
 }
@@ -483,7 +517,7 @@ window.ProctorHarness = {
   rosterFails(value) { rosterFails = value; }, holdRoster() { deferRoster = true; }, releaseRoster() { deferRoster = false; releaseRoster?.(); },
   classFile(value) { nextClassFile = value; }, createFails(value) { createFails = value; },
   renameFails(value) { renameFails = value; }, holdRename() { deferRename = true; }, releaseRename() { deferRename = false; releaseRename?.(); }, deleteFails(value) { deleteFails = value; }, replaceFails(value) { replaceFails = value; }, rosterChange(value) { nextRosterChange = value; }, pruned(value) { pruned = value; },
-  working(value) { workingStudents = value; }, studentsLogInLate(value) { lateStudents = value; }, examFile(value) { nextExamFile = { content: sampleContent, ...value }; }, importFails(value) { importFails = value; }, publishFails(value) { publishFails = value; }, pinFails(value) { pinFails = value; }, examPin(value) { examPin = value; }, examEndsAt(id, value) { exams.find(item => item.exam_id === id).ends_at = value; }, examWindow(id, value) { Object.assign(exams.find(item => item.exam_id === id), value); }, deleteExamFails(value) { deleteExamFails = value; },
+  working(value) { workingStudents = value; }, studentsLogInLate(value) { lateStudents = value; }, examFile(value) { nextImportFile = value ? { format: 'question', preview: { content: sampleContent, ...value } } : null; }, holdImportValidation() { holdValidation = true; }, releaseImportValidation() { holdValidation = false; releaseValidation?.(); }, importFails(value) { importFails = value; }, publishFails(value) { publishFails = value; }, pinFails(value) { pinFails = value; }, examPin(value) { examPin = value; }, examEndsAt(id, value) { exams.find(item => item.exam_id === id).ends_at = value; }, examWindow(id, value) { Object.assign(exams.find(item => item.exam_id === id), value); }, deleteExamFails(value) { deleteExamFails = value; },
   deleteScreenshots(value) { deleteScreenshots = value; }, deleteFilesPending(value) { deleteFilesPending = value; }, holdDelete() { deferDelete = true; }, releaseDelete() { deferDelete = false; releaseDelete?.(); },
   // Students still working in an exam that is not published, and a change in how many submissions an exam has since the page last looked.
   examWorking(id, value) { workingIn[id] = value; }, examSessions(id, value) { exams.find(item => item.exam_id === id).total_sessions = value; }, catalogDown(value) { catalogDown = value; }, serverVersion(value) { serverVersion = value; }, stale(value) { stale = value; }, imagesMissing(value) { imageMissing = value; },
@@ -662,7 +696,6 @@ Object.assign(window.ProctorHarness, {
 // Importing a workspace package and building its own image (Phase 7). The exams of the catalog carry kind, todos and image, as the server's
 // do; `imageDetail` has what only the image dialog reads: the builds of an exam and their logs. A build does not move by itself: the test
 // moves it with the harness, so what the dialog shows at each step is the test's to check.
-let nextWorkspacePackage = null;
 let importWorkspaceFails = '';
 let buildFailure = '';
 let imageReadFails = '';
@@ -699,16 +732,10 @@ function settleImage(id) {
   const good = detail.builds.some(item => item.state === 'ok');
   entry.image = { exam_id: id, state: { queued: 'queued', running: 'building', ok: 'ready', failed: 'failed' }[latest.state], image: entry.image.image, own_base: entry.image.own_base, ready: good, build: structuredClone({ ...latest, log: '' }), builds: [] };
 }
-export async function ChooseWorkspaceExam(classId) {
-  calls.workspaceImport.chosen.push(classId);
-  if (!nextWorkspacePackage) return { cancelled: true, folder: '', valid: false, problems: [], todos: [], image_warnings: [] };
-  return { cancelled: false, problems: [], todos: [], image_warnings: [], ...structuredClone(nextWorkspacePackage) };
-}
-export async function DiscardWorkspaceExam() { calls.workspaceImport.discarded++; nextWorkspacePackage = null; }
-export async function ImportWorkspaceExam(classId, pin) {
+export async function ImportWorkspaceExam(classId, selectionId, pin) {
+  const file = consumeExamImport(classId, selectionId, 'workspace');
   calls.workspaceImport.imported.push({ classId, pin });
   if (importWorkspaceFails) throw new Error(importWorkspaceFails);
-  const file = nextWorkspacePackage; nextWorkspacePackage = null;
   const id = '88888888-8888-4888-8888-888888888888';
   const image = { exam_id: id, state: file.own_image ? 'not_built' : 'none', image: file.image, ready: !file.own_image, build: null, builds: [] };
   exams = [{ exam_id: id, class_id: classId, title: file.title, exercise_count: 0, navigation: 'free', duration_seconds: file.duration_seconds, grace_seconds: 120, min_volume_percent: 80, created_at: AT, opens_at: null, closes_at: null, ends_at: null,
@@ -737,8 +764,8 @@ export async function ExamImageBuild(id, buildId) {
   return structuredClone(found);
 }
 Object.assign(window.ProctorHarness, {
-  // The package the next "Import workspace exam…" shows, what makes importing or building fail, and what makes reading an image fail.
-  workspacePackage(value) { nextWorkspacePackage = value; },
+  // The package selected by the next import picker, and failure switches for workspace uploads and builds.
+  workspacePackage(value) { nextImportFile = value ? { format: 'workspace', preview: value } : null; },
   importWorkspaceFails(message) { importWorkspaceFails = message; },
   buildFails(message) { buildFailure = message; },
   imageReadFails(message) { imageReadFails = message; },

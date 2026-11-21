@@ -56,12 +56,13 @@ func main() {
 		}
 	}
 	var app *application.App
+	var dashboardWindow *application.WebviewWindow
 	// quitting is set once the operator has confirmed closing; until then closing the main window only asks them.
 	var quitting atomic.Bool
 	opts.Quit = func() { quitting.Store(true); app.Quit() }
 	// The dialog runs on the application's own UI thread; the app exists before any window can ask for a file.
 	opts.Choose = func(request dashboard.FileDialog) (string, error) {
-		dialog := app.Dialog.OpenFile().SetTitle(request.Title).CanChooseFiles(true).CanChooseDirectories(false)
+		dialog := app.Dialog.OpenFile().AttachToWindow(dashboardWindow).SetTitle(request.Title).CanChooseFiles(true).CanChooseDirectories(false)
 		if request.Pattern != "" { // the token file has no extension to filter on
 			dialog = dialog.AddFilter(request.FilterName, request.Pattern)
 		}
@@ -101,7 +102,7 @@ func main() {
 	}
 	defer service.ServiceShutdown()
 	app = application.New(application.Options{Name: "cbe-portal-proctor", Description: "CBE Portal proctor: exam monitoring and review", Services: []application.Service{application.NewService(service)}, Assets: application.AssetOptions{Handler: application.AssetFileServerFS(proctor.Assets)}, Mac: application.MacOptions{ApplicationShouldTerminateAfterLastWindowClosed: true}})
-	dashboardWindow := app.Window.NewWithOptions(application.WebviewWindowOptions{Name: "main", Title: "CBE Portal Proctor", Width: 1280, Height: 850, URL: "/"})
+	dashboardWindow = app.Window.NewWithOptions(application.WebviewWindowOptions{Name: "main", Title: "CBE Portal Proctor", Width: 1280, Height: 850, URL: "/"})
 	// The monitoring, review and image windows belong to the main one: closing it closes the dashboard, so it asks first.
 	// The page shows the confirmation and calls Quit when the operator agrees.
 	dashboardWindow.RegisterHook(events.Common.WindowClosing, func(event *application.WindowEvent) {

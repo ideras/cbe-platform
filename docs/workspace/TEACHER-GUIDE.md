@@ -128,9 +128,9 @@ A workspace runs in an **image**, and there are two ways to say which.
 
 ## The day before
 
-In the proctor application, open the class and use **Import workspace exam…**:
+In the proctor application, open the class and use **Import exam…**:
 
-1. Choose the package's `workspace.md`. The application compiles the folder and **shows what it understood** (title, time, TODO items, the starter
+1. Choose the package's `workspace.md`, confirm **Workspace Exam** and select **Validate as Workspace Exam**. The application compiles the folder and **shows what it understood** (title, time, TODO items, the starter
    files, the hidden tests, the limits, whether it has its own image, with its warnings) before anything is stored. A package with problems lists them all and cannot be imported.
 2. Choose the **PIN**, as for any exam. Import. The exam is imported, **not** published.
 3. If the exam has its own image, press **Image**, then **Build the image**. You can watch the log as it grows: the step the build is at, the command, and when it

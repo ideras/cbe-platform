@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { connect } from './helpers.js';
+import { confirmImportKind, connect } from './helpers.js';
 
 const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"><rect width="40" height="20" fill="#000"/></svg>').toString('base64');
@@ -22,6 +22,7 @@ test('the exam preview shows the embedded pictures and drops any other <img>', a
     },
   }), { png, svg });
   await page.getByRole('button', { name: 'Import exam…' }).click();
+  await confirmImportKind(page);
   await page.locator('.import-stack').getByRole('button', { name: 'Preview the exam', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Prueba con figuras', exact: true });
   const preview = dialog.locator('.exam-preview');

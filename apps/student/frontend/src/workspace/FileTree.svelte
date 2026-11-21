@@ -58,7 +58,7 @@
     <button type="button" disabled={readOnly || !chosen} onclick={() => onRename(chosen.path)} aria-label="Rename" title="Rename (F2)"><Icon name="pencil" size={16} /></button>
     <button type="button" disabled={readOnly || !chosen} onclick={() => onDelete(chosen.path)} aria-label="Delete" title="Delete (Delete key)"><Icon name="deleteExam" size={16} /></button>
   </div>
-  <ul role="tree" aria-label="Project files" bind:this={list} onkeydown={keydown}>
+  <ul role="tree" aria-label="Project files" bind:this={list}>
     {#each rows as row, position (row.path)}
       {#if row.kind === 'note'}
         <li role="none" class="note" style:padding-left="{row.level * 1.1 + .5}rem">{row.name}</li>
@@ -67,7 +67,7 @@
           aria-expanded={row.isDir ? row.open : undefined} tabindex={current?.path === row.path ? 0 : -1}
           class:active={activePath === row.path} class:chosen={selected === row.path}
           title={row.isDir ? undefined : `${row.path}\nAlt+click or Ctrl+Enter: open on the other side`}
-          style:padding-left="{(row.level - 1) * 1.1 + .4}rem" onclick={event => choose(row, event.altKey)} onfocus={() => { focused = row.path; }}>
+          style:padding-left="{(row.level - 1) * 1.1 + .4}rem" onclick={event => choose(row, event.altKey)} onkeydown={keydown} onfocus={() => { focused = row.path; }}>
           {#if row.isDir}<span class="chev" class:open={row.open}><Icon name="chevron" size={14} /></span><Icon name="folder" size={16} />{:else}<span class="chev"></span><span class="file-mark" aria-hidden="true"></span>{/if}
           <span class="name">{row.name}{#if row.kind === 'link'}<span class="visually-hidden"> (link)</span>{/if}</span>
           {#if unsaved.has(row.path) || openIn.has(row.path)}

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { connect as connectTo, calls, examsPanel, examCard } from './helpers.js';
+import { confirmImportKind, connect as connectTo, calls, examsPanel, examCard } from './helpers.js';
 
 // A workspace exam's own image (Phase 7): importing a workspace package, the exam list's image chip, the dialog that builds the image and
 // shows its log, and a publication that waits for the image.
@@ -25,7 +25,8 @@ const setUp = (page, args) => page.evaluate(({ id, args }) => window.ProctorHarn
 test('a workspace package is previewed, given a PIN and imported, and says its own image has to be built', async ({ page }) => {
   const exams = await open(page);
   await page.evaluate(pkg => window.ProctorHarness.workspacePackage(pkg), goodPackage());
-  await exams.getByRole('button', { name: 'Import workspace exam…' }).click();
+  await exams.getByRole('button', { name: 'Import exam…' }).click();
+  await confirmImportKind(page);
   const preview = page.getByTestId('workspace-import');
   await expect(preview).toContainText('lab-image');
   await expect(preview).toContainText('Laboratory – a library the course image does not have');
@@ -57,7 +58,8 @@ test('a workspace package is previewed, given a PIN and imported, and says its o
 test('a package with no image folder and with warnings is told so, and a package with problems cannot be imported', async ({ page }) => {
   const exams = await open(page);
   await page.evaluate(pkg => window.ProctorHarness.workspacePackage(pkg), goodPackage({ own_image: false, image_files: 0, has_grading: false, grading_files: 0 }));
-  await exams.getByRole('button', { name: 'Import workspace exam…' }).click();
+  await exams.getByRole('button', { name: 'Import exam…' }).click();
+  await confirmImportKind(page);
   let preview = page.getByTestId('workspace-import');
   await expect(preview).toContainText('The course image cbe/cpp20, as it is.');
   await expect(preview).toContainText('None: this exam cannot be graded by the server.');
@@ -66,14 +68,16 @@ test('a package with no image folder and with warnings is told so, and a package
   expect((await calls(page)).workspaceImport.discarded).toBe(1);
 
   await page.evaluate(pkg => window.ProctorHarness.workspacePackage(pkg), goodPackage({ image_warnings: ['image/Containerfile line 3: apt-get installs libfoo-dev without a version (write name=version)'] }));
-  await exams.getByRole('button', { name: 'Import workspace exam…' }).click();
+  await exams.getByRole('button', { name: 'Import exam…' }).click();
+  await confirmImportKind(page);
   preview = page.getByTestId('workspace-import');
   await expect(preview).toContainText('The Containerfile has warnings');
   await expect(preview).toContainText('apt-get installs libfoo-dev without a version');
   await preview.getByRole('button', { name: 'Cancel' }).click();
 
   await page.evaluate(pkg => window.ProctorHarness.workspacePackage(pkg), { folder: 'bad', valid: false, problems: ['image/Containerfile line 1: FROM ubuntu:24.04: the only image a workspace exam’s Containerfile may start from is the exam’s own course image, cbe/cpp20'], todos: [], image_warnings: [] });
-  await exams.getByRole('button', { name: 'Import workspace exam…' }).click();
+  await exams.getByRole('button', { name: 'Import exam…' }).click();
+  await confirmImportKind(page);
   preview = page.getByTestId('workspace-import');
   await expect(preview.getByRole('alert')).toContainText('This package cannot be imported');
   await expect(preview).toContainText('FROM ubuntu:24.04');
@@ -85,7 +89,8 @@ test('a package with no image folder and with warnings is told so, and a package
 test('what the server refuses on import is shown and the package is used up', async ({ page }) => {
   const exams = await open(page);
   await page.evaluate(pkg => { window.ProctorHarness.workspacePackage(pkg); window.ProctorHarness.importWorkspaceFails('invalid workspace exam: this server does not have the course image cbe/cpp20'); }, goodPackage());
-  await exams.getByRole('button', { name: 'Import workspace exam…' }).click();
+  await exams.getByRole('button', { name: 'Import exam…' }).click();
+  await confirmImportKind(page);
   const preview = page.getByTestId('workspace-import');
   await preview.getByLabel('Exam PIN').fill('pin-1234');
   await preview.getByRole('button', { name: 'Import workspace exam' }).click();
@@ -309,7 +314,8 @@ test('a build that has been quiet for a while says so, and a build that goes on 
 test('a package with a base image of its own is previewed as such, and its build names the base', async ({ page }) => {
   const exams = await open(page);
   await page.evaluate(pkg => window.ProctorHarness.workspacePackage(pkg), goodPackage({ image: '', folder: 'lab-python', title: 'Neural networks lab' }));
-  await exams.getByRole('button', { name: 'Import workspace exam…' }).click();
+  await exams.getByRole('button', { name: 'Import exam…' }).click();
+  await confirmImportKind(page);
   const preview = page.getByTestId('workspace-import');
   await expect(preview).toContainText('Neural networks lab');
   await expect(preview).toContainText('A base image of its own: 1 cpu');

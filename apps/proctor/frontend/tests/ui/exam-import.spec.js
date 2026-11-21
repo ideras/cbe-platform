@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { connect, calls } from './helpers.js';
+import { confirmImportKind, connect, calls } from './helpers.js';
 
 async function openImport(page, { longFile = false, scheduled = false, withCalculator = true } = {}) {
   await connect(page, { openClass: 'Mathematics 10A' });
@@ -12,8 +12,117 @@ async function openImport(page, { longFile = false, scheduled = false, withCalcu
     closes_at: scheduled ? '2026-01-01T10:00:00Z' : null,
   }), { longFile, scheduled, withCalculator });
   await page.getByRole('button', { name: 'Import exam…' }).click();
+  await confirmImportKind(page);
   return page.locator('.import-stack');
 }
+
+test('one picker detects the kind, requires confirmation, and respects overrides in both directions', async ({ page }) => {
+  await connect(page, { openClass: 'Mathematics 10A' });
+  const panel = page.getByRole('region', { name: 'Exams', exact: true });
+  const picker = panel.getByRole('button', { name: /^Import .*…$/ });
+  const dialog = page.getByRole('dialog', { name: 'Confirm the exam kind' });
+  const workspaceKind = dialog.getByRole('radio', { name: 'Workspace Exam' });
+  const traditionalKind = dialog.getByRole('radio', { name: 'Traditional Exam' });
+  const override = dialog.locator('[aria-live="polite"]');
+  await expect(picker).toHaveCount(1);
+
+  await page.evaluate(() => window.ProctorHarness.examFile({ file: 'exam.md', valid: true }));
+  await picker.click();
+  await expect(dialog).toContainText('Selected file');
+  await expect(dialog.getByText('exam.md', { exact: true })).toBeVisible();
+  await expect(dialog).toContainText('Detected: Traditional Exam');
+  await expect(dialog.getByRole('radio')).toHaveCount(2);
+  await expect(traditionalKind).toBeChecked();
+  await expect(dialog.getByRole('button', { name: 'Validate as Traditional Exam' })).toBeFocused();
+  await expect(override).toBeEmpty();
+  await expect(panel.getByLabel('Exam PIN')).toHaveCount(0);
+  await traditionalKind.press('ArrowLeft');
+  await expect(workspaceKind).toBeChecked();
+  await expect(override).toContainText('selected file is a Workspace Exam');
+  await dialog.getByRole('button', { name: 'Validate as Workspace Exam' }).click();
+  const workspace = page.getByTestId('workspace-import');
+  await expect(workspace).toContainText('A Workspace Exam requires the package’s workspace.md.');
+  await expect(workspace.getByLabel('Exam PIN')).toHaveCount(0);
+
+  await page.evaluate(() => window.ProctorHarness.workspacePackage({ folder: 'lab', valid: true }));
+  await workspace.getByRole('button', { name: /choose/i }).click();
+  await expect(dialog.getByText('workspace.md', { exact: true })).toBeVisible();
+  await expect(dialog).toContainText('Detected: Workspace Exam');
+  await expect(workspaceKind).toBeChecked();
+  await expect(override).toBeEmpty();
+  await dialog.getByText('Optional calculator', { exact: true }).click();
+  await expect(traditionalKind).toBeChecked();
+  await expect(dialog).toContainText('Detected: Workspace Exam');
+  await expect(override).toContainText('selected file is a Traditional Exam');
+  await dialog.getByRole('button', { name: 'Validate as Traditional Exam' }).click();
+  await expect(panel).toContainText('No exercises found in the traditional exam file.');
+  await expect(panel.getByLabel('Exam PIN')).toHaveCount(0);
+  expect(await calls(page)).toMatchObject({ chooseExam: 2, importExam: 0, workspaceImport: { imported: [] } });
+});
+
+test('cancelling the kind step before or during validation cannot open a stale preview', async ({ page }) => {
+  await connect(page, { openClass: 'Mathematics 10A' });
+  const picker = page.getByRole('button', { name: 'Import exam…' });
+  const dialog = page.getByRole('dialog', { name: 'Confirm the exam kind' });
+  const queueFile = () => page.evaluate(() => window.ProctorHarness.examFile({ file: 'midterm.md', valid: true, title: 'Midterm', exercise_count: 1, slot_count: 1, duration_seconds: 600 }));
+  await queueFile();
+  await picker.click();
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  await expect(picker).toBeFocused();
+  await expect(page.getByLabel('Exam PIN')).toHaveCount(0);
+
+  await queueFile();
+  await page.evaluate(() => window.ProctorHarness.holdImportValidation());
+  await picker.click();
+  await confirmImportKind(page);
+  await expect(dialog.getByRole('button', { name: 'Validating…' })).toBeDisabled();
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.evaluate(() => window.ProctorHarness.releaseImportValidation());
+  await expect(picker).toBeEnabled();
+  await expect(dialog).toBeHidden();
+  await expect(page.getByLabel('Exam PIN')).toHaveCount(0);
+  expect(await calls(page)).toMatchObject({ importExam: 0, discardImport: 2 });
+});
+
+test('the kind dialog hugs its content on a tall desktop window', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 850 });
+  await connect(page, { openClass: 'Mathematics 10A' });
+  await page.evaluate(() => window.ProctorHarness.examFile({ file: 'midterm.md', valid: true }));
+  await page.getByRole('button', { name: 'Import exam…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Confirm the exam kind' });
+  const progress = dialog.getByRole('list').filter({ hasText: 'Validate file' });
+  const footer = dialog.locator('footer');
+  const checkGap = async () => {
+    const endOfProgress = await progress.boundingBox();
+    const actions = await footer.boundingBox();
+    const gap = actions.y - endOfProgress.y - endOfProgress.height;
+    expect(gap).toBeGreaterThanOrEqual(0);
+    expect(gap).toBeLessThanOrEqual(24);
+  };
+  await expect(dialog.getByRole('button', { name: 'Validate as Traditional Exam' })).toBeEnabled();
+  await checkGap();
+  await dialog.getByRole('radio', { name: 'Workspace Exam' }).check();
+  await expect(dialog.getByText(/This differs from the detected kind/)).toBeVisible();
+  await checkGap();
+});
+
+test('the kind dialog stacks cards on narrow windows and keeps long filenames inside', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 620 });
+  await connect(page, { openClass: 'Mathematics 10A' });
+  const file = `${'long-exam-filename-'.repeat(10)}.md`;
+  await page.evaluate(file => window.ProctorHarness.examFile({ file, valid: true }), file);
+  await page.getByRole('button', { name: 'Import exam…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Confirm the exam kind' });
+  await expect(dialog.getByText(file, { exact: true })).toBeVisible();
+  const [workspace, traditional] = await dialog.locator('label.kind').evaluateAll(cards => cards.map(card => card.getBoundingClientRect().toJSON()));
+  expect(traditional.top).toBeGreaterThan(workspace.bottom);
+  expect(traditional.left).toBe(workspace.left);
+  expect(await dialog.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+  await dialog.getByRole('button', { name: 'Cancel import', exact: true }).click();
+  await expect(dialog).toBeHidden();
+});
 
 async function paint(locator, property) { return locator.evaluate((el, prop) => getComputedStyle(el)[prop], property); }
 async function token(page, name) {

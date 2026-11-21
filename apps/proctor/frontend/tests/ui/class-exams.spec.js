@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { connect as connectTo, calls, admitting, admittingLine, card, examCard, examsPanel, tab, tickPublish } from './helpers.js';
+import { confirmImportKind, connect as connectTo, calls, admitting, admittingLine, card, examCard, examsPanel, tab, tickPublish } from './helpers.js';
 
 const EXAM = '11111111-1111-4111-8111-111111111111';
 const PRACTICE = '33333333-3333-4333-8333-333333333333';
@@ -65,6 +65,7 @@ test('with nothing published, every exam can be published and none can be closed
 test('an exam file is previewed as students see it, imported into the class with the PIN the proctor types, but not published', async ({ page }) => {
   const exams = await connect(page, () => window.ProctorHarness.examFile({ file: 'midterm-b.md', valid: true, title: 'Midterm B', exercise_count: 2, slot_count: 2, points: 10, navigation: 'forward_only', duration_seconds: 3600, grace_seconds: 30, min_volume_percent: 70, opens_at: null, closes_at: null }));
   await exams.getByRole('button', { name: 'Import exam…' }).click();
+  await confirmImportKind(page);
   const preview = exams.locator('.import-stack');
   await expect(preview.getByRole('region', { name: 'Exam file', exact: true })).toBeVisible();
   await expect(preview.getByTitle('midterm-b.md')).toBeVisible();
@@ -115,6 +116,7 @@ test('an exam file is previewed as students see it, imported into the class with
 test('an exam is imported into the class that is open, whichever it is', async ({ page }) => {
   const exams = await connect(page, () => window.ProctorHarness.examFile({ file: 'midterm-b.md', valid: true, title: 'Midterm B', exercise_count: 4, slot_count: 2, navigation: 'free', duration_seconds: 3600, grace_seconds: 30, min_volume_percent: 70, opens_at: null, closes_at: null }), 'History 11B');
   await exams.getByRole('button', { name: 'Import exam…' }).click();
+  await confirmImportKind(page);
   await exams.getByLabel('Exam PIN').fill('p');
   await exams.getByRole('button', { name: 'Import exam', exact: true }).click();
   await expect(examCard(exams, 'Midterm B')).toBeVisible();
@@ -125,6 +127,7 @@ test('an exam is imported into the class that is open, whichever it is', async (
 test('problems in an exam file are listed and nothing can be imported', async ({ page }) => {
   const exams = await connect(page, () => window.ProctorHarness.examFile({ file: 'broken.md', valid: false, problems: ['title is required and must be at most 512 bytes of text', 'line 12: answer field "1a.x" is already used; give each field its own name'] }));
   await exams.getByRole('button', { name: 'Import exam…' }).click();
+  await confirmImportKind(page);
   await expect(exams.getByRole('alert')).toContainText('This file cannot be imported');
   await expect(exams.getByRole('listitem').filter({ hasText: 'title is required' })).toBeVisible();
   await expect(exams.getByRole('listitem').filter({ hasText: 'is already used; give each field its own name' })).toBeVisible();
@@ -139,6 +142,7 @@ test('closing the file dialog or cancelling a preview imports nothing', async ({
   await expect(page.getByRole('heading', { name: /^Exam file/ })).toHaveCount(0);
   await page.evaluate(() => window.ProctorHarness.examFile({ file: 'a.md', valid: true, title: 'A', exercise_count: 1, slot_count: 2, navigation: 'free', duration_seconds: 60, grace_seconds: 30, min_volume_percent: 0 }));
   await exams.getByRole('button', { name: 'Import exam…' }).click();
+  await confirmImportKind(page);
   await expect(exams).toContainText('the student’s volume is left alone');
   await exams.getByRole('button', { name: 'Cancel', exact: true }).click();
   expect(await calls(page)).toMatchObject({ chooseExam: 2, importExam: 0, discardImport: 1 });
@@ -147,6 +151,7 @@ test('closing the file dialog or cancelling a preview imports nothing', async ({
 test('leaving the class with a preview open forgets the file, and the preview is not kept for the next class', async ({ page }) => {
   const exams = await connect(page, () => window.ProctorHarness.examFile({ file: 'midterm-b.md', valid: true, title: 'Midterm B', exercise_count: 4, slot_count: 2, navigation: 'free', duration_seconds: 3600, grace_seconds: 30, min_volume_percent: 70, opens_at: null, closes_at: null }));
   await exams.getByRole('button', { name: 'Import exam…' }).click();
+  await confirmImportKind(page);
   await expect(page.getByRole('region', { name: 'Exam file', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Classes', exact: true }).first().click(); // the back button
   await expect.poll(async () => (await calls(page)).discardImport).toBe(1);
@@ -157,6 +162,7 @@ test('leaving the class with a preview open forgets the file, and the preview is
 test('a failed import is reported and the preview is discarded', async ({ page }) => {
   const exams = await connect(page, () => { window.ProctorHarness.importFails(true); window.ProctorHarness.examFile({ file: 'a.md', valid: true, title: 'A', exercise_count: 1, slot_count: 2, navigation: 'free', duration_seconds: 60, grace_seconds: 30, min_volume_percent: 0 }); });
   await exams.getByRole('button', { name: 'Import exam…' }).click();
+  await confirmImportKind(page);
   await exams.getByLabel('Exam PIN').fill('p');
   await exams.getByRole('button', { name: 'Import exam', exact: true }).click();
   await expect(exams.getByRole('alert')).toContainText('The server rejected the document');
@@ -438,6 +444,7 @@ test('the exams panel stays inside the window at a narrow width', async ({ page 
   await page.setViewportSize({ width: 600, height: 700 });
   const exams = await connect(page, () => window.ProctorHarness.examFile({ file: 'midterm-b.md', valid: true, title: 'Midterm B', exercise_count: 4, slot_count: 2, navigation: 'free', duration_seconds: 3600, grace_seconds: 30, min_volume_percent: 70 }));
   await exams.getByRole('button', { name: 'Import exam…' }).click();
+  await confirmImportKind(page);
   await expect(exams).toContainText('Midterm B');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await exams.getByRole('button', { name: 'Publish Practice exam…' }).click();
@@ -448,6 +455,7 @@ test('the exams panel stays inside the window at a narrow width', async ({ page 
 test('row actions are icon-only buttons whose name and tooltip still say what they do to which exam', async ({ page }) => {
   const exams = await connect(page, () => window.ProctorHarness.examFile({ file: 'long.md', valid: true, title: 'Manual synthetic exam — no grading with a very long title indeed', exercise_count: 3, slot_count: 2, navigation: 'free', duration_seconds: 600, grace_seconds: 30, min_volume_percent: 80, opens_at: null, closes_at: null }));
   await exams.getByRole('button', { name: 'Import exam…' }).click();
+  await confirmImportKind(page);
   await page.getByLabel('Exam PIN').fill('p');
   await page.getByLabel('Exam PIN').press('Enter');
   const long = 'Manual synthetic exam — no grading with a very long title indeed';
@@ -1167,11 +1175,13 @@ test('the import preview and the exam row say which calculator the exam gives it
   // The import preview shows the calculator the file declares, with the defaults applied.
   const exams = await connect(page, () => window.ProctorHarness.examFile({ file: 'neural-b.md', valid: true, title: 'Neural B', exercise_count: 2, slot_count: 3, navigation: 'free', duration_seconds: 1800, grace_seconds: 30, min_volume_percent: 80, opens_at: null, closes_at: null, calculator: { modes: ['scientific', 'neural'], angle: 'rad', disabled: 1 } }));
   await exams.getByRole('button', { name: 'Import exam…' }).click();
+  await confirmImportKind(page);
   await expect(exams.getByRole('definition').filter({ hasText: 'scientific, neural · radians · 1 function disabled' })).toBeVisible();
   await exams.locator('.actions').getByRole('button', { name: 'Cancel', exact: true }).click();
   // A file without a calculator explicitly marks the summary row as unavailable.
   await connect(page, () => window.ProctorHarness.examFile({ file: 'plain.md', valid: true, title: 'Plain', exercise_count: 2, slot_count: 3, navigation: 'free', duration_seconds: 1800, grace_seconds: 30, min_volume_percent: 80, opens_at: null, closes_at: null }));
   await exams.getByRole('button', { name: 'Import exam…' }).click();
+  await confirmImportKind(page);
   await expect(exams.getByText('Calculator', { exact: true }).locator('..').getByRole('definition')).toHaveText('Not available');
   await exams.locator('.actions').getByRole('button', { name: 'Cancel', exact: true }).click();
   // Without scientific mode the angle setting has no effect, so it is not named.
@@ -1179,6 +1189,7 @@ test('the import preview and the exam row say which calculator the exam gives it
     const file = { file: 'modes.md', valid: true, title: 'Modes', exercise_count: 2, slot_count: 3, navigation: 'free', duration_seconds: 1800, grace_seconds: 30, min_volume_percent: 80, opens_at: null, closes_at: null, calculator: { modes, angle: 'user', disabled: modes.length === 2 ? 1 : 0 } };
     await connect(page, `window.ProctorHarness.examFile(${JSON.stringify(file)})`);
     await exams.getByRole('button', { name: 'Import exam…' }).click();
+    await confirmImportKind(page);
     await expect(exams.getByText('Calculator', { exact: true }).locator('..').getByRole('definition')).toHaveText(text.replace(/^Calculator: /, ''));
     await exams.locator('.actions').getByRole('button', { name: 'Cancel', exact: true }).click();
   }

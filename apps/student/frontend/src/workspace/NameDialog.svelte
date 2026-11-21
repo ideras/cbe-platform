@@ -1,11 +1,11 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import { nameProblem } from './paths.js';
   // Asks for a name: a new file, a new folder, or a new name for one. The name is checked here for what the agent would refuse, and
   // what the workspace says against it (a name that is taken) is shown under the field, where the student can change it.
   let { title, label, initial = '', confirmLabel, where = '', onSubmit, onCancel } = $props();
   let dialog, input;
-  let value = $state(initial);
+  let value = $state(untrack(() => initial));
   let problem = $state('');
   let busy = $state(false);
   onMount(() => {

@@ -28,8 +28,9 @@
 
   // What the exam's login window is doing now. The dialog opens for any published exam, whether or not students can start it.
   const NOW = { open: 'Admitting', 'not open yet': 'Waiting to open', closed: 'Login window closed', ended: 'Exam ended' };
-  const nowText = NOW[details.admission] ?? NOW.open;
-  const admitting = details.admission === 'open';
+  const admission = untrack(() => details.admission);
+  const nowText = NOW[admission] ?? NOW.open;
+  const admitting = admission === 'open';
   // The students of the class with no session in the exam, from the class's roster and the exam's sessions as they were when the
   // dialog opened. A roster that changed since students took it can leave more sessions than students: then there is no one to say.
   const notLoggedIn = untrack(() => details.klass?.class_id === exam.class_id ? Math.max(0, (details.klass.student_count ?? 0) - (exam.total_sessions ?? 0)) : 0);

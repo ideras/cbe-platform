@@ -251,7 +251,7 @@ func TestChosenExamIsCheckedByTheServerAndImportedExactlyOnce(t *testing.T) {
 	})
 	f.chosen = writeTemp(t, "midterm.md", append([]byte("\xef\xbb\xbf"), examDocument...))
 
-	preview, err := f.ChooseExam(classID)
+	preview, err := f.previewTraditionalFixture(classID)
 	if err != nil || !preview.Valid || preview.File != "midterm.md" || preview.Title != "Midterm" || preview.ExerciseCount != 2 || preview.SlotCount != 2 ||
 		preview.Points == nil || *preview.Points != 10 || preview.Navigation != "forward_only" || preview.Content.Instructions != "<p>Read carefully.</p>" ||
 		preview.DurationSeconds != 600 || preview.GraceSeconds != 30 || preview.MinVolumePercent != 80 || len(preview.Problems) != 0 {
@@ -269,17 +269,17 @@ func TestChosenExamIsCheckedByTheServerAndImportedExactlyOnce(t *testing.T) {
 		t.Fatal("previewing stored an exam")
 	}
 
-	if _, err := f.ImportExam(classID, " ", true); err == nil || len(f.server.seen("POST", examRoute)) != 1 {
+	if _, err := f.ImportExam(classID, f.importFixtureID(), " ", true); err == nil || len(f.server.seen("POST", examRoute)) != 1 {
 		t.Fatalf("imported without a PIN: %v", err)
 	}
 	// The preview belongs to the class it was made for.
-	if _, err := f.ImportExam(otherClass, "announced-pin", false); err == nil || !strings.Contains(err.Error(), "for this class") || len(f.server.seen("POST", "/admin/class/"+otherClass)) != 0 {
+	if _, err := f.ImportExam(otherClass, f.importFixtureID(), "announced-pin", false); err == nil || !strings.Contains(err.Error(), "for this class") || len(f.server.seen("POST", "/admin/class/"+otherClass)) != 0 {
 		t.Fatalf("imported a preview into another class: %v", err)
 	}
-	if _, err := f.ImportExam("nope", "announced-pin", false); err == nil {
+	if _, err := f.ImportExam("nope", f.importFixtureID(), "announced-pin", false); err == nil {
 		t.Fatal("imported into an invalid class")
 	}
-	result, err := f.ImportExam(classID, "announced-pin", false)
+	result, err := f.ImportExam(classID, f.importFixtureID(), "announced-pin", false)
 	if err != nil || result.ExamID != otherExam {
 		t.Fatalf("import = %+v, %v", result, err)
 	}
@@ -288,7 +288,7 @@ func TestChosenExamIsCheckedByTheServerAndImportedExactlyOnce(t *testing.T) {
 	if len(stored) != 2 || imported["pin"] != "announced-pin" || imported["navigation"] != "free" || !reflect.DeepEqual(imported["content"], checked["content"]) {
 		t.Fatalf("the imported exam differs from the previewed one: %s", stored[1].Body)
 	}
-	if _, err := f.ImportExam(classID, "announced-pin", false); err == nil || len(f.server.seen("POST", examRoute)) != 2 {
+	if _, err := f.ImportExam(classID, f.importFixtureID(), "announced-pin", false); err == nil || len(f.server.seen("POST", examRoute)) != 2 {
 		t.Fatalf("the same preview was imported twice: %v", err)
 	}
 }
@@ -296,7 +296,7 @@ func TestChosenExamIsCheckedByTheServerAndImportedExactlyOnce(t *testing.T) {
 func TestExamFileProblemsAreShownBeforeAnythingIsSent(t *testing.T) {
 	f := newPublishFixture(t, examID)
 	f.chosen = writeTemp(t, "broken.md", []byte("---\ntitle: x\npin: 1234\n---\n## One\n[a link](http://example.com) {{x}}\n"))
-	preview, err := f.ChooseExam(classID)
+	preview, err := f.previewTraditionalFixture(classID)
 	if err != nil || preview.Valid || len(preview.Problems) != 3 || !strings.Contains(preview.Problems[0], "line 3: the PIN does not belong in the exam file") ||
 		!strings.Contains(preview.Problems[1], "must set a duration") || !strings.Contains(preview.Problems[2], "line 6: links are not allowed") {
 		t.Fatalf("compile problems = %+v, %v", preview, err)
@@ -304,7 +304,7 @@ func TestExamFileProblemsAreShownBeforeAnythingIsSent(t *testing.T) {
 	if len(f.server.seen("POST", "/admin")) != 0 {
 		t.Fatal("a file that does not compile was sent to the server")
 	}
-	if _, err := f.ImportExam(classID, "p", false); err == nil {
+	if _, err := f.ImportExam(classID, f.importFixtureID(), "p", false); err == nil {
 		t.Fatal("an invalid file can be imported")
 	}
 
@@ -313,46 +313,46 @@ func TestExamFileProblemsAreShownBeforeAnythingIsSent(t *testing.T) {
 		return true
 	})
 	f.chosen = writeTemp(t, "invalid.md", []byte(examDocument))
-	preview, err = f.ChooseExam(classID)
+	preview, err = f.previewTraditionalFixture(classID)
 	if err != nil || preview.Valid || len(preview.Problems) != 2 || !strings.Contains(preview.Problems[1], "already used") {
 		t.Fatalf("server problems = %+v, %v", preview, err)
 	}
-	if _, err := f.ImportExam(classID, "p", false); err == nil {
+	if _, err := f.ImportExam(classID, f.importFixtureID(), "p", false); err == nil {
 		t.Fatal("an exam the server rejected can be imported")
 	}
 
 	for name, content := range map[string][]byte{"latin1.md": []byte("---\ntitle: caf\xe9\n---\n"), "huge.md": bytes.Repeat([]byte(" "), maxExamFile+1)} {
 		f.chosen = writeTemp(t, name, content)
-		if _, err := f.ChooseExam(classID); err == nil {
+		if _, err := f.previewTraditionalFixture(classID); err == nil {
 			t.Errorf("%s accepted", name)
 		}
 	}
 	f.chosen = filepath.Dir(f.chosen)
-	if _, err := f.ChooseExam(classID); err == nil {
+	if _, err := f.previewTraditionalFixture(classID); err == nil {
 		t.Error("a directory was accepted as an exam file")
 	}
-	if _, err := f.ChooseExam("nope"); err == nil {
+	if _, err := f.previewTraditionalFixture("nope"); err == nil {
 		t.Error("an exam was chosen for an invalid class")
 	}
 }
 
 func TestFileDialogCancellationFailureAndConcurrency(t *testing.T) {
 	f := newPublishFixture(t, examID)
-	if preview, err := f.ChooseExam(classID); err != nil || !preview.Cancelled || preview.Valid {
-		t.Fatalf("cancelled dialog = %+v, %v", preview, err)
+	if source, err := f.ChooseExamSource(classID); err != nil || !source.Cancelled || source.ID != "" {
+		t.Fatalf("cancelled dialog = %+v, %v", source, err)
 	}
 	if preview, err := f.ChooseClassFile(); err != nil || !preview.Cancelled {
 		t.Fatalf("cancelled class dialog = %+v, %v", preview, err)
 	}
 	f.chosen = "bad dialog"
-	if _, err := f.ChooseExam(classID); err == nil || strings.Contains(err.Error(), secret) {
+	if _, err := f.previewTraditionalFixture(classID); err == nil || strings.Contains(err.Error(), secret) {
 		t.Fatalf("dialog failure = %v", err)
 	}
 
 	entered, release := make(chan struct{}), make(chan struct{})
 	f.Service.opts.Choose = func(FileDialog) (string, error) { entered <- struct{}{}; <-release; return "", nil }
 	done := make(chan error, 1)
-	go func() { _, err := f.ChooseExam(classID); done <- err }()
+	go func() { _, err := f.previewTraditionalFixture(classID); done <- err }()
 	<-entered
 	if _, err := f.ChooseClassFile(); err == nil || !strings.Contains(err.Error(), "already open") {
 		t.Fatalf("second dialog = %v", err)
@@ -362,7 +362,7 @@ func TestFileDialogCancellationFailureAndConcurrency(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.Service.opts.Choose = nil
-	if _, err := f.ChooseExam(classID); err == nil {
+	if _, err := f.previewTraditionalFixture(classID); err == nil {
 		t.Fatal("a build without a file dialog offered one")
 	}
 }
@@ -378,14 +378,14 @@ func TestUnclearImportFailureTellsTheOperatorToLookBeforeRetrying(t *testing.T) 
 		return true
 	})
 	f.chosen = writeTemp(t, "midterm.md", []byte(examDocument))
-	if preview, err := f.ChooseExam(classID); err != nil || !preview.Valid {
+	if preview, err := f.previewTraditionalFixture(classID); err != nil || !preview.Valid {
 		t.Fatal(preview, err)
 	}
-	_, err := f.ImportExam(classID, "pin", true)
+	_, err := f.ImportExam(classID, f.importFixtureID(), "pin", true)
 	if err == nil || !strings.Contains(err.Error(), "Look at the exam list") || strings.Contains(err.Error(), secret) {
 		t.Fatalf("error = %v", err)
 	}
-	if _, err := f.ImportExam(classID, "pin", true); err == nil || len(f.server.seen("POST", examRoute)) != 2 {
+	if _, err := f.ImportExam(classID, f.importFixtureID(), "pin", true); err == nil || len(f.server.seen("POST", examRoute)) != 2 {
 		t.Fatal("the failed import was repeated without a new preview")
 	}
 }
@@ -785,10 +785,10 @@ func TestAnExamForAClassThatIsGoneSaysSo(t *testing.T) {
 		return true
 	})
 	f.chosen = writeTemp(t, "midterm.md", []byte(examDocument))
-	if preview, err := f.ChooseExam(classID); err != nil || !preview.Valid {
+	if preview, err := f.previewTraditionalFixture(classID); err != nil || !preview.Valid {
 		t.Fatal(preview, err)
 	}
-	if _, err := f.ImportExam(classID, "pin", false); err == nil || !strings.Contains(err.Error(), "class is no longer on the server") {
+	if _, err := f.ImportExam(classID, f.importFixtureID(), "pin", false); err == nil || !strings.Contains(err.Error(), "class is no longer on the server") {
 		t.Fatalf("error = %v", err)
 	}
 }
@@ -804,13 +804,13 @@ func TestAdministratorActionsNeedAConnection(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(s.ServiceShutdown)
-	if _, err := s.ChooseExam(classID); err == nil {
+	if _, err := s.previewTraditionalFixture(classID); err == nil {
 		t.Error("ChooseExam")
 	}
 	if _, err := s.ChooseClassFile(); err == nil {
 		t.Error("ChooseClassFile")
 	}
-	if _, err := s.ImportExam(classID, "pin", false); err == nil {
+	if _, err := s.ImportExam(classID, s.importFixtureID(), "pin", false); err == nil {
 		t.Error("ImportExam")
 	}
 	if _, err := s.CreateClass("Mathematics"); err == nil {

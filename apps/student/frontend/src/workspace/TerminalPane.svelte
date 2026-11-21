@@ -1,4 +1,5 @@
 <script>
+  import { untrack } from 'svelte';
   import Icon from '../../../../../shared/theme/Icon.svelte';
   import TerminalView from './TerminalView.svelte';
   import { MAX_TERMINALS } from './model.js';
@@ -14,7 +15,7 @@
 
   // A terminal that closes by itself (the student typed exit) takes the keyboard with it: it goes to the terminal that is in front now. (When it was
   // the last one the panel goes away and the page puts the keyboard in the editor.)
-  let counted = terminals.length;
+  let counted = untrack(() => terminals.length);
   $effect(() => {
     const now = terminals.length;
     if (now > 0 && now < counted) queueMicrotask(() => { if (!document.activeElement || document.activeElement === document.body) refs[activeTerm]?.focus(); });

@@ -22,7 +22,7 @@ The student app and proctor dashboard are native desktop applications. Each embe
 | --- | --- |
 | Backend and desktop services | Go; modules declare Go **1.26.8** |
 | HTTP server | Go standard library `net/http` |
-| Desktop framework | Wails **v3.0.0-beta.29** |
+| Desktop framework | Wails **v3.1.0** |
 | Frontends | Svelte **5.57.2**, JavaScript, Vite **8.3.4** |
 | Frontend toolchain | Node.js **22.22.3**, npm **11.17.0**, committed npm lockfiles |
 | Student code editor | CodeMirror 6 |

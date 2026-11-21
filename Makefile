@@ -1,7 +1,7 @@
 export GO111MODULE := on
 # Architecture of the Windows cross-build: amd64 or arm64.
 WINDOWS_ARCH ?= amd64
-WAILS := go run github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.29
+WAILS := go run github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0
 # The release stamped into the binaries: the tag, or the commit after it ("v0.15.0-3-g9f707df"). The desktop apps' Taskfiles
 # work it out the same way.
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)

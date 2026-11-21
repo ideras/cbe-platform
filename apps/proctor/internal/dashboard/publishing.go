@@ -40,7 +40,6 @@ type pendingFile struct {
 // the file dialog. Navigation is what the file asks for; the proctor may change it when importing. Content is the exam as
 // students will see it, for the proctor to read before importing.
 type ImportPreview struct {
-	Cancelled        bool            `json:"cancelled"`
 	File             string          `json:"file"`
 	Valid            bool            `json:"valid"`
 	Problems         []string        `json:"problems"`
@@ -239,46 +238,26 @@ func problems(err error) []string {
 	return nil
 }
 
-// ChooseExam lets the proctor pick an exam Markdown file to import into the class, compiles it, and shows what the server
-// makes of it, storing nothing. The file is kept for that class until ImportExam or DiscardImport.
-func (s *Service) ChooseExam(classID string) (ImportPreview, error) {
-	classID = strings.TrimSpace(classID)
-	if !validID(classID) {
-		return ImportPreview{Problems: []string{}}, errors.New("Class ID must be a canonical lowercase UUID.")
-	}
-	path, err := s.choose(FileDialog{Title: "Choose the exam file", FilterName: "Exam files (Markdown)", Pattern: "*.md"})
-	if err != nil {
-		return ImportPreview{Problems: []string{}}, err
-	}
-	if path == "" {
-		return ImportPreview{Cancelled: true, Problems: []string{}}, nil
-	}
+func (s *Service) prepareTraditionalExam(ctx context.Context, base, token, classID, path string) (ImportPreview, *traditionalImport, error) {
 	preview := ImportPreview{File: filepath.Base(path), Problems: []string{}}
 	data, err := readLocalFile(path, maxExamFile)
 	if err != nil {
-		return preview, err
+		return preview, nil, err
 	}
-	s.mu.Lock()
-	s.pendingExam, s.pendingExamClass, s.pendingExamSource = nil, "", nil
-	s.mu.Unlock()
 	// The pictures of the exam are the files next to it. They are embedded in the compiled exam, so nothing depends on the
 	// folder once the exam is imported.
 	exam, err := examdoc.CompileDir(data, filepath.Dir(path))
 	var compileProblems examdoc.Problems
 	if errors.As(err, &compileProblems) {
 		preview.Problems = compileProblems
-		return preview, nil
+		return preview, nil, nil
 	}
 	if err != nil {
-		return preview, err
+		return preview, nil, err
 	}
 	document, err := json.Marshal(exam)
 	if err != nil {
-		return preview, errors.New("The exam could not be prepared for the server.")
-	}
-	ctx, base, token, _, err := s.adminConnection()
-	if err != nil {
-		return preview, err
+		return preview, nil, errors.New("The exam could not be prepared for the server.")
 	}
 	var checked struct {
 		Title            string     `json:"title"`
@@ -294,12 +273,12 @@ func (s *Service) ChooseExam(classID string) (ImportPreview, error) {
 	if err := adminSend(ctx, s.client, base, token, http.MethodPost, "/admin/class/"+classID+"/exam?dry_run=true", "application/json", document, &checked); err != nil {
 		if found := problems(err); found != nil {
 			preview.Problems = found
-			return preview, nil
+			return preview, nil, nil
 		}
-		return preview, err
+		return preview, nil, err
 	}
 	if checked.Title == "" || checked.ExerciseCount != len(exam.Content.Exercises) || checked.SlotCount != exam.Content.SlotCount() || checked.DurationSeconds <= 0 {
-		return preview, errors.New("The server's check of the exam was invalid; nothing was imported.")
+		return preview, nil, errors.New("The server's check of the exam was invalid; nothing was imported.")
 	}
 	preview.Valid, preview.Navigation, preview.Content = true, exam.Navigation, exam.Content
 	preview.Title, preview.ExerciseCount, preview.SlotCount = checked.Title, checked.ExerciseCount, checked.SlotCount
@@ -312,24 +291,14 @@ func (s *Service) ChooseExam(classID string) (ImportPreview, error) {
 		effective := exam.Tools.Effective()
 		preview.Calculator = &CalculatorSummary{Modes: effective.Calculator.Modes, Angle: effective.Calculator.AngleMode, Disabled: len(effective.Calculator.DisabledFunctions), DisabledNames: effective.Calculator.DisabledFunctions}
 	}
-	s.mu.Lock()
-	s.pendingExam, s.pendingExamClass, s.pendingExamSource = &exam, classID, data
-	s.mu.Unlock()
-	return preview, nil
-}
-
-// DiscardImport forgets the file shown in the exam preview.
-func (s *Service) DiscardImport() {
-	s.mu.Lock()
-	s.pendingExam, s.pendingExamClass, s.pendingExamSource = nil, "", nil
-	s.mu.Unlock()
+	return preview, &traditionalImport{exam: exam, source: data}, nil
 }
 
 // ImportExam stores the previewed exam in the class it was previewed for, with the PIN students will log in with; the exam
 // belongs to that class from then on. forwardOnly closes each exercise to a student once they move on from it. It does not
 // publish the exam. The previewed file is used up whatever the server answers, so an unclear failure can never import the
 // same exam twice by accident.
-func (s *Service) ImportExam(classID, pin string, forwardOnly bool) (ImportResult, error) {
+func (s *Service) ImportExam(classID, selectionID, pin string, forwardOnly bool) (ImportResult, error) {
 	classID = strings.TrimSpace(classID)
 	if !validID(classID) {
 		return ImportResult{}, errors.New("Class ID must be a canonical lowercase UUID.")
@@ -341,18 +310,17 @@ func (s *Service) ImportExam(classID, pin string, forwardOnly bool) (ImportResul
 	if err != nil {
 		return ImportResult{}, err
 	}
-	s.mu.Lock()
-	pending, forClass, source := s.pendingExam, s.pendingExamClass, s.pendingExamSource
-	if forClass == classID {
-		s.pendingExam, s.pendingExamClass, s.pendingExamSource = nil, "", nil // used up here; a preview made for another class is left for that class
-	}
-	s.mu.Unlock()
 	defer s.endAction()
-	if pending == nil || forClass != classID {
+	s.mu.Lock()
+	draft := s.examImport
+	if draft == nil || draft.classID != classID || draft.id != selectionID || draft.traditional == nil {
+		s.mu.Unlock()
 		return ImportResult{}, errors.New("Choose an exam file for this class first.")
 	}
-	exam := *pending
-	exam.SourceMarkdown = string(source)
+	s.examImport = nil // used up here, even if the upload fails
+	s.mu.Unlock()
+	exam := draft.traditional.exam
+	exam.SourceMarkdown = string(draft.traditional.source)
 	exam.PIN, exam.Navigation = pin, examdoc.FreeNavigation
 	if forwardOnly {
 		exam.Navigation = examdoc.ForwardOnly

@@ -24,12 +24,12 @@
   // Many changes in a burst (a build writing files) are drawn once: `queued` says a drawing is coming (schedule, below).
   let queued = false;
   const model = new WorkspaceModel({
-    transport: makeTransport(api),
+    transport: untrack(() => makeTransport(api)), // one transport for the lifetime of the model
     notify: note => notify(note),
     onChange: () => schedule(),
   });
   // The exam starts with its instructions in front, across the editor: the first file opened goes beside them (model.openFile).
-  if (workspace.instructions) model.openInstructions();
+  if (untrack(() => workspace.instructions)) model.openInstructions();
   let snap = $state(model.snapshot());
   function schedule() {
     if (queued) return;
@@ -38,7 +38,7 @@
   }
   // What the editor's panes share about the open files (editor-store.js), and each pane's component, by the pane's id.
   const store = new EditorStore(model);
-  const editors = {};
+  const editors = $state({});
   // The keyboard goes to the editor of a pane (the one last used, by default). A pane just made is drawn at the next snapshot: it is waited for.
   async function focusEditor(index = model.activePane) {
     const pane = () => editors[model.panes[index]?.id];
@@ -377,6 +377,7 @@
       <div data-pane="tree" class="tree-box" bind:this={tree}>
         {#if workspace.todos.length}
           <!-- The splitter between the TODO list and the files sits on the line above the files. -->
+          <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions (A focusable ARIA window splitter supports arrow-key resize.) -->
           <div class="side-splitter across" class:dragging={todoDragging} role="separator" aria-orientation="horizontal" aria-label="Resize the TODO list"
             aria-controls="todo-panel" tabindex="0" aria-valuemin={Math.round(MIN_TODO * 100)} aria-valuemax={Math.round(MAX_TODO * 100)}
             aria-valuenow={Math.round(snap.todoShare * 100)} aria-valuetext="The TODO list takes at most {Math.round(snap.todoShare * 100)} percent of the height"
@@ -390,6 +391,7 @@
           onNew={(kind, folder) => { naming = { kind, folder }; }} onRename={path => { naming = { kind: 'rename', path, folder: dirname(path) }; }} onDelete={path => { deleting = path; }} />
       </div>
       <!-- The splitter between the column and the editor sits in the gap at the column's right. -->
+      <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions (A focusable ARIA window splitter supports arrow-key resize.) -->
       <div class="side-splitter upright" class:dragging={sideDragging} role="separator" aria-orientation="vertical" aria-label="Resize the left column"
         aria-controls="side-panel" tabindex="0" aria-valuemin={Math.round(MIN_SIDE * 100)} aria-valuemax={Math.round(MAX_SIDE * 100)} aria-valuenow={Math.round(sideNow * 100)}
         aria-valuetext="The left column takes {Math.round(sideNow * 100)} percent of the width"
@@ -419,8 +421,9 @@
            other goes keeps its editor and its text size. A click or the keyboard in a pane makes it the one last used. -->
       <div class="editors" class:two={twoPanes} bind:this={editorBox} style:--pane-columns={paneColumns}>
         {#each snap.panes as pane, index (pane.id)}
-          <div class="editor-box" data-pane="editor-{index}" onfocusin={() => model.usePane(index)} onpointerdown={() => model.usePane(index)}>
+          <div class="editor-box" role="group" aria-label={twoPanes ? (index === 0 ? 'Left editor pane' : 'Right editor pane') : 'Editor pane'} data-pane="editor-{index}" onfocusin={() => model.usePane(index)} onpointerdown={() => model.usePane(index)}>
             {#if index === 1}
+              <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions (A focusable ARIA window splitter supports arrow-key resize.) -->
               <div class="pane-splitter" class:dragging={paneDragging} role="separator" aria-orientation="vertical" aria-label="Resize the two panes of the editor" tabindex="0"
                 aria-valuemin={Math.round(MIN_PANE * 100)} aria-valuemax={Math.round(MAX_PANE * 100)} aria-valuenow={Math.round(snap.paneShare * 100)}
                 aria-valuetext="The left pane takes {Math.round(snap.paneShare * 100)} percent of the width"
@@ -441,6 +444,7 @@
       {#if terminalVisible}
         <!-- A separator that can be focused is a control (the ARIA pattern of a window splitter): the arrows move it, Home and End go to the largest and the smallest
              terminal, and Enter or a double click go back to the usual size. -->
+        <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions (A focusable ARIA window splitter supports arrow-key resize.) -->
         <div class="splitter" class:dragging role="separator" aria-orientation="horizontal" aria-label="Resize the terminals" aria-controls="terminal-panel" tabindex="0"
           aria-valuemin={Math.round(MIN_SHARE * 100)} aria-valuemax={Math.round(MAX_SHARE * 100)} aria-valuenow={Math.round(snap.terminalShare * 100)}
           aria-valuetext="The terminals take {Math.round(snap.terminalShare * 100)} percent of the height" title="Drag to resize the terminals, or use the up and down arrows. Double click: usual size"

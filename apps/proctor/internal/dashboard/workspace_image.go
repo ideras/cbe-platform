@@ -211,7 +211,6 @@ type WorkspacePreviewTodo struct {
 
 // WorkspacePreview is what compiling a chosen workspace package made of it. Nothing is stored on the server until ImportWorkspaceExam.
 type WorkspacePreview struct {
-	Cancelled       bool                   `json:"cancelled"`
 	Folder          string                 `json:"folder"`
 	Valid           bool                   `json:"valid"`
 	Problems        []string               `json:"problems"`
@@ -243,36 +242,21 @@ func plainText(fragment string) string {
 	return strings.TrimSpace(html.UnescapeString(tagPattern.ReplaceAllString(fragment, "")))
 }
 
-// ChooseWorkspaceExam lets the proctor pick the workspace.md of a package, compiles the package (its folder is the one that holds the file) and shows
-// what it made of it, storing nothing. The package is kept for that class until ImportWorkspaceExam or DiscardWorkspaceExam.
-func (s *Service) ChooseWorkspaceExam(classID string) (WorkspacePreview, error) {
-	empty := WorkspacePreview{Problems: []string{}, Todos: []WorkspacePreviewTodo{}, ImageWarnings: []string{}}
-	classID = strings.TrimSpace(classID)
-	if !validID(classID) {
-		return empty, errors.New("Class ID must be a canonical lowercase UUID.")
-	}
-	path, err := s.choose(FileDialog{Title: "Choose the workspace.md of the package", FilterName: "Workspace exam (workspace.md)", Pattern: "workspace.md"})
-	if err != nil {
-		return empty, err
-	}
-	if path == "" {
-		empty.Cancelled = true
-		return empty, nil
-	}
+func prepareWorkspaceExam(path string) (WorkspacePreview, *pendingWorkspace, error) {
 	dir := filepath.Dir(path)
-	preview := empty
-	preview.Folder = filepath.Base(dir)
-	s.mu.Lock()
-	s.pendingWorkspace, s.pendingWorkspaceClass = nil, ""
-	s.mu.Unlock()
+	preview := WorkspacePreview{Folder: filepath.Base(dir), Problems: []string{}, Todos: []WorkspacePreviewTodo{}, ImageWarnings: []string{}}
+	if filepath.Base(path) != workspaceManifest {
+		preview.Problems = []string{"A Workspace Exam requires the package’s workspace.md. Choose that file to preview the package."}
+		return preview, nil, nil
+	}
 	exam, bundles, err := examdoc.CompileWorkspaceDir(dir)
 	var compileProblems examdoc.Problems
 	if errors.As(err, &compileProblems) {
 		preview.Problems = compileProblems
-		return preview, nil
+		return preview, nil, nil
 	}
 	if err != nil {
-		return preview, err
+		return preview, nil, err
 	}
 	w := exam.Workspace
 	preview.Valid, preview.Title, preview.DurationSeconds, preview.Image, preview.Terminal = true, exam.Title, exam.DurationSeconds, w.Image, w.Terminal
@@ -291,23 +275,13 @@ func (s *Service) ChooseWorkspaceExam(classID string) (WorkspacePreview, error) 
 		preview.OwnImage, preview.ImageFiles = true, bundles.Image.Files
 		preview.ImageWarnings = append(preview.ImageWarnings, bundles.ImageWarnings...)
 	}
-	s.mu.Lock()
-	s.pendingWorkspace, s.pendingWorkspaceClass = &pendingWorkspace{exam: exam, bundles: bundles}, classID
-	s.mu.Unlock()
-	return preview, nil
-}
-
-// DiscardWorkspaceExam forgets the package shown in the workspace preview.
-func (s *Service) DiscardWorkspaceExam() {
-	s.mu.Lock()
-	s.pendingWorkspace, s.pendingWorkspaceClass = nil, ""
-	s.mu.Unlock()
+	return preview, &pendingWorkspace{exam: exam, bundles: bundles}, nil
 }
 
 // ImportWorkspaceExam stores the previewed package in the class it was previewed for, with the PIN students will log in with, and does not
 // publish it. The package is used up whatever the server answers, so an unclear failure can never import the same exam twice by accident. The
 // server checks everything again, and a refusal lists every problem it found.
-func (s *Service) ImportWorkspaceExam(classID, pin string) (ImportResult, error) {
+func (s *Service) ImportWorkspaceExam(classID, selectionID, pin string) (ImportResult, error) {
 	classID = strings.TrimSpace(classID)
 	if !validID(classID) {
 		return ImportResult{}, errors.New("Class ID must be a canonical lowercase UUID.")
@@ -319,16 +293,16 @@ func (s *Service) ImportWorkspaceExam(classID, pin string) (ImportResult, error)
 	if err != nil {
 		return ImportResult{}, err
 	}
-	s.mu.Lock()
-	pending, forClass := s.pendingWorkspace, s.pendingWorkspaceClass
-	if forClass == classID {
-		s.pendingWorkspace, s.pendingWorkspaceClass = nil, ""
-	}
-	s.mu.Unlock()
 	defer s.endAction()
-	if pending == nil || forClass != classID {
+	s.mu.Lock()
+	draft := s.examImport
+	if draft == nil || draft.classID != classID || draft.id != selectionID || draft.workspace == nil {
+		s.mu.Unlock()
 		return ImportResult{}, errors.New("Choose a workspace package for this class first.")
 	}
+	s.examImport = nil
+	s.mu.Unlock()
+	pending := draft.workspace
 	exam := pending.exam
 	exam.PIN = pin
 	document, err := json.Marshal(exam)

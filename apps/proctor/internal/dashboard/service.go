@@ -13,7 +13,6 @@ import (
 	"unicode/utf8"
 
 	"exam-platform/shared/clientwire"
-	"exam-platform/shared/examdoc"
 )
 
 type Options struct {
@@ -137,22 +136,15 @@ type Service struct {
 	tokenNote string
 	// autoSelect picks the published exam once the catalog arrives, until the operator picks one.
 	autoSelect bool
-	// picking is set while a native file dialog is open; pendingExam and pendingClass hold what a preview showed. The exam was
-	// previewed for the class pendingExamClass, which is the one it is imported into.
+	// picking is set while a native file dialog is open.
 	picking bool
 	// notWorkspace remembers the exams the server said are not workspace exams, so their roster is not asked for again.
-	notWorkspace     map[string]bool
-	pendingExam      *examdoc.Exam
-	pendingExamClass string
-	// pendingWorkspace is the workspace package a preview showed, for the class pendingWorkspaceClass (Phase 7).
-	pendingWorkspace      *pendingWorkspace
-	pendingWorkspaceClass string
-	pendingClass          *pendingFile
+	notWorkspace map[string]bool
+	examImport   *examImportDraft
+	pendingClass *pendingFile
 	// pendingRoster is the file previewed as the new roster of the existing class pendingRosterClass.
 	pendingRoster      *pendingFile
 	pendingRosterClass string
-	// pendingExamSource is the Markdown the previewed exam was compiled from; ImportExam sends it to the server.
-	pendingExamSource []byte
 	// downloadParent is the parent folder the proctor chose for the output folder; downloadFolder is the folder of the last
 	// download that wrote at least one student's file, which OpenDownloadFolder opens. downloadProgress is read while a
 	// download runs.
@@ -205,9 +197,8 @@ func (s *Service) ServiceShutdown() {
 	}
 	s.token, s.credentialFile, s.pendingCredential = "", "", nil
 	s.opts.Token = ""
-	s.pendingExam, s.pendingExamClass, s.pendingClass, s.pendingRoster, s.pendingRosterClass = nil, "", nil, nil, ""
-	s.pendingWorkspace, s.pendingWorkspaceClass = nil, ""
-	s.pendingExamSource, s.downloadParent, s.downloadFolder = nil, "", ""
+	s.examImport, s.pendingClass, s.pendingRoster, s.pendingRosterClass = nil, nil, nil, ""
+	s.downloadParent, s.downloadFolder = "", ""
 	s.downloadProgress = DownloadProgress{}
 	s.view.Connected = false
 	s.view.Stale = true
@@ -323,7 +314,7 @@ func (s *Service) connect(server string) error {
 		s.pendingCredential = nil
 	}
 	s.tokenNote = ""
-	s.pendingExam, s.pendingExamClass, s.pendingClass, s.pendingRoster, s.pendingRosterClass = nil, "", nil, nil, ""
+	s.examImport, s.pendingClass, s.pendingRoster, s.pendingRosterClass = nil, nil, nil, ""
 	s.autoSelect = s.opts.ExamID == ""
 	observation := s.view.Observation
 	s.view = View{Observation: observation, Server: normalized, ExamID: s.opts.ExamID, CredentialAvailable: true, Connected: true, Loading: true, Stale: true, Catalog: catalog, CatalogLoaded: true}
@@ -373,7 +364,7 @@ func (s *Service) Disconnect() (View, error) {
 	s.epoch++
 	s.link++
 	s.autoSelect = false
-	s.pendingExam, s.pendingExamClass, s.pendingClass, s.pendingRoster, s.pendingRosterClass = nil, "", nil, nil, ""
+	s.examImport, s.pendingClass, s.pendingRoster, s.pendingRosterClass = nil, nil, nil, ""
 	observation := s.view.Observation
 	s.view = View{Observation: observation, Server: s.view.Server, ExamID: s.opts.ExamID, CredentialAvailable: s.token != "" || s.opts.Token != "", Stale: true}
 	s.mu.Unlock()

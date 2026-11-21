@@ -10,7 +10,7 @@ import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parents[2]
-WAILS = "github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.29"
+WAILS = "github.com/wailsapp/wails/v3/cmd/wails3@v3.1.0"
 
 
 def run(args, *, cwd=ROOT, env=None, capture=False):

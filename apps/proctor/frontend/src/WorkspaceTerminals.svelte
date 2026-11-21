@@ -13,7 +13,7 @@
   let replay = $state(null); // { id, title, text }
   let loading = $state(false);
   let problem = $state('');
-  let box; // the replay's place under the grid
+  let box = $state(); // the replay's place under the grid
   const rowNodes = {};
   let alive = true;
   let asked = 0;
