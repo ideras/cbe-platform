@@ -63,23 +63,25 @@
   {#if active?.exited}<p class="ended" role="status">{active.title} {ending(active)}.</p>{/if}
 </section>
 <style>
-  .terminals { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-height: 0; min-width: 0; background: var(--bg-raised); border: 1px solid var(--border-subtle); border-radius: var(--radius-ctl); overflow: hidden; }
-  .tabbar { display: flex; align-items: stretch; background: var(--bg-secondary); border-bottom: 1px solid var(--border-subtle); min-height: 2.1rem; }
+  /* The terminals are dark (the owner's mock): the ground, the tab row and their text are the theme's --term-* tokens. */
+  .terminals { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-height: 0; min-width: 0; background: var(--term-ground); border: 1px solid var(--term-head); border-radius: var(--radius-ctl); overflow: hidden; }
+  .tabbar { display: flex; align-items: stretch; background: var(--term-head); min-height: 2.1rem; }
   .tabs { display: flex; flex: 1 1 auto; align-items: stretch; gap: 1px; min-width: 0; overflow-x: auto; }
-  .tab { display: inline-flex; align-items: center; flex: none; gap: .25rem; margin: 0; padding: .35rem .5rem .35rem .7rem; border: 0; border-bottom: 3px solid var(--transparent); border-radius: 0; background: var(--bg-secondary); box-shadow: none; color: var(--text-main); font-size: var(--text-sm); }
-  .tab.front { background: var(--bg-raised); border-bottom-color: var(--action-primary); font-weight: 700; }
-  .tab:focus-visible, .tool:focus-visible { outline: 2px solid var(--action-primary); outline-offset: -2px; }
-  .close { display: inline-flex; padding: .1rem; border-radius: 4px; color: var(--text-muted); }
-  .close:hover { color: var(--alert-text); background: var(--hover-fill); }
-  .tool { flex: none; margin: 0; padding: .25rem .6rem; border: 0; border-radius: 0; background: var(--transparent); box-shadow: none; color: var(--text-main); }
+  .tab { display: inline-flex; align-items: center; flex: none; gap: .25rem; margin: 0; padding: .35rem .5rem .35rem .7rem; border: 0; border-top: 2px solid var(--transparent); border-radius: 0; background: var(--term-head); box-shadow: none; color: var(--term-dim); font-size: var(--text-sm); font-weight: 600; }
+  .tab:hover { color: var(--on-dark); }
+  .tab.front { background: var(--term-ground); border-top-color: var(--accent-cyan); color: var(--on-dark); font-weight: 700; }
+  .tab:focus-visible, .tool:focus-visible, .zoom button:focus-visible { outline: 2px solid var(--term-cursor); outline-offset: -2px; }
+  .close { display: inline-flex; padding: .1rem; border-radius: 4px; color: var(--term-dim); }
+  .close:hover { color: var(--on-dark); background: var(--term-selection); }
+  .tool { flex: none; margin: 0; padding: .25rem .6rem; border: 0; border-radius: 0; background: var(--transparent); box-shadow: none; color: var(--term-dim); }
+  .tool:hover:not(:disabled), .zoom button:hover:not(:disabled) { color: var(--on-dark); }
   .tool:disabled { opacity: .45; }
   .zoom { display: flex; flex: none; align-items: stretch; }
-  .zoom button { margin: 0; padding: .25rem .5rem; border: 0; border-radius: 0; background: var(--transparent); box-shadow: none; color: var(--text-main); font-size: var(--text-sm); font-weight: 700; }
+  .zoom button { margin: 0; padding: .25rem .5rem; border: 0; border-radius: 0; background: var(--transparent); box-shadow: none; color: var(--term-dim); font-size: var(--text-sm); font-weight: 700; }
   .zoom button:disabled { opacity: .45; }
-  .zoom button:focus-visible { outline: 2px solid var(--action-primary); outline-offset: -2px; }
-  .mark { margin-left: .35rem; color: var(--ok-text); }
-  .mark.bad { color: var(--alert-text); }
+  .mark { margin-left: .35rem; color: var(--term-green); }
+  .mark.bad { color: var(--term-red); }
   .hide :global(svg) { transform: rotate(90deg); }
   .views, .slot { min-height: 0; height: 100%; }
-  .ended { margin: 0; padding: .3rem .75rem; border-top: 1px solid var(--border-subtle); color: var(--text-muted); font-size: var(--text-sm); }
+  .ended { margin: 0; padding: .3rem .75rem; border-top: 1px solid var(--term-head); background: var(--term-ground); color: var(--term-dim); font-size: var(--text-sm); }
 </style>

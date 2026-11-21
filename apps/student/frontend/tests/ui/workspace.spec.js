@@ -359,6 +359,27 @@ test('a splitter shares the width between the two panes, with the pointer and th
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
+test('the terminals are dark: the navy ground of the theme and sidebar text, in xterm and around it, and no critical accessibility problem', async ({ page }) => {
+  await start(page);
+  await openFile(page, 'notes.txt');
+  await openTerminal(page);
+  await page.getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'Run output' })).toBeVisible();
+  const token = name => page.evaluate(value => { const probe = document.createElement('i'); probe.style.color = `var(${value})`; document.body.append(probe); const color = getComputedStyle(probe).color; probe.remove(); return color; }, name);
+  const ground = await token('--term-ground');
+  expect(ground).toBe('rgb(10, 35, 66)'); // the navy of the text
+  const background = selector => page.locator(selector).first().evaluate(element => getComputedStyle(element).backgroundColor);
+  expect(await background('.terminal-box .xterm-viewport')).toBe(ground);
+  expect(await background('.terminal-box .terminal')).toBe(ground);
+  // The tab in front is light on the ground; the others dim on the deeper tab row.
+  const front = page.getByRole('tab', { name: /^Run/ });
+  expect(await front.evaluate(element => getComputedStyle(element).backgroundColor)).toBe(ground);
+  expect(await front.evaluate(element => getComputedStyle(element).color)).toBe(await token('--on-dark'));
+  const result = await new AxeBuilder({ page }).include('#terminal-panel').analyze();
+  const serious = result.violations.filter(violation => ['critical', 'serious'].includes(violation.impact));
+  expect(serious.map(v => `${v.impact} ${v.id}: ${v.nodes.map(n => n.target.join(' ')).join(' | ')}`)).toEqual([]);
+});
+
 test('Run and Check show their output in terminals of their own, after saving the files', async ({ page }) => {
   await start(page);
   const editor = await openSrc(page);

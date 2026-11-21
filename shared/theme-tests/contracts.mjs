@@ -212,6 +212,10 @@ export function registerThemeTests() {
       ['bg-primary', 'text-muted'], ['action-hover', 'bg-primary'], ['ok-text', 'bg-primary'],
       // The Settings page: its bar of unsaved changes (light text on the dark bar), and the timelines' labels on the canvas.
       ['bg-primary', 'text-main'], ['side-text', 'text-main'], ['warn-text', 'bg-primary'],
+      // The student's dark terminal: its text, its sixteen ANSI colors and its marks on the ground, the text on a selection, and its tab row.
+      ...['term-text', 'term-dim', 'term-cursor', ...['black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white']
+        .flatMap(name => [`term-${name}`, `term-bright-${name}`])].map(fg => [fg, 'term-ground']),
+      ['term-text', 'term-selection'], ['on-dark', 'term-head'], ['term-dim', 'term-head'], ['term-green', 'term-head'], ['term-red', 'term-head'],
     ];
     for (const [fg, bg] of pairs) {
       const ratio = contrast(color(`--${fg}`), color(`--${bg}`));
