@@ -33,8 +33,8 @@ type SessionTransaction interface {
 	AddExamGrace(context.Context, string, int64) error
 	// CurrentExam is the exam the proctor published and the class admitted to it, or "" for both when admission is closed.
 	CurrentExam(context.Context) (string, string, error)
-	// StudentInClass says whether the account belongs to the class.
-	StudentInClass(ctx context.Context, classID, account string) (bool, error)
+	// ClassStudentName returns the roster name, or domain.ErrNotFound when the account is not in the class.
+	ClassStudentName(ctx context.Context, classID, account string) (string, error)
 	SessionByAccount(context.Context, string, string) (domain.Session, error)
 	SessionByToken(context.Context, string) (domain.Session, error)
 	InsertSession(context.Context, domain.Session) error
@@ -120,11 +120,13 @@ func NewSessionsWithLimits(repository SessionRepository, clock clock.Clock, limi
 }
 
 type LoginResult struct {
-	Policy     ClientPolicy
-	Token      string
-	SessionID  string
-	DeadlineAt time.Time
-	ServerTime time.Time
+	Policy        ClientPolicy
+	Token         string
+	SessionID     string
+	AccountNumber string
+	StudentName   string
+	DeadlineAt    time.Time
+	ServerTime    time.Time
 	// MinVolumePercent is the exam's required minimum system volume (0 = leave the student's volume alone).
 	MinVolumePercent int
 	// Locked says that the session is locked, since when and why; nil while it is not.
@@ -201,13 +203,16 @@ func (s *Sessions) Login(ctx context.Context, accountNumber, pin string) (LoginR
 		if err != nil {
 			return err
 		}
-		active, err := tx.StudentInClass(ctx, classID, accountNumber)
+		expected, provided := sha256.Sum256([]byte(exam.PIN)), sha256.Sum256([]byte(pin))
+		if subtle.ConstantTimeCompare(expected[:], provided[:]) != 1 {
+			return ErrInvalidCredentials
+		}
+		studentName, err := tx.ClassStudentName(ctx, classID, accountNumber)
+		if errors.Is(err, domain.ErrNotFound) {
+			return ErrInvalidCredentials
+		}
 		if err != nil {
 			return err
-		}
-		expected, provided := sha256.Sum256([]byte(exam.PIN)), sha256.Sum256([]byte(pin))
-		if subtle.ConstantTimeCompare(expected[:], provided[:]) != 1 || !active {
-			return ErrInvalidCredentials
 		}
 		session, err := tx.SessionByAccount(ctx, accountNumber, exam.ID)
 		resumed := err == nil
@@ -293,7 +298,9 @@ func (s *Sessions) Login(ctx context.Context, accountNumber, pin string) (LoginR
 		if principal.Locked, err = lockInfoForStudent(ctx, tx, principal.Session); err != nil {
 			return err
 		}
-		result = LoginResult{Policy: principal.Policy, Token: session.Token, SessionID: session.ID, DeadlineAt: deadline, ServerTime: now, MinVolumePercent: exam.MinVolumePercent, Locked: principal.Locked, NetworkLocksLeft: NetworkLocksLeft(principal.Session), RemoteTools: domain.DefaultRemoteTools()}
+		result = LoginResult{Policy: principal.Policy, Token: session.Token, SessionID: session.ID,
+			AccountNumber: session.AccountNumber, StudentName: studentName, DeadlineAt: deadline, ServerTime: now,
+			MinVolumePercent: exam.MinVolumePercent, Locked: principal.Locked, NetworkLocksLeft: NetworkLocksLeft(principal.Session), RemoteTools: domain.DefaultRemoteTools()}
 		return nil
 	})
 	if err != nil {

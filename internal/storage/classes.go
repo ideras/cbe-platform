@@ -115,10 +115,14 @@ func (s *Store) ClassStudents(ctx context.Context, id string) ([]domain.Student,
 	return students, rows.Err()
 }
 
-func (t *sessionTransaction) StudentInClass(ctx context.Context, classID, account string) (bool, error) {
-	var member bool
-	err := t.tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM class_students WHERE class_id = ? AND account_number = ?)`, classID, account).Scan(&member)
-	return member, err
+func (t *sessionTransaction) ClassStudentName(ctx context.Context, classID, account string) (string, error) {
+	var name string
+	err := t.tx.QueryRowContext(ctx, `SELECT s.name FROM class_students cs
+		JOIN students s ON s.account_number = cs.account_number WHERE cs.class_id = ? AND cs.account_number = ?`, classID, account).Scan(&name)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", domain.ErrNotFound
+	}
+	return name, err
 }
 
 func (t *publishTransaction) Class(ctx context.Context, id string) (domain.Class, error) {

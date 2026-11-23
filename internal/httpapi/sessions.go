@@ -33,11 +33,13 @@ type loginRequest struct {
 }
 
 type loginResponse struct {
-	Policy       service.ClientPolicy `json:"telemetry_policy"`
-	SessionToken string               `json:"session_token"`
-	SessionID    string               `json:"session_id"`
-	DeadlineAt   time.Time            `json:"deadline_at"`
-	ServerTime   time.Time            `json:"server_time"`
+	Policy        service.ClientPolicy `json:"telemetry_policy"`
+	SessionToken  string               `json:"session_token"`
+	SessionID     string               `json:"session_id"`
+	AccountNumber string               `json:"account_number"`
+	StudentName   string               `json:"student_name"`
+	DeadlineAt    time.Time            `json:"deadline_at"`
+	ServerTime    time.Time            `json:"server_time"`
 	// MinVolumePercent is the exam's minimum system volume for the student application; 0 means leave it alone.
 	MinVolumePercent int `json:"min_volume_percent"`
 	// Locked says that the exam is locked, since when and why; null while it is not.
@@ -85,7 +87,9 @@ func loginHandler(sessions SessionAPI, logger *slog.Logger, workspaces Workspace
 			// A workspace exam's container is made now, while the student reads the rules, not when they first need it.
 			workspaces.OnLogin(result.SessionID)
 		}
-		writeJSON(w, http.StatusOK, loginResponse{Policy: result.Policy, SessionToken: result.Token, SessionID: result.SessionID, DeadlineAt: result.DeadlineAt, ServerTime: result.ServerTime, MinVolumePercent: result.MinVolumePercent, Locked: result.Locked, NetworkLocksLeft: result.NetworkLocksLeft, RemoteTools: result.RemoteTools})
+		writeJSON(w, http.StatusOK, loginResponse{Policy: result.Policy, SessionToken: result.Token, SessionID: result.SessionID,
+			AccountNumber: result.AccountNumber, StudentName: result.StudentName, DeadlineAt: result.DeadlineAt, ServerTime: result.ServerTime,
+			MinVolumePercent: result.MinVolumePercent, Locked: result.Locked, NetworkLocksLeft: result.NetworkLocksLeft, RemoteTools: result.RemoteTools})
 	}
 }
 

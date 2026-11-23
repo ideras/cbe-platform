@@ -226,6 +226,9 @@ func TestRealServerClientResumeSubmitAndForce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if initial.Account != "00123" || initial.StudentName != "One" {
+		t.Fatalf("login identity = %q, %q", initial.Account, initial.StudentName)
+	}
 	update(t, first, "acknowledged π\nline two", 1)
 	saved := waitView(t, first, func(v View) bool { return v.AcknowledgedRevision == 1 })
 	_ = first.ServiceShutdown()
@@ -238,6 +241,9 @@ func TestRealServerClientResumeSubmitAndForce(t *testing.T) {
 	}
 	if !resumed.Status.DeadlineAt.Equal(initial.Status.DeadlineAt) || resumed.Answers["q1"] != "acknowledged π\nline two" || resumed.Saved.Sequence != saved.Saved.Sequence {
 		t.Fatal("restart did not restore acknowledged work and fixed deadline")
+	}
+	if view := second.Snapshot(); view.Account != "00123" || view.StudentName != "One" {
+		t.Fatalf("resume snapshot identity = %q, %q", view.Account, view.StudentName)
 	}
 	_, err = second.Submit(map[string]string{"q1": "latest visible text", "q2": "debounce never fired"}, 1)
 	if err != nil {

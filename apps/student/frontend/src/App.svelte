@@ -312,8 +312,8 @@
 {/snippet}
 <main class:wide={workspaceShown}>
   {#if view.phase !== 'login' && view.phase !== 'loading'}
-    <ExamToolbar title={workspace?.title || exam?.title || 'Exam'} position={exercises.length ? `Exercise ${page + 1} of ${exercises.length}` : ''}
-      status={view.status} statusObservation={view.status_observation} ageMillis={view.status_age_millis ?? 0}
+    <ExamToolbar title={workspace?.title || exam?.title || 'Exam'} studentName={view.student_name} account={view.account}
+      position={exercises.length ? `Exercise ${page + 1} of ${exercises.length}` : ''} status={view.status} statusObservation={view.status_observation} ageMillis={view.status_age_millis ?? 0}
       stale={view.timing_stale || !!bridgeError} locked={examLocked} complete={view.phase === 'complete'}
       saveText={workspace ? '' : view.save_error ? 'Not saved' : view.save_state === 'saving' || revision > view.acknowledged_revision ? 'Saving…' : 'Saved'}
       {scaleIndex} onSmaller={() => changeScale(-1)} onLarger={() => changeScale(1)} calculator={calcAvailable} onCalculator={openCalculator} bind:calcButton

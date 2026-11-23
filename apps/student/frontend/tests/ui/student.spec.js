@@ -14,6 +14,15 @@ async function login(page) {
   await page.getByRole('button', { name: 'Login / resume' }).click();
 }
 
+test('the exam header shows the roster name and full account number on a narrow screen', async ({ page }) => {
+  await page.setViewportSize({ width: 460, height: 800 });
+  await page.goto('/');
+  await expect(page.getByText('Ada María Lovelace')).toHaveCount(0);
+  await login(page);
+  const toolbar = page.getByLabel('Exam toolbar');
+  await expect(toolbar.getByText('Ada María Lovelace · Account 00123', { exact: true })).toBeVisible();
+});
+
 test('local editor assets, safe exam text, rapid exercise switches, and latest visible submit', async ({ page }) => {
   const external = []; const errors = [];
   page.on('pageerror', error => errors.push(error.message));

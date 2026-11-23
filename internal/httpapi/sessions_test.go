@@ -375,6 +375,9 @@ func TestRealHTTPLoginAndResumeFlow(t *testing.T) {
 		if response.StatusCode != http.StatusOK {
 			t.Fatalf("login = %d", response.StatusCode)
 		}
+		if result.AccountNumber != "0012" || result.StudentName != "Ada" {
+			t.Fatalf("login identity = %q, %q", result.AccountNumber, result.StudentName)
+		}
 		return result
 	}
 	first := login()
