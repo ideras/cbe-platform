@@ -5,22 +5,29 @@
   // is never abandoned by accident. Focus returns to whatever opened it. closeLabel is what the X says it does, for a dialog where
   // "Close" could be taken for the thing the dialog asks about. The tone `deep alarm` is the framed dialog of an
   // irreversible action: an alert-colored header, and a click on the backdrop nudges the dialog instead of doing nothing.
-  let { title, titleId = 'modal-title', tone = '', subtitle = '', eyebrow = '', icon = '', busy = false, onClose, children, footer, headerDetails, resizable = false, width = '34rem', closeLabel = 'Close' } = $props();
+  let { title, titleId = 'modal-title', tone = '', subtitle = '', eyebrow = '', icon = '', busy = false, onClose, children, footer, headerDetails, resizable = false, width = '34rem', closeLabel = 'Close', lightDismiss = false } = $props();
   let dialog;
   onMount(() => {
     const previous = document.activeElement;
     dialog.showModal();
     // A click on the backdrop is delivered to the dialog element itself; one inside its box lands on something it holds.
-    const nudge = event => {
+    const outside = event => {
       const box = dialog.getBoundingClientRect();
-      const inside = event.clientX >= box.left && event.clientX <= box.right && event.clientY >= box.top && event.clientY <= box.bottom;
-      if (inside || !tone.split(' ').includes('alarm')) return;
+      return event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom;
+    };
+    let startedOutside = false;
+    const rememberStart = event => { startedOutside = event.target === dialog && outside(event); };
+    const nudge = event => {
+      if (!outside(event)) return;
+      if (lightDismiss && startedOutside && !busy && event.target === dialog) { onClose(); return; }
+      if (!tone.split(' ').includes('alarm')) return;
       dialog.classList.remove('nudge');
       void dialog.offsetWidth; // restart the animation when the backdrop is clicked again
       dialog.classList.add('nudge');
     };
+    dialog.addEventListener('pointerdown', rememberStart);
     dialog.addEventListener('click', nudge);
-    return () => { dialog.removeEventListener('click', nudge); previous?.focus?.(); };
+    return () => { dialog.removeEventListener('pointerdown', rememberStart); dialog.removeEventListener('click', nudge); previous?.focus?.(); };
   });
 </script>
 <dialog bind:this={dialog} class={tone} class:with-footer={footer} class:resizable style:--modal-width={width} oncancel={event => { event.preventDefault(); if (!busy) onClose(); }} aria-labelledby={titleId}>

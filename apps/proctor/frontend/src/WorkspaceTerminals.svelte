@@ -1,22 +1,25 @@
 <script>
   import { onMount, tick } from 'svelte';
   import * as api from '$proctor-api';
+  import Icon from '../../../../shared/theme/Icon.svelte';
   import TranscriptPlayer from './TranscriptPlayer.svelte';
-  import { localDateTime } from './dates.js';
+  import { localDateTime, localTime } from './dates.js';
   import { kindLabel, endText, sizeText } from './workspace.js';
 
   // The transcripts of a student's terminals, as a grid whose rows are chosen: the chosen row's transcript is replayed under the grid,
   // and the window is scrolled to it (it is under a grid that may fill the window, and a replay that is out of sight looks like nothing
   // happened). What the programs printed is the student's text: the player draws it as text, never as markup.
-  let { workspace } = $props();
+  let { workspace, copy } = $props();
   let selectedId = $state(null);
   let replay = $state(null); // { id, title, text }
   let loading = $state(false);
   let problem = $state('');
   let box = $state(); // the replay's place under the grid
-  const rowNodes = {};
+  const rowNodes = $state({});
   let alive = true;
   let asked = 0;
+  let playerKey = $state(0);
+  let speed = $state(1);
 
   const terminals = $derived(workspace.terminals);
   // The row in the tab order: the chosen one, or the first.
@@ -24,7 +27,7 @@
 
   async function select(terminal) {
     selectedId = terminal.id; problem = '';
-    if (replay?.id === terminal.id) { reveal(); return; }
+    if (replay?.id === terminal.id) { playerKey += 1; reveal(); return; }
     const mine = ++asked;
     replay = null; loading = true;
     try {
@@ -62,14 +65,17 @@
 </script>
 
 {#if terminals.length}
-  <p class="muted">Choose a terminal to replay what it showed.</p>
+  <p class="review-hint"><Icon name="info" size={14} />Pick a terminal to replay what it showed.</p>
   <table class="terminals" role="grid" aria-label="Transcripts of the student's terminals">
     <thead><tr><th scope="col">Terminal</th><th scope="col">Started</th><th scope="col">How it ended</th><th scope="col">Output</th></tr></thead>
     <tbody>{#each terminals as terminal, index (terminal.id)}
       <!-- A row of a grid is chosen by click, Enter or Space; the arrow keys move between rows. -->
       <tr bind:this={rowNodes[terminal.id]} class:chosen={selectedId === terminal.id} aria-selected={selectedId === terminal.id} tabindex={entry === terminal.id ? 0 : -1}
         onclick={() => select(terminal)} onkeydown={event => keys(event, index)}>
-        <td>{kindLabel(terminal.kind)}</td><td>{localDateTime(terminal.started_at)}</td><td>{endText(terminal)}</td><td>{sizeText(terminal.bytes)}{terminal.truncated ? ' (cut at the limit)' : ''}</td>
+        <td><span class="terminal-kind"><span class="kind-icon" class:check={terminal.kind === 'check'}><Icon name={terminal.kind === 'check' ? 'check' : 'terminal'} size={14} /></span>{kindLabel(terminal.kind)}</span></td>
+        <td class="when mono" title={localDateTime(terminal.started_at)}>{localTime(terminal.started_at)}</td>
+        <td><span class="review-pill {terminal.ended_at && terminal.exit_code != null ? terminal.exit_code === 0 ? 'ok' : 'alert' : ''}">{endText(terminal)}</span></td>
+        <td class="size mono">{#if terminal.truncated}<span class="review-pill warn" title="Output was cut at the limit" aria-label="cut at the limit">cut</span>{/if} {sizeText(terminal.bytes)}</td>
       </tr>
     {/each}</tbody>
   </table>
@@ -77,20 +83,28 @@
     <div class="replay" bind:this={box}>
       {#if problem}<p role="alert" class="problem">{problem}</p>{/if}
       {#if loading}<p class="muted" role="status">Reading the transcript…</p>{/if}
-      {#if replay}{#key replay.id}<TranscriptPlayer title={replay.title} text={replay.text} onClose={close} />{/key}{/if}
+      {#if replay}{#key playerKey}<TranscriptPlayer title={replay.title} text={replay.text} {copy} bind:speed onClose={close} />{/key}{/if}
     </div>
   {/if}
 {:else}<p class="muted">The student has not opened a terminal, or run anything.</p>{/if}
 
 <style>
   .problem { color: var(--alert-text); }
-  .terminals { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
-  .terminals th, .terminals td { padding: .45rem .6rem; text-align: left; border-bottom: 1px solid var(--border-subtle); }
-  .terminals th { color: var(--action-hover); font-size: var(--text-xs); letter-spacing: .06em; text-transform: uppercase; }
+  .terminals { width: 100%; border-collapse: separate; border-spacing: 0 5px; font-size: inherit; }
+  thead { position: absolute; width: 1px; height: 1px; clip-path: inset(50%); overflow: hidden; }
+  td { padding: .45rem .65rem; text-align: left; border-block: 1px solid var(--border-subtle); background: var(--bg-primary); }
+  td:first-child { border-inline-start: 1px solid var(--border-subtle); border-radius: 9px 0 0 9px; }
+  td:last-child { border-inline-end: 1px solid var(--border-subtle); border-radius: 0 9px 9px 0; }
   .terminals tbody tr { cursor: pointer; }
-  .terminals tbody tr:hover { background: var(--hover-fill); }
-  .terminals tbody tr.chosen { background: var(--selection-fill); font-weight: 700; box-shadow: inset 4px 0 0 var(--action-primary); }
-  .terminals tbody tr:focus-visible { outline: 2px solid var(--action-primary); outline-offset: -2px; }
+  .terminals tbody tr:hover td { background: var(--hover-fill); }
+  .terminals tbody tr.chosen td { background: var(--selection-fill); border-color: var(--action-primary); }
+  .terminals tbody tr:focus-visible { outline: 2px solid var(--action-primary); outline-offset: 1px; }
+  .terminal-kind { display: flex; align-items: center; gap: .6rem; font-weight: 700; }
+  .kind-icon { display: grid; place-items: center; flex: none; width: 26px; height: 26px; border-radius: 7px; background: var(--selection-fill); color: var(--action-hover); }
+  .kind-icon.check { background: var(--ok-fill); color: var(--ok-text); }
+  .when, .size { color: var(--text-muted); font-size: .75rem; }
+  .size { text-align: right; }
+  @media (max-width: 480px) { td { padding-inline: .25rem; } .terminal-kind { gap: .25rem; } .when, .size { font-size: .68rem; } }
   .replay { scroll-margin-bottom: var(--space-3); }
   .muted { color: var(--text-muted); font-size: var(--text-sm); }
 </style>

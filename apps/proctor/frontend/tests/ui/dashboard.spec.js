@@ -87,8 +87,13 @@ test('the history names what took the session off screen, even when only the ret
 test('the review window shows the history as a table, merges a focus loss with its return, and keeps student text inert', async ({ page }) => {
   await page.goto(`/#/review/${SESSION}`);
   const review = page.getByRole('region', { name: 'Session review' });
-  await expect(review).toContainText('Student 000 (0001)');
-  await expect(review).toContainText('Version #12 · sequence 3');
+  await expect(review.getByRole('heading', { level: 1 })).toContainText('Student 000 0001');
+  const details = review.getByRole('button', { name: 'Session details' });
+  await expect(details).toHaveAttribute('aria-expanded', 'false');
+  await expect(review.getByRole('region', { name: 'Session details' })).toBeHidden();
+  await details.click();
+  await expect(review.getByRole('region', { name: 'Session details' })).toContainText('Version #12 · sequence 3');
+  await details.click();
   const table = review.getByRole('table');
   const away = table.getByRole('row').filter({ hasText: 'Left the exam window' });
   await expect(away).toContainText('2 min 30 s'); await expect(away).toContainText('beyond threshold');
@@ -102,13 +107,17 @@ test('the review window shows the history as a table, merges a focus loss with i
   expect(await page.evaluate(() => window.injected)).toBeUndefined();
   await away.getByRole('button', { name: 'Details' }).click();
   await expect(review.getByText('<script>untrusted</script>', { exact: false })).toBeVisible();
-  await review.getByRole('checkbox', { name: /Focus/ }).uncheck();
+  const focus = review.getByRole('button', { name: /^Focus/ });
+  await focus.click();
+  await expect(focus).toHaveAttribute('aria-pressed', 'false');
   await expect(table.getByRole('row').filter({ hasText: 'Left the exam window' })).toHaveCount(0);
-  await review.getByRole('checkbox', { name: /Focus/ }).check();
+  await focus.click();
   await away.getByRole('button', { name: 'Open screenshot #8' }).click();
   await expect.poll(() => page.evaluate(() => window.ProctorHarness.calls.windows)).toEqual([{ name: 'image-7', url: '/#/image?set=7%2C8%2C9&at=1' }]);
   await review.getByRole('button', { name: 'Next page' }).click();
-  await expect(table).toContainText('DESIGNATED FINAL'); await expect(review).toContainText('end of history');
+  await expect(table).toContainText('DESIGNATED FINAL');
+  await expect(review.getByText('Page 2 of 2')).toBeVisible();
+  await expect(review.getByRole('button', { name: 'Next page' })).toBeDisabled();
   await review.getByRole('button', { name: 'Previous page' }).click(); await expect(table).toContainText('Left the exam window');
 });
 
@@ -275,12 +284,12 @@ test('the review window lists the calculator rows and filters them', async ({ pa
   // A row of an older exam, logged when the panel had an input base, still says which.
   await expect(table.getByRole('row').filter({ hasText: '0xFF / 2 = 127 (8 bits, hex, unsigned)' })).toBeVisible();
   // The filter group counts them and hides them.
-  const calculator = review.getByRole('checkbox', { name: /Calculator/ });
-  await expect(calculator).toBeChecked();
-  await calculator.uncheck();
+  const calculator = review.getByRole('button', { name: /^Calculator/ });
+  await expect(calculator).toHaveAttribute('aria-pressed', 'true');
+  await calculator.click();
   await expect(table.getByRole('row').filter({ hasText: 'sin(30)' })).toHaveCount(0);
   await expect(table.getByRole('row').filter({ hasText: 'Network gap' })).toBeVisible();
-  await calculator.check();
+  await calculator.click();
   await expect(table.getByRole('row').filter({ hasText: 'sin(30)' })).toBeVisible();
 });
 

@@ -103,12 +103,12 @@ const openTab = async (page, name) => { await tab(page, name).click(); await exp
 test('the review window shows a student\'s workspace: its state, what they ticked as their own word, and the submissions', async ({ page }) => {
   await review(page);
   const panel = page.getByRole('region', { name: 'Session review' });
-  await expect(panel).toBeVisible();
-  await expect(panel).toContainText('restarted 1 time');
-  await expect(panel).toContainText('TODO (self-reported)');
-  await expect(panel).toContainText('t1, t3 ticked by the student');
-  await expect(panel).toContainText('Nothing checked these ticks');
-  await expect(panel).toContainText('2 · latest is the final one');
+  await expect(panel.getByRole('button', { name: /^TODO ticks/ })).toContainText('Self-reported, unchecked');
+  await panel.getByRole('button', { name: 'Session details' }).click();
+  const details = panel.getByRole('region', { name: 'Session details' });
+  await expect(details).toContainText('restarted 1 time');
+  await expect(details).toContainText('t1, t3 · self-reported');
+  await expect(details).toContainText('2 · latest is the final one');
 });
 
 test('a workspace that failed says why, as text and not as markup (Phase 8)', async ({ page }) => {
@@ -117,15 +117,17 @@ test('a workspace that failed says why, as text and not as markup (Phase 8)', as
   extra.session.failure = 'creating the container: the host has no room for another workspace <b>x</b>';
   await review(page, extra);
   const panel = page.getByRole('region', { name: 'Session review' });
-  await expect(panel).toContainText('failed');
-  await expect(panel.locator('.workspace-failure')).toHaveText(' · creating the container: the host has no room for another workspace <b>x</b>');
-  await expect(panel.locator('.workspace-failure b')).toHaveCount(0);
+  await panel.getByRole('button', { name: 'Session details' }).click();
+  const details = panel.getByRole('region', { name: 'Session details' });
+  await expect(details).toContainText('failed');
+  await expect(details.getByText(/creating the container/)).toContainText('the host has no room for another workspace <b>x</b>');
+  await expect(details.locator('b').filter({ hasText: /^x$/ })).toHaveCount(0);
 });
 
 test('a workspace exam\'s review is in tabs, the history first, and the tabs go by keyboard', async ({ page }) => {
   await review(page);
-  const tabs = page.getByRole('tablist', { name: 'Parts of the session review' });
-  await expect(tabs.getByRole('tab')).toHaveText([/History/, /Files/, /Terminals\s*3/, /Grading\s*0/]);
+  const tabs = page.getByRole('tablist', { name: 'Review sections' });
+  await expect(tabs.getByRole('tab')).toHaveText([/History/, /Files\s*7/, /Terminals\s*3/, /Grading/]);
   await expect(tab(page, 'History')).toHaveAttribute('aria-selected', 'true');
   // Only the chosen tab's part is shown: the history's table, not the files or the terminals.
   await expect(page.getByRole('table').first()).toBeVisible();
@@ -196,10 +198,51 @@ test('the files are read from the latest snapshot or from a submission, as text'
   await page.getByLabel('Show the files of').selectOption('submission:8');
   await expect(tree.getByRole('treeitem', { name: /^build/ })).toHaveCount(0);
   await expect(tree.getByRole('treeitem', { name: /^Makefile/ })).toBeVisible();
-  await tree.getByRole('treeitem', { name: /^src/ }).click();
+  await expect(tree.getByRole('treeitem', { name: /^src/ })).toHaveAttribute('aria-expanded', 'true');
   await tree.getByRole('treeitem', { name: /^main\.c/ }).click();
   await expect(page.getByRole('region', { name: 'Contents of src/main.c' })).toContainText('the submitted one');
+  await page.getByLabel('Show the files of').selectOption('snapshot:5');
+  await expect(page.getByRole('region', { name: 'Contents of src/main.c' })).toContainText('not bold');
   expect(errors).toEqual([]);
+});
+
+test('the line number gutter stays shaded and visible when a long file is scrolled', async ({ page }) => {
+  const fixture = data();
+  fixture.files['snapshot:5:src/main.c'].content = Array.from({ length: 80 }, (_, index) => `int line${index + 1} = ${index}; // ${'long text '.repeat(30)}`).join('\n');
+  await review(page, fixture);
+  await openTab(page, 'Files');
+  await page.getByRole('treeitem', { name: /^src$/ }).click();
+  await page.getByRole('treeitem', { name: /^main\.c/ }).click();
+  const preview = page.getByRole('region', { name: 'Contents of src/main.c' });
+  const gutter = preview.locator('.numbers');
+  await expect(gutter).toContainText('80');
+  // Check actual pixels: on WebKit, the numbers overflowed their painted background.
+  for (const scroll of [0, 180, 10000]) {
+    const { top, left } = await preview.evaluate((node, y) => {
+      node.scrollTop = y;
+      node.scrollLeft = 100;
+      return { top: node.scrollTop, left: node.scrollLeft };
+    }, scroll);
+    expect(left).toBe(100);
+    if (scroll) expect(top).toBeGreaterThanOrEqual(180);
+    const image = await preview.screenshot({ scale: 'css' });
+    const shaded = await gutter.evaluate(async (node, png) => {
+      const image = document.createElement('img');
+      image.src = `data:image/png;base64,${png}`;
+      await image.decode();
+      const canvas = document.createElement('canvas');
+      canvas.width = image.width;
+      canvas.height = image.height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(image, 0, 0);
+      const pixel = (x, y) => String(ctx.getImageData(x, y, 1, 1).data);
+      const actual = [15, Math.floor(image.height / 2), image.height - 24].map(y => pixel(4, y));
+      ctx.fillStyle = getComputedStyle(node).backgroundColor;
+      ctx.fillRect(0, 0, 1, 1);
+      return actual.every(color => color === pixel(0, 0));
+    }, image.toString('base64'));
+    expect(shaded, `gutter must stay shaded at scrollTop=${top}`).toBe(true);
+  }
 });
 
 test('a tree that cannot be read says so, and the files keep their place when it is read again', async ({ page }) => {
@@ -212,8 +255,10 @@ test('a tree that cannot be read says so, and the files keep their place when it
 
 test('the zip and the report are saved where the proctor chooses', async ({ page }) => {
   await review(page);
+  await openTab(page, 'Files');
   await page.getByRole('button', { name: /Download submitted files/ }).click();
   await expect(page.getByText('Saved to /home/proctor/Downloads/file-files.zip')).toBeVisible();
+  await openTab(page, 'Grading');
   await page.getByRole('button', { name: /Download report/ }).click();
   await expect(page.getByText('Saved to /home/proctor/Downloads/file-report.md')).toBeVisible();
   const calls = await page.evaluate(() => window.ProctorHarness.calls.workspace.filter(call => call.call.startsWith('Save')));
@@ -225,7 +270,11 @@ test('the zip and the report are saved where the proctor chooses', async ({ page
   // Nothing to download before something is submitted.
   const none = data(); none.session.submissions = [];
   await page.evaluate(value => window.ProctorHarness.workspace({ students: [] }, value), none);
-  await expect(page.getByRole('button', { name: /Download submitted files/ })).toBeDisabled({ timeout: 8000 });
+  await openTab(page, 'History');
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await openTab(page, 'Files');
+  await expect(page.getByRole('button', { name: /Download submitted files/ })).toBeDisabled();
+  await openTab(page, 'Grading');
   await expect(page.getByRole('button', { name: /Download report/ })).toBeDisabled();
 });
 
@@ -235,7 +284,7 @@ test('a terminal\'s transcript is replayed, paused, sped up, sought and shown wh
   const grid = page.getByRole('grid', { name: /Transcripts of the student's terminals/ });
   await expect(grid).toContainText('ended with code 0');
   await expect(grid).toContainText('still open');
-  await expect(grid).toContainText('cut at the limit');
+  await expect(grid.getByTitle('Output was cut at the limit')).toBeVisible();
   // A row is chosen to replay it: there is no Replay button on the rows, and nothing is replayed until one is chosen.
   await expect(page.getByRole('button', { name: /Replay/ })).toHaveCount(0);
   await expect(page.getByRole('region', { name: /^Replay of/ })).toHaveCount(0);
@@ -245,27 +294,31 @@ test('a terminal\'s transcript is replayed, paused, sped up, sought and shown wh
   await expect(player).toContainText('00:30 long');
   const screen = player.locator('.xterm-rows');
   await expect(screen).not.toContainText('compiling');
-  // Played at ten times the speed, with the long pause shortened: it is over in about a second.
-  await player.getByLabel('Replay speed').selectOption('10');
+  // Played at four times the speed, with the long pause shortened.
+  const speeds = player.getByRole('group', { name: 'Replay speed' });
+  await expect(speeds.getByRole('button', { name: '½×' })).toBeVisible();
+  await speeds.getByRole('button', { name: '4×' }).click();
   await player.getByRole('button', { name: 'Play', exact: true }).click();
   await expect(screen).toContainText('compiling');
   await expect(screen).toContainText('result: 3 2 1');
   await expect(screen).toContainText('a late line', { timeout: 5000 });
   await expect(player.getByRole('button', { name: 'Play again' })).toBeVisible();
   // Seeking shows the terminal as it was at that point.
-  await player.getByLabel('Position in the transcript').fill('1');
+  await player.getByLabel('Position in the transcript').fill('0.3');
   await expect(screen).toContainText('compiling');
   await expect(screen).not.toContainText('result: 3 2 1');
   await expect(player.getByLabel('Position in the transcript')).toHaveAttribute('aria-valuetext', '00:00 of 00:30');
   await player.getByRole('button', { name: 'Show all' }).click();
   await expect(screen).toContainText('a late line');
   // The text, for a screen reader and for a copy, without the control sequences.
-  await player.getByText('The transcript as plain text').click();
+  await player.getByRole('button', { name: 'Plain text', exact: true }).click();
+  await expect(player.getByRole('group', { name: 'Replay controls' })).toBeHidden();
   const plain = player.getByLabel(/as plain text/);
   await expect(plain).toContainText('compiling\nresult: 3 2 1\na late line');
   expect(await plain.textContent()).not.toContain('\x1b');
   // Pause stops it.
-  await player.getByLabel('Replay speed').selectOption('1');
+  await player.getByRole('button', { name: 'Replay', exact: true }).click();
+  await speeds.getByRole('button', { name: '1×' }).click();
   await player.getByLabel('Position in the transcript').fill('0');
   await player.getByRole('button', { name: 'Play', exact: true }).click();
   await expect(player.getByRole('button', { name: 'Pause' })).toBeVisible();
@@ -273,6 +326,35 @@ test('a terminal\'s transcript is replayed, paused, sped up, sought and shown wh
   await expect(player.getByRole('button', { name: 'Play', exact: true })).toBeVisible();
   await player.getByRole('button', { name: 'Close replay' }).click();
   await expect(player).toHaveCount(0);
+});
+
+test('normal replay shows closely timed key echoes and uses the right edge for scrollback', async ({ page }) => {
+  const fixture = data();
+  fixture.casts[12] = cast([
+    { version: 2, width: 42, height: 8 },
+    [0, 'o', '$ '], [0.15, 'o', 'm'], [0.151, 'o', 'a'], [0.152, 'o', 'k'], [0.153, 'o', 'e'],
+    [0.154, 'o', `\r\n${Array.from({ length: 30 }, (_, index) => `Result ${index + 1}`).join('\r\n')}`],
+  ]);
+  await review(page, fixture);
+  await openTab(page, 'Terminals');
+  await page.getByRole('grid', { name: /Transcripts/ }).getByRole('row', { name: /^Terminal \d/ }).click();
+  const player = page.getByRole('region', { name: /^Replay of Terminal/ });
+  const screen = player.locator('.xterm-rows');
+  // Observe distinct terminal renders, not separate writes that might be painted in the same frame.
+  await screen.evaluate(node => {
+    node.seen = [];
+    const observer = new MutationObserver(() => node.seen.push(node.textContent.trim()));
+    observer.observe(node, { childList: true, subtree: true, characterData: true });
+  });
+  await player.getByRole('button', { name: 'Play', exact: true }).click();
+  await expect(screen).toContainText('Result 30');
+  const renders = await screen.evaluate(node => node.seen);
+  expect(renders).toEqual(expect.arrayContaining(['$ m', '$ ma', '$ mak', '$ make']));
+  const scrollbar = player.locator('.xterm-scrollable-element > .scrollbar.vertical');
+  await expect(scrollbar).toHaveClass(/\bvisible\b/);
+  const track = await scrollbar.boundingBox();
+  const pane = await player.boundingBox();
+  expect(pane.x + pane.width - track.x - track.width).toBeLessThan(20);
 });
 
 test('a transcript that is not one says so instead of showing something', async ({ page }) => {
@@ -337,7 +419,7 @@ test('the grid goes by keyboard: the arrows move between rows, Enter chooses, an
 });
 
 test('choosing a row scrolls the window to the replay when it is below the fold, and does not when it is already in view', async ({ page }) => {
-  await page.setViewportSize({ width: 1200, height: 760 });
+  await page.setViewportSize({ width: 1200, height: 630 });
   await review(page);
   await openTab(page, 'Terminals');
   const grid = page.getByRole('grid', { name: /Transcripts/ });
@@ -363,11 +445,14 @@ test('the replay the proctor chose is kept while the workspace is read again', a
   await openTab(page, 'Terminals');
   await page.getByRole('grid', { name: /Transcripts/ }).getByRole('row', { name: /^Run/ }).click();
   await expect(page.getByRole('region', { name: /^Replay of Run at/ })).toBeVisible();
-  // A new terminal appears in the next reading (every five seconds); the chosen row and its replay stay.
+  // A new terminal appears after refresh; the chosen row and its replay stay.
   const more = data(); more.session.terminals.push({ id: 14, kind: 'run', started_at: '2035-01-01T22:15:00Z', ended_at: '2035-01-01T22:15:01Z', exit_code: 0, bytes: 20, truncated: false });
   more.casts[14] = cast([{ version: 2, width: 80, height: 24, timestamp: 3 }, [0.1, 'o', 'x\r\n']]);
   await page.evaluate(value => window.ProctorHarness.workspace({ students: [] }, value), more);
-  await expect(page.getByRole('grid', { name: /Transcripts/ }).locator('tbody tr')).toHaveCount(4, { timeout: 8000 });
+  await openTab(page, 'History');
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await openTab(page, 'Terminals');
+  await expect(page.getByRole('grid', { name: /Transcripts/ }).locator('tbody tr')).toHaveCount(4);
   await expect(page.getByRole('grid', { name: /Transcripts/ }).getByRole('row', { name: /^Run/ }).first()).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByRole('region', { name: /^Replay of Run at/ })).toBeVisible();
   await expect(page.getByRole('tab', { name: /^Terminals/ })).toContainText('4');
@@ -501,76 +586,107 @@ test('nobody to grade, no button to press; a question exam has no grading at all
 
 test('the review window has a Grading tab: the runs, the results of each TODO with their logs, and the grade that stands', async ({ page }) => {
   await review(page, gradedData([run(3, { state: 'running', points: null, max_points: null, results: [], stdout: '', stderr: '', finished_at: null, duration_ms: 0 }), run(2, { confirmed: true }), run(1, { points: 40, results: [] })]));
-  await expect(gradingTab(page)).toContainText('3');
-  // The summary names the grade that stands: the confirmed run's, not the latest.
-  await expect(page.getByRole('region', { name: 'Session review' })).toContainText('Grade16 of 40 points (confirmed)');
-  await openTab(page, 'Grading');
-  const grid = page.getByRole('grid', { name: /Gradings of the student's submissions/ });
-  await expect(grid.locator('tbody tr')).toHaveCount(3);
-  await expect(grid.locator('tbody tr').nth(0)).toContainText('Being graded');
-  await expect(grid.locator('tbody tr').nth(1)).toContainText('Confirmed');
-  // The latest run is open to begin with; the proctor chooses another by clicking it.
-  await expect(page.getByRole('region', { name: 'Results of run 3' })).toContainText('Running now');
-  await grid.getByRole('row', { name: /^#2/ }).click();
+  await expect(gradingTab(page)).toContainText('running');
+  const tile = page.getByRole('button', { name: /^Grade Being graded/ });
+  await tile.click();
+  await expect(gradingTab(page)).toBeFocused();
+  const runTabs = page.getByRole('tablist', { name: 'Grading runs' });
+  await expect(runTabs.getByRole('tab')).toHaveCount(3);
+  await expect(runTabs.getByRole('tab', { name: /^#2/ })).toContainText('Confirmed');
+  // The latest run is open first; a different run can also be selected by keyboard.
+  await expect(page.getByRole('region', { name: 'Results of run 3' })).toContainText('Running the hidden tests');
+  await runTabs.getByRole('tab', { name: /^#3/ }).focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(runTabs.getByRole('tab', { name: /^#2/ })).toBeFocused();
   const results = page.getByRole('region', { name: 'Results of run 2' });
-  await expect(results).toBeVisible();
-  await expect(results).toContainText('16 of 40 points');
-  await expect(results).toContainText('confirmed');
-  const table = results.getByRole('table', { name: 'Results of each TODO' });
-  await expect(table.getByRole('row', { name: /^t1/ })).toContainText('Passed');
-  await expect(table.getByRole('row', { name: /^t1/ })).toContainText('Implement `push_front`');
-  await expect(table.getByRole('row', { name: /^t1/ })).toContainText('10 of 10');
-  await expect(table.getByRole('row', { name: /^t1/ })).toContainText('4/4 tests passed');
-  await expect(table.getByRole('row', { name: /^t2/ })).toContainText('Not passed');
-  await expect(table.getByRole('row', { name: /^t2/ })).toContainText('6 of 15');
-  await expect(table.getByRole('row', { name: /^t2/ })).toContainText('FAILED: insert_sorted 5 1 3');
-  await expect(table.getByRole('row', { name: /^t3/ })).toContainText('The grade program said nothing of it');
-  await expect(table.getByRole('row', { name: /^zz/ })).toContainText('is not a TODO of this exam; it is not counted');
-  // What the run printed is there, as text.
-  await results.getByText('What the run printed').click();
-  await expect(results.getByLabel('Standard error of the run')).toContainText('ok: push_front 1 2 3 -> 3 2 1');
-  expect(await results.locator('script, img, b').count()).toBe(0);
+  await expect(results).toContainText('16 / 40');
+  await expect(results).toContainText('Confirmed');
+  const firstTodo = results.getByRole('button', { name: /^t1/ });
+  await expect(firstTodo).toContainText('10 / 10');
+  await firstTodo.click();
+  await expect(results.getByText('4/4 tests passed')).toBeVisible();
+  await results.getByRole('button', { name: 'Collapse all' }).click();
+  await expect(firstTodo).toBeHidden();
+  await results.getByRole('button', { name: 'Expand all' }).click();
+  await expect(results.getByRole('button', { name: /^t2/ })).toContainText('6 / 15');
+  await expect(results.getByText('FAILED: insert_sorted 5 1 3', { exact: false })).toBeVisible();
+  await expect(results.getByText('The grade program said nothing of it')).toBeVisible();
+  await expect(results.getByRole('button', { name: /^zz/ })).toContainText('Not a TODO of this exam; it is not counted');
+  const output = results.getByRole('button', { name: 'What the run printed' });
+  await output.click();
+  const dialog = page.getByRole('dialog', { name: 'What run #2 printed' });
+  await expect(dialog.getByRole('table')).toContainText('4/4 tests passed');
+  await dialog.getByRole('button', { name: 'Raw JSON' }).click();
+  await expect(dialog.getByLabel('Standard output of the run')).toContainText('{"t1": {"passed": true}}');
+  await dialog.getByRole('button', { name: /^Standard error/ }).click();
+  await expect(dialog.getByLabel('Standard error of the run')).toContainText('ok: push_front 1 2 3 -> 3 2 1');
+  await expect(dialog.locator('script, img')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  await expect(output).toBeFocused();
 });
 
 test('a grade is confirmed and the confirmation taken back, and the proctor is told the server\'s refusals', async ({ page }) => {
   await review(page, gradedData([run(2), run(1, { points: 40 })]));
   await openTab(page, 'Grading');
   const results = page.getByRole('region', { name: 'Results of run 2' });
-  await expect(results).toContainText('advisory until you confirm it');
-  await results.getByRole('button', { name: 'Confirm this grade' }).click();
-  await expect(page.getByRole('status').filter({ hasText: 'This grade is confirmed.' })).toBeVisible();
-  await expect(page.getByRole('grid', { name: /Gradings/ }).getByRole('row', { name: /^#2/ })).toContainText('Confirmed');
-  await expect(page.getByRole('region', { name: 'Session review' })).toContainText('(confirmed)');
+  const confirmDialog = page.getByRole('dialog', { name: 'Confirm grade' });
+  const confirmButton = results.getByRole('button', { name: 'Confirm 16 / 40' });
+  await confirmButton.click();
+  await expect(confirmDialog.getByRole('checkbox')).toBeFocused();
+  await expect(confirmDialog.getByRole('button', { name: 'Confirm 16 / 40' })).toBeDisabled();
+  await page.mouse.click(4, 4);
+  await expect(confirmDialog).toBeHidden();
+  await expect(confirmButton).toBeFocused();
+  expect(await page.evaluate(() => window.ProctorHarness.calls.workspace.filter(call => call.call === 'ConfirmGrading'))).toEqual([]);
+  await confirmButton.click();
+  await confirmDialog.getByRole('checkbox').check();
+  await confirmDialog.getByRole('button', { name: 'Confirm 16 / 40' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Grade confirmed: 16 / 40' })).toBeVisible();
+  const runs = page.getByRole('tablist', { name: 'Grading runs' });
+  await expect(runs.getByRole('tab', { name: /^#2/ })).toContainText('Confirmed');
+  await expect(page.getByRole('region', { name: 'Summary' })).toContainText('Confirmed · run #2');
   // Confirming the other run takes the confirmation from this one.
-  await page.getByRole('grid', { name: /Gradings/ }).getByRole('row', { name: /^#1/ }).click();
-  await page.getByRole('region', { name: 'Results of run 1' }).getByRole('button', { name: 'Confirm this grade' }).click();
-  await expect(page.getByRole('grid', { name: /Gradings/ }).getByRole('row', { name: /^#2/ })).not.toContainText('Confirmed');
-  await page.getByRole('region', { name: 'Results of run 1' }).getByRole('button', { name: 'Take the confirmation back' }).click();
+  await runs.getByRole('tab', { name: /^#1/ }).click();
+  const runOne = page.getByRole('region', { name: 'Results of run 1' });
+  await runOne.getByRole('button', { name: 'Confirm 40 / 40' }).click();
+  await confirmDialog.getByRole('checkbox').check();
+  await confirmDialog.getByRole('button', { name: 'Confirm 40 / 40' }).click();
+  await expect(runs.getByRole('tab', { name: /^#2/ })).toContainText('Advisory');
+  await runOne.getByRole('button', { name: 'Take the confirmation back' }).click();
+  const undo = page.getByRole('dialog', { name: 'Take the confirmation back' });
+  await undo.getByRole('checkbox').check();
+  await undo.getByRole('button', { name: 'Take confirmation back' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'advisory again' })).toBeVisible();
   expect(await page.evaluate(() => window.ProctorHarness.calls.workspace.filter(call => call.call === 'ConfirmGrading'))).toEqual([
     { call: 'ConfirmGrading', id: 2, confirm: true }, { call: 'ConfirmGrading', id: 1, confirm: true }, { call: 'ConfirmGrading', id: 1, confirm: false }]);
   await page.evaluate(() => window.ProctorHarness.gradeFails('The server refused the change: only a run that is done can be confirmed.'));
-  await page.getByRole('region', { name: 'Results of run 1' }).getByRole('button', { name: 'Confirm this grade' }).click();
-  await expect(page.getByRole('alert').filter({ hasText: 'only a run that is done can be confirmed' })).toBeVisible();
+  await runOne.getByRole('button', { name: 'Confirm 40 / 40' }).click();
+  await confirmDialog.getByRole('checkbox').check();
+  await confirmDialog.getByRole('button', { name: 'Confirm 40 / 40' }).click();
+  await expect(confirmDialog.getByRole('alert')).toContainText('only a run that is done can be confirmed');
 });
 
 test('a student is graded from the review window, the new run waits, and its end shows without a click', async ({ page }) => {
   await review(page, gradedData([run(1)]));
   await openTab(page, 'Grading');
   const start = page.getByRole('button', { name: 'Grade this student' });
-  await expect(page.getByLabel('Submission to grade')).toContainText('The latest');
+  await expect(page.getByLabel('Submission to grade').locator('option:checked')).toContainText('the latest');
   await start.click();
   await expect(page.getByRole('status').filter({ hasText: 'The run is queued' })).toBeVisible();
-  const grid = page.getByRole('grid', { name: /Gradings/ });
-  await expect(grid.locator('tbody tr')).toHaveCount(2, { timeout: 8000 });
-  await expect(grid.locator('tbody tr').nth(0)).toContainText('Waiting to be graded');
+  const runs = page.getByRole('tablist', { name: 'Grading runs' }).getByRole('tab');
+  await expect(runs).toHaveCount(2, { timeout: 8000 });
+  await expect(runs.first()).toContainText('Queued');
   expect(await page.evaluate(() => window.ProctorHarness.calls.workspace.filter(call => call.call === 'GradeStudent'))).toEqual([{ call: 'GradeStudent', sessionId: SESSION, submissionId: 0 }]);
   // A run that is going cannot be started again; when it ends, the window shows the result by itself.
-  await expect(start).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'A run is going…' })).toBeDisabled();
   await page.evaluate(() => window.ProctorHarness.gradingRun(2, { state: 'done', points: 25, max_points: 40, finished_at: '2035-01-01T22:26:00Z', results: [{ todo_id: 't1', known: true, passed: true, points: 10, log: 'all good' }] }));
-  await expect(grid.locator('tbody tr').nth(0)).toContainText('25 of 40 points', { timeout: 8000 });
+  await expect(runs.first()).toContainText('25 / 40', { timeout: 8000 });
   await expect(start).toBeEnabled();
-  await expect(page.getByRole('region', { name: 'Results of run 2' })).toContainText('all good');
+  await expect(page.getByRole('status').filter({ hasText: /Run #2 finished/ })).toBeVisible();
+  const result = page.getByRole('region', { name: 'Results of run 2' });
+  await result.getByRole('button', { name: /^t1/ }).click();
+  await expect(result.getByText('all good')).toBeVisible();
   // A refusal comes back in the server's words.
   await page.evaluate(() => window.ProctorHarness.gradeFails('The server refused the change: this student is already waiting to be graded or being graded.'));
   await start.click();
@@ -584,30 +700,32 @@ test('a run that failed says why, and shows what the grade program printed', asy
   const results = page.getByRole('region', { name: 'Results of run 1' });
   await expect(results.getByRole('alert')).toContainText('Grading failed: its output was not what a grade program must print');
   await expect(results.getByRole('alert')).toContainText('not one JSON object');
-  await expect(results.getByRole('button', { name: /Confirm this grade/ })).toHaveCount(0);
+  await expect(results.getByRole('button', { name: /^Confirm/ })).toHaveCount(0);
   await results.getByText('What the run printed').click();
-  await expect(results.getByLabel('Standard output of the run')).toContainText('make: entering directory /work');
-  // The summary of the session says it too, and a student who was never graded says so.
-  await expect(page.getByRole('region', { name: 'Session review' })).toContainText('Grading failed: its output was not what a grade program must print');
+  const dialog = page.getByRole('dialog', { name: 'What run #1 printed' });
+  await expect(dialog.getByLabel('Standard output of the run')).toContainText('make: entering directory /work');
+  await dialog.getByRole('button', { name: 'Close', exact: true }).last().click();
+  await expect(page.getByRole('region', { name: 'Summary' })).toContainText('Grading failed: its output was not what a grade program must print');
 });
 
-test('a student who was never graded says so, and the grid goes by keyboard', async ({ page }) => {
+test('a student who was never graded says so', async ({ page }) => {
   await review(page, gradedData([]));
   await openTab(page, 'Grading');
   await expect(page.getByText('This student has not been graded.')).toBeVisible();
-  await expect(page.locator('dl.summary')).not.toContainText('Grade');
+  await expect(page.getByRole('region', { name: 'Summary' })).toContainText('Not graded');
 });
 
 const event = (id, type, detail) => ({ id: `event:${id}`, kind: 'event', occurred_at: '2035-01-01T00:05:00Z', event: { event_log_id: id, event_type: type, detail, screenshots: [] } });
 
-test('the history names a workspace\'s events in words, with a filter that exists only when there are some', async ({ page }) => {
+test('the history names workspace events in words and has a workspace filter', async ({ page }) => {
   const withEvents = data();
   withEvents.events = [event(89, 'workspace.submitted', { final: false, snapshot: 4, files: 5 }), event(90, 'workspace.opened', null), event(91, 'file.saved', { path: 'src/main.c', bytes: 120, delta_bytes: 16 }), event(92, 'paste.blocked', { target: 'editor', bytes: 30 }),
     event(93, 'todo.set', { id: 't1', done: true }), event(94, 'run.started', { which: 'check', exit_code: 2 }), event(95, 'workspace.submitted', { final: true, snapshot: 5, files: 6 })];
   await review(page, withEvents);
-  const history = page.getByRole('group', { name: 'Show' });
-  await expect(history.getByLabel(/Workspace/)).toBeVisible();
-  await expect(history.getByLabel(/Workspace/)).toBeChecked();
+  const history = page.getByRole('group', { name: 'Show events' });
+  const workspaceFilter = history.getByRole('button', { name: /^Workspace/ });
+  await expect(workspaceFilter).toBeVisible();
+  await expect(workspaceFilter).toHaveAttribute('aria-pressed', 'true');
   const table = page.getByRole('region', { name: 'Session review' }).getByRole('table').first();
   await expect(table).toContainText('src/main.c · 120 bytes (+16)');
   await expect(table).toContainText('Blocked a paste into the editor (30 bytes)');
@@ -618,13 +736,75 @@ test('the history names a workspace\'s events in words, with a filter that exist
   await expect(table).toContainText('Save pressed · snapshot 4 · 5 files');
   await expect(table.getByRole('row').filter({ hasText: 'Paste blocked' })).toHaveCount(1);
   // The filter hides them.
-  await history.getByLabel(/Workspace/).uncheck();
+  await workspaceFilter.click();
   await expect(table).not.toContainText('src/main.c · 120 bytes');
   await expect(table).toContainText('Answers');
 });
 
 test('a session with no workspace events has no workspace filter', async ({ page }) => {
   await page.goto(`/#/review/${SESSION}`);
-  await expect(page.getByRole('group', { name: 'Show' })).toBeVisible();
-  await expect(page.getByRole('group', { name: 'Show' }).getByLabel(/Workspace/)).toHaveCount(0);
+  const filters = page.getByRole('group', { name: 'Show events' });
+  await expect(filters).toBeVisible();
+  await expect(filters.getByRole('button', { name: /^Workspace/ })).toHaveCount(0);
+});
+
+test('the auto-refresh switch pauses background requests but not a manual refresh', async ({ page }) => {
+  await page.clock.install();
+  await review(page, gradedData([run(1, { state: 'running' })]));
+  await expect(gradingTab(page)).toContainText('running');
+  const refresh = page.getByRole('switch', { name: 'Auto-refresh' });
+  const requests = () => page.evaluate(() => {
+    const calls = window.ProctorHarness.calls;
+    return { history: calls.timeline.length, workspace: calls.workspace.length };
+  });
+  await expect(refresh).toBeChecked();
+  await refresh.click();
+  const before = await requests();
+  await page.clock.fastForward(6000);
+  expect(await requests()).toEqual(before);
+  await page.evaluate(() => window.ProctorHarness.gradingRun(1, { state: 'done', points: 16, max_points: 40 }));
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await expect(gradingTab(page)).toContainText('advisory');
+  expect((await requests()).history).toBeGreaterThan(before.history);
+  await refresh.click();
+  const resumed = await requests();
+  await page.clock.fastForward(6000);
+  await expect.poll(async () => (await requests()).history).toBeGreaterThan(resumed.history);
+});
+
+test('the review fits a narrow window and copies real data from each view', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: async text => { window.__copied = text; } } });
+  });
+  const errors = [];
+  page.on('pageerror', err => errors.push(err.message));
+  await review(page, gradedData([run(1)]));
+  const fits = async () => expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  const copied = () => page.evaluate(() => window.__copied);
+  await page.getByRole('button', { name: 'Session details' }).click();
+  await page.getByRole('button', { name: 'Copy session ID' }).click();
+  await expect.poll(copied).toBe(SESSION);
+  await fits();
+  await openTab(page, 'Files');
+  await page.getByRole('treeitem', { name: /^Makefile/ }).click();
+  await page.getByRole('button', { name: 'Copy file' }).click();
+  await expect.poll(copied).toBe('all:\n\techo hi\n');
+  await fits();
+  await openTab(page, 'Terminals');
+  await page.getByRole('grid', { name: /Transcripts/ }).getByRole('row', { name: /^Run/ }).click();
+  await page.getByRole('button', { name: 'Plain text' }).click();
+  await page.getByRole('button', { name: 'Copy transcript' }).click();
+  await expect.poll(copied).toBe('compiling\nresult: 3 2 1\na late line\n');
+  await fits();
+  await openTab(page, 'Grading');
+  await page.getByRole('button', { name: 'Expand all' }).click();
+  await fits();
+  await page.getByRole('button', { name: 'What the run printed' }).click();
+  const output = page.getByRole('dialog', { name: 'What run #1 printed' });
+  await output.getByRole('button', { name: 'Copy output' }).click();
+  await expect(output.getByRole('status')).toContainText('Output copied');
+  await expect.poll(copied).toBe(run(1).stdout);
+  await fits();
+  expect(errors).toEqual([]);
 });
