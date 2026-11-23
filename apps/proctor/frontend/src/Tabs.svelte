@@ -16,22 +16,25 @@
 <div class="tabs" role="tablist" aria-label={label}>
   {#each tabs as item (item.id)}
     <button type="button" role="tab" id="{id}-tab-{item.id}" aria-selected={selected === item.id} aria-controls="{id}-panel-{item.id}" tabindex={selected === item.id ? 0 : -1} onkeydown={move} onclick={() => { selected = item.id; }}>
-      {#if item.icon}<Icon name={item.icon} size={17} />{/if}{item.text}{#if item.count !== undefined}{' '}<span class="n">{item.count}</span>{/if}
+      {#if item.icon}<Icon name={item.icon} size={17} />{/if}{item.text}{#if item.count !== undefined}{' '}<span class="n {item.tone ?? ''}">{item.count}</span>{/if}
     </button>
   {/each}
 </div>
 {#each tabs as item (item.id)}
-  <div role="tabpanel" id="{id}-panel-{item.id}" aria-labelledby="{id}-tab-{item.id}" hidden={selected !== item.id}>{@render panel(item.id)}</div>
+  <div class="review-panel" role="tabpanel" id="{id}-panel-{item.id}" aria-labelledby="{id}-tab-{item.id}" hidden={selected !== item.id}>{@render panel(item.id)}</div>
 {/each}
 <style>
-  .tabs { display: inline-flex; max-width: 100%; flex-wrap: wrap; gap: 4px; margin: var(--space-3) 0; padding: 4px; border: 1px solid var(--border-subtle); border-radius: 12px; background: var(--bg-secondary); }
-  .tabs button { position: relative; display: inline-flex; align-items: center; gap: .5rem; margin: 0; padding: .55rem 1rem; border: 0; border-radius: 9px; background: var(--transparent); color: var(--text-main); font-weight: 600; box-shadow: none; }
+  .tabs { display: flex; gap: .15rem; padding: 0 .75rem; overflow-x: auto; border-bottom: 1px solid var(--border-subtle); background: var(--bg-raised); }
+  .tabs button { position: relative; display: inline-flex; align-items: center; gap: .4rem; margin: 0; padding: .6rem .75rem; border: 0; border-radius: 0; background: none; color: var(--text-muted); font-size: inherit; font-weight: 650; box-shadow: none; white-space: nowrap; }
   .tabs button :global(svg) { color: var(--text-muted); }
-  .tabs button:hover:not(:disabled) { color: var(--action-hover); }
-  .tabs button[aria-selected="true"], .tabs button[aria-selected="true"]:hover:not(:disabled) { background: var(--bg-raised); color: var(--action-hover); box-shadow: var(--shadow-card); }
+  .tabs button:hover:not(:disabled), .tabs button[aria-selected="true"] { color: var(--action-hover); background: none; }
   .tabs button[aria-selected="true"] :global(svg) { color: var(--action-primary); }
-  .tabs button[aria-selected="true"]::after { content: ''; position: absolute; left: 22%; right: 22%; bottom: 3px; height: 3px; border-radius: 3px; background: var(--bar-fill); }
-  .n { padding: .02rem .45rem; border: 1px solid var(--border-subtle); border-radius: 999px; background: var(--bg-primary); color: var(--text-muted); font-family: var(--font-mono); font-size: .75rem; font-weight: 700; }
-  .tabs button[aria-selected="true"] .n { background: var(--selection-fill); color: var(--action-hover); border-color: var(--action-border); }
+  .tabs button[aria-selected="true"]::after { content: ''; position: absolute; inset: auto .5rem 0; height: 3px; border-radius: 3px 3px 0 0; background: var(--bar-fill); }
+  .tabs button:focus-visible { outline-offset: -2px; }
+  .n { padding: 0 .4rem; border-radius: 999px; background: var(--bg-secondary); color: var(--text-muted); font: 700 .72rem/1.45 var(--font-mono); }
+  .tabs button[aria-selected="true"] .n, .n.blue { background: var(--selection-fill); color: var(--action-hover); }
+  .tabs .n.warn { background: var(--warn-fill); color: var(--warn-text); }
+  .tabs .n.ok { background: var(--ok-fill); color: var(--ok-text); }
+  .tabs .n.alert { background: var(--alert-fill); color: var(--alert-text); }
   [role="tabpanel"][hidden] { display: none; }
 </style>
