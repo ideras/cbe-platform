@@ -2,9 +2,11 @@
   import { onMount } from 'svelte';
   import * as api from '$proctor-api';
   import Monitoring from './Monitoring.svelte';
+  import WorkspaceDownloadDialog from './WorkspaceDownloadDialog.svelte';
   // The monitoring window: the live roster of the exam the main window monitors. It reads the same dashboard state.
   let view = $state({ observation: 0, connected: false, loaded: false, busy: false, stale: true });
   let bridgeError = $state('');
+  let batch = $state(null);
   // False until the native side has answered once. `view` above is only a placeholder until then, so what it says (not connected,
   // no exam) is not yet true of anything, so the window says it is loading rather than warning of something that goes away a moment later.
   let ready = $state(false);
@@ -26,6 +28,10 @@
     return () => { alive = false; clearInterval(timer); };
   });
   async function refreshNow() { await api.Refresh(); apply(await api.Snapshot()); }
+  function openBatch(kind) {
+    if (batch) return;
+    batch = { kind, examId: view.exam_id, server: view.server, title: monitored ? `${monitored.title} · ${monitored.class_name}` : view.exam_id };
+  }
 </script>
 <main class="window" aria-busy={!ready}>
   {#if !ready}
@@ -36,9 +42,11 @@
   {:else if !view.exam_id}<p class="callout warning">No exam is being monitored. Choose one with <strong>Monitor</strong> on the Exams tab of its class, or in the "Now admitting" bar of the main window.</p>
   {:else}
     {#key JSON.stringify([view.server, view.exam_id])}
-      <Monitoring {view} {bridgeError} onRefresh={refreshNow} />
+      <Monitoring {view} {bridgeError} onRefresh={refreshNow} onDownload={openBatch} />
     {/key}
   {/if}
+  <!-- Keep the original exam's progress and result visible even when the roster switches to another exam. -->
+  {#if batch}<WorkspaceDownloadDialog {batch} onClose={() => batch = null} />{/if}
 </main>
 <style>
   .window { max-width: calc(1240px + 2.5rem); min-width: 0; margin: 0 auto; padding: 1rem; }

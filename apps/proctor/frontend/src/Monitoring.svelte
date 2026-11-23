@@ -16,7 +16,7 @@
   // Inlined on purpose: WebKitGTK cannot play audio through the wails:// scheme.
   import alertURL from './assets/lock-alert.wav?inline';
 
-  let { view, bridgeError = '', disabled = false, onRefresh } = $props();
+  let { view, bridgeError = '', disabled = false, onRefresh, onDownload } = $props();
   let modal = $state(null);
   let actionBusy = $state(false);
   let actionError = $state('');
@@ -194,6 +194,13 @@
   {/if}
   {#if view.loaded}
     {#if hasWorkspace}
+      <div class="timing" role="group" aria-label="Workspace downloads">
+        <span class="tool-note"><strong>Workspace downloads</strong> · Entire exam</span>
+        <div class="timing-actions">
+          <button type="button" class="outline" disabled={blocked} onclick={() => onDownload('files')}><Icon name="download" size={15} />Download all student files…</button>
+          <button type="button" class="outline" disabled={blocked} onclick={() => onDownload('reports')}><Icon name="download" size={15} />Download all evaluation reports…</button>
+        </div>
+      </div>
       <Tabs id="roster" label="Roster sections" {tabs} bind:selected>
         {#snippet panel(id)}
           {#if id === 'monitoring'}{@render monitoring()}

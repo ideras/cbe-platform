@@ -684,7 +684,22 @@ export async function ConfirmGrading(id, confirm) {
 export async function SaveWorkspaceZip(sessionId, submissionId) { calls.workspace.push({ call: 'SaveWorkspaceZip', sessionId, submissionId }); return saveCancelled ? '' : `${workspaceSavePath}-files.zip`; }
 export async function SaveWorkspaceReport(sessionId) { calls.workspace.push({ call: 'SaveWorkspaceReport', sessionId }); return saveCancelled ? '' : `${workspaceSavePath}-report.md`; }
 export async function SaveWorkspaceGrades(examId) { calls.workspace = calls.workspace ?? []; calls.workspace.push({ call: 'SaveWorkspaceGrades', examId }); if (gradeFailure) throw new Error(gradeFailure); return saveCancelled ? '' : `${workspaceSavePath}-grades.csv`; }
+let workspaceBatchResult = { cancelled: true };
+let workspaceBatchHold = null;
+let releaseWorkspaceBatch;
+export async function DownloadWorkspaceBatch(examId, server, kind, overwrite) {
+  calls.workspace = calls.workspace ?? [];
+  calls.workspace.push({ call: 'DownloadWorkspaceBatch', examId, server, kind, overwrite });
+  await workspaceBatchHold;
+  return structuredClone(workspaceBatchResult);
+}
+export function WorkspaceDownloadProgress() { return { done: 1, total: 3 }; }
 Object.assign(window.ProctorHarness, {
+  workspaceBatch(result, hold = false) {
+    workspaceBatchResult = result;
+    workspaceBatchHold = hold ? new Promise(resolve => { releaseWorkspaceBatch = resolve; }) : null;
+  },
+  releaseWorkspaceBatch() { releaseWorkspaceBatch?.(); },
   // Makes the monitored exam a workspace exam: `roster` is what the dashboard reads with the sessions; `data` is what the review window
   // reads of the first student's workspace (session, trees by "kind:id", files by "kind:id:path", transcripts by terminal id).
   workspace(roster, data = null) { workspaceRoster = roster; workspaceData = data; },
