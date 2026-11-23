@@ -55,6 +55,7 @@ type View struct {
 	Phase             string         `json:"phase"`
 	Server            string         `json:"server"`
 	Account           string         `json:"account"`
+	StudentName       string         `json:"student_name,omitempty"`
 	Exam              *Exam          `json:"exam,omitempty"`
 	// Workspace is the student's workspace when the exam is a workspace exam, in place of its exercises.
 	Workspace            *WorkspaceView    `json:"workspace,omitempty"`
@@ -100,6 +101,7 @@ type Service struct {
 	http                                    *http.Client
 	wake, pollNow                           chan struct{}
 	phase, server, account, token           string
+	studentName                             string
 	exam                                    *Exam
 	answers                                 map[string]string
 	revision, acknowledged, blockedRevision int64
@@ -252,7 +254,7 @@ func signal(ch chan struct{}) {
 func (s *Service) viewLocked(loaded bool) View {
 	s.observation++
 	s.syncWorkspace()
-	v := View{Capture: s.capture.view(), Sound: s.sound.report(), SoundNotice: s.sound.latestNotice(), RulesAccepted: s.rulesAccepted, Monitoring: s.monitor.view(), Observation: s.observation, Phase: s.phase, Server: s.server, Account: s.account, Revision: s.revision, AcknowledgedRevision: s.acknowledged, TimingStale: s.stale, SaveError: s.saveError, StatusError: s.statusError, SubmitError: s.submitError, Submitting: s.pendingSubmit != nil, Exercise: s.exercise, Advancing: s.pendingAdvance != nil, AdvanceError: s.advanceError, SaveState: "not_saved", UnlockNote: s.unlockNote, AddedSeconds: s.addedSeconds}
+	v := View{Capture: s.capture.view(), Sound: s.sound.report(), SoundNotice: s.sound.latestNotice(), RulesAccepted: s.rulesAccepted, Monitoring: s.monitor.view(), Observation: s.observation, Phase: s.phase, Server: s.server, Account: s.account, StudentName: s.studentName, Revision: s.revision, AcknowledgedRevision: s.acknowledged, TimingStale: s.stale, SaveError: s.saveError, StatusError: s.statusError, SubmitError: s.submitError, Submitting: s.pendingSubmit != nil, Exercise: s.exercise, Advancing: s.pendingAdvance != nil, AdvanceError: s.advanceError, SaveState: "not_saved", UnlockNote: s.unlockNote, AddedSeconds: s.addedSeconds}
 	if s.saved != nil {
 		copy := *s.saved
 		v.Saved = &copy
@@ -378,8 +380,13 @@ func (s *Service) Login(ctx context.Context, server, account, pin string) (View,
 	if reply.Token == "" || reply.SessionID == "" || reply.DeadlineAt.IsZero() || reply.ServerTime.IsZero() {
 		return View{}, errors.New("Login response is invalid. Retry login to resume; the server may have started the session.")
 	}
+	// Older servers don't send roster identity; the accepted account number is still available.
+	if reply.AccountNumber != "" {
+		account = reply.AccountNumber
+	}
 	s.mu.Lock()
 	s.server, s.account, s.token, s.phase = base, account, reply.Token, "loading"
+	s.studentName = reply.StudentName
 	s.mu.Unlock()
 	s.capture.auth(base, reply.Token)
 	if s.options.Monitoring.OnParticipation != nil {

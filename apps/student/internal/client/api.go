@@ -110,11 +110,13 @@ type Status struct {
 }
 type Final = clientwire.Final
 type loginReply struct {
-	Policy     *Policy   `json:"telemetry_policy,omitempty"`
-	Token      string    `json:"session_token"`
-	SessionID  string    `json:"session_id"`
-	DeadlineAt time.Time `json:"deadline_at"`
-	ServerTime time.Time `json:"server_time"`
+	Policy        *Policy   `json:"telemetry_policy,omitempty"`
+	Token         string    `json:"session_token"`
+	SessionID     string    `json:"session_id"`
+	AccountNumber string    `json:"account_number"`
+	StudentName   string    `json:"student_name"`
+	DeadlineAt    time.Time `json:"deadline_at"`
+	ServerTime    time.Time `json:"server_time"`
 	// MinVolumePercent is the exam's minimum system volume; absent (an older server) or 0 leaves the volume alone.
 	MinVolumePercent *int `json:"min_volume_percent,omitempty"`
 	// Locked says that the exam is locked, since when and why; absent while it is not.

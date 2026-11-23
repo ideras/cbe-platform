@@ -2,7 +2,7 @@
   import { onMount, untrack } from 'svelte';
   import Icon from '../../../../shared/theme/Icon.svelte';
   import { effectiveRemaining, timeChip, TimeWarnings, parseTime } from '../../../../shared/exam/timing.js';
-  let { title, position = '', status, statusObservation, ageMillis = 0, stale = false, locked = false, complete = false,
+  let { title, studentName = '', account = '', position = '', status, statusObservation, ageMillis = 0, stale = false, locked = false, complete = false,
     saveText = '', scaleIndex = 1, onSmaller, onLarger, calculator = false, onCalculator, onWarning = () => {}, calcButton = $bindable(null), children } = $props();
   let toolbar;
   let remaining = $state(null);
@@ -31,7 +31,12 @@
   });
 </script>
 <header class="toolbar" aria-label="Exam toolbar" bind:this={toolbar}>
-  <h2 title={title}>{title}</h2>
+  <div class="exam-heading">
+    <h2 title={title}>{title}</h2>
+    {#if studentName || account}
+      <p class="student-identity">{studentName}{#if account}{studentName ? ' · Account ' : 'Account '}<span class="account-number">{account}</span>{/if}</p>
+    {/if}
+  </div>
   {#if position && !complete}<span class="position">{position}</span>{/if}
   <span class="time-chip {chip.kind}" aria-label="Remaining time">{chip.text}</span>
   {#if locked && !complete}<span>Locked</span>{/if}
@@ -45,7 +50,10 @@
 </header>
 <style>
   .toolbar { position: sticky; top: 0; z-index: 40; display: flex; align-items: center; flex-wrap: wrap; gap: .45rem .7rem; padding: .65rem .8rem; background: var(--header-strong); color: var(--on-dark); border-radius: var(--radius-ctl); box-shadow: var(--shadow-raised); }
-  h2 { flex: 1 1 10rem; min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--accent-cyan-soft); font-size: 1.1rem; }
+  .exam-heading { flex: 1 1 14rem; min-width: 0; }
+  h2 { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--accent-cyan-soft); font-size: 1.1rem; }
+  .student-identity { margin: .15rem 0 0; font-weight: 600; overflow-wrap: anywhere; }
+  .account-number { font-family: var(--font-mono); }
   .position, .save, .ends { font-size: var(--text-sm); }
   .time-chip { padding: .2rem .5rem; border-radius: 6px; font-family: var(--font-mono); background: var(--chip-on-dark); color: var(--on-dark); white-space: nowrap; }
   .warning, .stale { background: var(--warn-fill); color: var(--warn-text); }
@@ -55,5 +63,5 @@
   button:focus-visible { outline-color: var(--accent-cyan-soft); }
   .size { display: flex; gap: .25rem; }
   .calc-open { display: inline-flex; gap: .4rem; align-items: center; border-radius: 999px; }
-  @media (max-width: 520px) { h2 { flex-basis: 100%; } .save { margin-left: auto; } .toolbar { gap: .35rem .5rem; } }
+  @media (max-width: 520px) { .exam-heading { flex-basis: 100%; } .save { margin-left: auto; } .toolbar { gap: .35rem .5rem; } }
 </style>

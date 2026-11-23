@@ -322,6 +322,10 @@ func TestLoginLoadAndPrivateCredentials(t *testing.T) {
 	if view.Phase != "exam" || view.Answers["q1"] != "restored" || view.Exam == nil || view.Status.SecondsRemaining != 40 {
 		t.Fatalf("bad initial view: %+v", view)
 	}
+	// This fixture models an older server without roster identity in its login response.
+	if view.Account != "00123" || view.StudentName != "" {
+		t.Fatalf("legacy identity = %q, %q", view.Account, view.StudentName)
+	}
 	data, _ := json.Marshal(view)
 	if strings.Contains(string(data), f.pin) || strings.Contains(string(data), f.token) || strings.Contains(string(data), "session_token") {
 		t.Fatal("credentials leaked to view")

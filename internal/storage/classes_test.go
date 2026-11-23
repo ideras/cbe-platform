@@ -47,10 +47,13 @@ func TestClassIsStoredWithItsStudentsAndSharesPeopleWithOtherClasses(t *testing.
 		t.Fatalf("unknown class = %v", err)
 	}
 	if err := s.WithSessionTransaction(ctx, func(tx service.SessionTransaction) error {
-		for account, want := range map[string]bool{"0001": true, "0002": true, "0003": false} {
-			if got, err := tx.StudentInClass(ctx, classA, account); err != nil || got != want {
-				t.Errorf("%s in class A = %v, %v", account, got, err)
+		for account, want := range map[string]string{"0001": "Ada Lovelace", "0002": "Grace"} {
+			if got, err := tx.ClassStudentName(ctx, classA, account); err != nil || got != want {
+				t.Errorf("%s in class A = %q, %v; want %q", account, got, err, want)
 			}
+		}
+		if name, err := tx.ClassStudentName(ctx, classA, "0003"); name != "" || !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("account from another class = %q, %v", name, err)
 		}
 		return nil
 	}); err != nil {
