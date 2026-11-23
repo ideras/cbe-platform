@@ -151,6 +151,9 @@ type Service struct {
 	downloadParent   string
 	downloadFolder   string
 	downloadProgress DownloadProgress
+	// Workspace batches keep their own progress and guard; they never change the question-exam download's result.
+	workspaceBatchRunning  bool
+	workspaceBatchProgress WorkspaceBatchProgress
 	// autoConnect is set when the dashboard knows both a server and a token at startup and should connect on its own.
 	autoConnect bool
 }
