@@ -5,7 +5,7 @@
   // is never abandoned by accident. Focus returns to whatever opened it. closeLabel is what the X says it does, for a dialog where
   // "Close" could be taken for the thing the dialog asks about. The tone `deep alarm` is the framed dialog of an
   // irreversible action: an alert-colored header, and a click on the backdrop nudges the dialog instead of doing nothing.
-  let { title, titleId = 'modal-title', tone = '', subtitle = '', eyebrow = '', icon = '', busy = false, onClose, children, footer, headerDetails, resizable = false, width = '34rem', closeLabel = 'Close', lightDismiss = false } = $props();
+  let { title, titleId = 'modal-title', tone = '', subtitle = '', eyebrow = '', icon = '', busy = false, onClose, children, footer, headerDetails, resizable = false, compact = false, width = '34rem', closeLabel = 'Close', lightDismiss = false } = $props();
   let dialog;
   onMount(() => {
     const previous = document.activeElement;
@@ -30,7 +30,7 @@
     return () => { dialog.removeEventListener('pointerdown', rememberStart); dialog.removeEventListener('click', nudge); previous?.focus?.(); };
   });
 </script>
-<dialog bind:this={dialog} class={tone} class:with-footer={footer} class:resizable style:--modal-width={width} oncancel={event => { event.preventDefault(); if (!busy) onClose(); }} aria-labelledby={titleId}>
+<dialog bind:this={dialog} class={tone} class:with-footer={footer} class:resizable class:compact style:--modal-width={width} oncancel={event => { event.preventDefault(); if (!busy) onClose(); }} aria-labelledby={titleId}>
   <header>
     {#if icon}<span class="heading-icon"><Icon name={icon} size={20} /></span>{/if}
     <div class="heading">{#if eyebrow}<span class="eyebrow">{eyebrow}</span>{/if}<h2 id={titleId}>{title}</h2>{#if subtitle}<p>{subtitle}</p>{/if}{@render headerDetails?.()}</div>
@@ -66,6 +66,10 @@
   .deep .close:focus-visible { outline-color: var(--accent-cyan-soft); }
   .deep .body { padding: 0; }
   dialog.with-footer[open] { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden; }
+  /* A flexible grid track can make an auto-height native dialog fill its height limit in WebKit. */
+  dialog.with-footer.compact[open] { display: flex; flex-direction: column; height: fit-content; }
+  .compact.with-footer > header, .compact.with-footer > footer { flex: none; }
+  .compact.with-footer > .body { min-height: 0; }
   dialog.resizable { resize: both; min-width: min(24rem, calc(100% - 2rem)); max-width: calc(100% - 2rem); min-height: min(24rem, calc(100% - 2rem)); }
   .with-footer header { position: static; }
   .with-footer .eyebrow { color: var(--accent-cyan-soft); font-size: .68rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }

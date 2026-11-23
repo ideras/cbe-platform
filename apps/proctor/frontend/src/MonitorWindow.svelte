@@ -34,9 +34,13 @@
     {:else}<p class="callout pending" role="status">Loading the dashboard…</p>{/if}
   {:else if !view.connected}<p class="callout warning">Not connected to the server. Connect from the main window; this window follows it.</p>
   {:else if !view.exam_id}<p class="callout warning">No exam is being monitored. Choose one with <strong>Monitor</strong> on the Exams tab of its class, or in the "Now admitting" bar of the main window.</p>
-  {:else}<Monitoring {view} {bridgeError} onRefresh={refreshNow} />{/if}
+  {:else}
+    {#key JSON.stringify([view.server, view.exam_id])}
+      <Monitoring {view} {bridgeError} onRefresh={refreshNow} />
+    {/key}
+  {/if}
 </main>
 <style>
-  .window { max-width: calc(1240px + 2.5rem); min-width: 0; margin: 0 auto; padding: 1.25rem; }
-  @media (max-width: 520px) { .window { padding: .75rem; } }
+  .window { max-width: calc(1240px + 2.5rem); min-width: 0; margin: 0 auto; padding: 1rem; }
+  @media (max-width: 520px) { .window { padding: .5rem; } }
 </style>

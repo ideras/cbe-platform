@@ -7,6 +7,7 @@ async function monitor(page) {
 
 test('grace controls confirm one student or everyone and report skipped submissions', async ({ page }) => {
   await monitor(page);
+  await page.getByRole('button', { name: /^Details for .*\(0001\)$/ }).click();
   await page.getByRole('button', { name: 'Extend grace 0001…', exact: true }).click();
   let dialog = page.getByRole('dialog');
   await expect(dialog).toContainText('New grace end:');

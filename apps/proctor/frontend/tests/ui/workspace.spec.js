@@ -20,27 +20,33 @@ async function monitor(page, roster) {
   await page.evaluate(({ sessions, roster, observed }) => { window.ProctorHarness.workspace(roster); window.ProctorHarness.monitoringRoster(sessions, [], observed); }, { sessions: students(), roster, observed });
 }
 const line = (page, name) => page.locator(`tbody tr[data-session-id]`).filter({ hasText: name });
+const diagnostics = row => row.locator('xpath=following-sibling::tr[1]');
+const expand = row => row.getByRole('button', { name: /^Details for / }).click();
 
 test('a workspace exam\'s roster has a workspace column, with the TODO progress said to be self-reported', async ({ page }) => {
   await monitor(page, { students: [workspaceStudent(0), workspaceStudent(1, { state: 'frozen', connected: false, todo_done: 3, cpu_percent: null, memory_mb: null, submissions: 2, submitted_final: true, agent_restarts: 2, last_activity: null })] });
   await expect(page.getByRole('columnheader', { name: /Workspace/ })).toContainText('TODO is self-reported');
   const ada = line(page, 'Ada Lovelace');
   await expect(ada).toContainText('Running');
-  await expect(ada).toContainText('connected');
-  await expect(ada).toContainText('12 s ago');
-  await expect(ada).toContainText('12.5% CPU · 180 MB');
+  await expand(ada);
+  await expect(diagnostics(ada)).toContainText('Student: connected');
+  await expect(diagnostics(ada)).toContainText('12 s ago');
+  await expect(diagnostics(ada)).toContainText('12.5% CPU · 180 MB');
   await expect(ada).toContainText('2 of 3 done');
   await expect(ada.getByText('(self-reported)')).toBeVisible();
-  await expect(ada).toContainText('1 submission · last');
+  await expect(ada).toContainText('1 submission');
+  await expect(diagnostics(ada)).toContainText('Last submission:');
   const alan = line(page, 'Alan Turing');
   await expect(alan).toContainText('Frozen');
-  await expect(alan).toContainText('not connected');
-  await expect(alan).toContainText('no activity yet');
-  await expect(alan).toContainText('not measured');
+  await expand(alan);
+  await expect(diagnostics(ada)).toBeHidden();
+  await expect(diagnostics(alan)).toContainText('not connected');
+  await expect(diagnostics(alan)).toContainText('no activity yet');
+  await expect(diagnostics(alan)).toContainText('not measured');
   await expect(alan).toContainText('3 of 3 done');
   await expect(alan).toContainText('2 submissions');
   await expect(alan).toContainText('final made');
-  await expect(alan).toContainText('Workspace restarted 2 times');
+  await expect(diagnostics(alan)).toContainText('Workspace restarted 2 times');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1 || !!document.querySelector('.table-scroll'))).toBe(true);
 });
 
@@ -48,9 +54,10 @@ test('the TODO progress updates live as the roster is read again', async ({ page
   await monitor(page, { students: [workspaceStudent(0)] });
   const ada = line(page, 'Ada Lovelace');
   await expect(ada).toContainText('2 of 3 done');
+  await expand(ada);
   await page.evaluate(student => window.ProctorHarness.workspaceRoster({ students: [student] }), workspaceStudent(0, { todo_done: 3, last_activity: '2035-01-01T22:23:20Z' }));
   await expect(ada).toContainText('3 of 3 done');
-  await expect(ada).toContainText('3 s ago');
+  await expect(diagnostics(ada)).toContainText('3 s ago');
   await expect(ada.getByText('(self-reported)')).toBeVisible();
 });
 
@@ -60,6 +67,7 @@ test('a student without a workspace yet, and an exam that is not a workspace exa
   await page.evaluate(() => window.ProctorHarness.workspaceRoster(null));
   await expect(page.getByRole('columnheader', { name: /Workspace/ })).toHaveCount(0);
   await expect(page.locator('td.workspace')).toHaveCount(0);
+  await expect(page.getByRole('tab', { name: /^Grading/ })).toHaveCount(0);
   await expect(page.getByRole('table', { name: /All sessions/ }).getByRole('columnheader')).toHaveCount(5);
 });
 
@@ -506,36 +514,48 @@ test('the roster says each student\'s grade in words: waiting, being graded, adv
   await page.evaluate(({ sessions, roster, observed }) => { window.ProctorHarness.workspace(roster); window.ProctorHarness.monitoringRoster(sessions, [], observed); },
     { sessions: students2, roster: rosterOf([{ grading: 1, state: 'done', points: 28, max_points: 40, confirmed: false, at: observed }, { grading: 2, state: 'done', points: 40, max_points: 40, confirmed: true, at: observed },
       { grading: 3, state: 'queued', at: observed }, { grading: 4, state: 'running', at: observed }, { grading: 5, state: 'failed', failure: 'timeout', at: observed }, null]), observed });
-  await expect(line(page, 'Ada Lovelace')).toContainText('Grade: 28 of 40 points (advisory until you confirm it)');
-  await expect(line(page, 'Alan Turing')).toContainText('Grade: 40 of 40 points (confirmed)');
-  await expect(line(page, 'Grace Hopper')).toContainText('Grade: Waiting to be graded');
-  await expect(line(page, 'Joan Clarke')).toContainText('Grade: Being graded…');
-  await expect(line(page, 'Linus T')).toContainText('Grading failed: it did not end in time');
-  await expect(line(page, 'No One')).not.toContainText('Grade:');
-  // The line above the table counts them, and says what a grade is.
-  const summary = page.getByRole('group', { name: 'Grading' });
-  await expect(summary).toContainText('2 graded (1 confirmed)');
-  await expect(summary).toContainText('2 waiting or being graded');
-  await expect(summary).toContainText('1 failed');
-  await expect(summary).toContainText('A grade is advisory until you confirm it.');
+  await openTab(page, 'Grading');
+  const grades = page.getByRole('table', { name: 'Class grading' });
+  const gradeRow = name => grades.getByRole('row').filter({ hasText: name });
+  await expect(grades.locator('tbody tr').first()).toContainText('Joan Clarke');
+  await expect(grades.locator('tbody tr').nth(1)).toContainText('Grace Hopper');
+  await expect(gradeRow('Ada Lovelace')).toContainText('28 of 40 points');
+  await expect(gradeRow('Alan Turing')).toContainText('40 of 40 points');
+  await expect(gradeRow('Alan Turing')).toContainText('Confirmed');
+  await expect(gradeRow('Grace Hopper')).toContainText('Waiting');
+  await expect(gradeRow('Joan Clarke')).toContainText('Being graded');
+  await expect(gradeRow('Linus T')).toContainText('Grading failed: it did not end in time');
+  await expect(gradeRow('No One')).toContainText('No submission');
+  await expect(page.getByRole('group', { name: 'Grading actions' })).toContainText('A grade is advisory until you confirm it');
 });
 
 test('the class is graded from the roster after the proctor is told what will happen, and what was left out is said', async ({ page }) => {
   await page.setViewportSize({ width: 1500, height: 800 });
   await monitor(page, { students: [workspaceStudent(0, { submissions: 2 }), workspaceStudent(1, { submissions: 0 })] });
+  await openTab(page, 'Grading');
   const button = page.getByRole('button', { name: 'Grade submissions…' });
   await expect(button).toBeEnabled();
   await page.evaluate(() => window.ProctorHarness.gradeExamResult({ queued: [11], skipped: [{ session_id: '00000002-0000-4000-8000-000000000000', account_number: '002468', reason: 'has not submitted anything' }] }));
   await button.click();
   const dialog = page.getByRole('dialog', { name: 'Grade the class' });
-  await expect(dialog).toContainText('1 submission will be graded');
+  await expect(dialog.getByRole('button', { name: 'Grade 1 submission' })).toBeFocused();
   await expect(dialog).toContainText('no network');
   await expect(dialog).toContainText('advisory until you confirm it');
   await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(button).toBeFocused();
   expect(await page.evaluate(() => window.ProctorHarness.calls.workspace?.filter(call => call.call === 'GradeExam').length ?? 0)).toBe(0);
   await button.click();
   await page.getByRole('dialog', { name: 'Grade the class' }).getByRole('button', { name: 'Grade 1 submission' }).click();
-  await expect(page.getByRole('status').filter({ hasText: '1 submission is queued for grading; 1 student was left out (has not submitted anything)' })).toBeVisible();
+  const receipt = page.getByRole('region', { name: 'Class grading request' });
+  await expect(receipt.getByRole('status')).toHaveText('1 submission was queued for grading.');
+  await receipt.getByText('1 student left out — see why').click();
+  await expect(receipt.getByText('002468: has not submitted anything')).toBeVisible();
+  await page.evaluate(students => window.ProctorHarness.workspaceRoster({ students }), [
+    workspaceStudent(0, { grade: { grading: 11, state: 'done', points: 28, max_points: 40 } }), workspaceStudent(1, { submissions: 0 }),
+  ]);
+  await expect(receipt).toContainText('Class grading finished · 1 graded');
+  await expect(receipt).not.toContainText('queued for grading');
+  await expect(receipt.getByText('002468: has not submitted anything')).toBeVisible();
   expect(await page.evaluate(() => window.ProctorHarness.calls.workspace.filter(call => call.call === 'GradeExam'))).toEqual([{ call: 'GradeExam', sessionIds: [] }]);
   // A refusal of the server is shown in the dialog, in the server's words.
   await page.evaluate(() => window.ProctorHarness.gradeFails('The server refused the change: this exam has no grading folder, so there is nothing to grade it with.'));
@@ -543,6 +563,114 @@ test('the class is graded from the roster after the proctor is told what will ha
   await page.getByRole('dialog', { name: 'Grade the class' }).getByRole('button', { name: 'Grade 1 submission' }).click();
   await expect(page.getByRole('alert').filter({ hasText: 'no grading folder' })).toBeVisible();
 });
+
+test('roster tab keys and independent filters preserve the open student across polls', async ({ page }) => {
+  await monitor(page, { students: [workspaceStudent(0), workspaceStudent(1, { submissions: 0 })] });
+  const monitoring = tab(page, 'Monitoring');
+  const grading = tab(page, 'Grading');
+  await expect(monitoring).toHaveAttribute('aria-selected', 'true');
+  const ada = line(page, 'Ada Lovelace');
+  await page.getByRole('button', { name: /^In progress 2$/ }).click();
+  await ada.getByRole('button', { name: /^Details for / }).press('Space');
+  await monitoring.press('ArrowRight');
+  await expect(grading).toBeFocused();
+  await expect(monitoring).toHaveAttribute('tabindex', '-1');
+  const none = page.getByRole('group', { name: 'Filter grades' }).getByRole('button', { name: /^No submission 1$/ });
+  await none.click();
+  const grades = page.getByRole('table', { name: 'Class grading' });
+  await expect(grades.getByRole('row').filter({ hasText: 'Alan Turing' })).toBeVisible();
+  await page.evaluate(student => window.ProctorHarness.workspaceRoster({ students: [student] }), workspaceStudent(0, { state: 'frozen' }));
+  await expect(grades.locator('tbody tr')).toHaveCount(1);
+  await grading.press('Home');
+  await expect(monitoring).toBeFocused();
+  await expect(ada).toContainText('Frozen');
+  await expect(diagnostics(ada)).toBeVisible();
+  await expect(page.getByRole('button', { name: /^In progress 2$/ })).toHaveAttribute('aria-pressed', 'true');
+  await monitoring.press('End');
+  await expect(none).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('class progress counts matching run IDs only and keeps export, retry and Review usable', async ({ page }) => {
+  await monitor(page, { students: [workspaceStudent(0, { grade: { grading: 1, state: 'done', confirmed: true, points: 27, max_points: 40 } }), workspaceStudent(1)] });
+  await page.evaluate(value => {
+    const { students } = value;
+    window.ProctorHarness.workspace({ students }, value.data);
+    window.ProctorHarness.gradeExamResult({ queued: [11, 12], skipped: [] });
+  }, { students: [workspaceStudent(0, { grade: { grading: 1, state: 'done', confirmed: true, points: 27, max_points: 40 } }), workspaceStudent(1)], data: gradedData([run(12, { state: 'failed' })]) });
+  await openTab(page, 'Grading');
+  await page.getByRole('button', { name: /^Confirmed 1$/ }).click();
+  await page.getByRole('button', { name: 'Grade submissions…' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Grade 2 submissions' }).click();
+  const receipt = page.getByRole('region', { name: 'Class grading request' });
+  const update = async (first, second) => page.evaluate(students => window.ProctorHarness.workspaceRoster({ students }), [workspaceStudent(0, { grade: first }), workspaceStudent(1, { grade: second })]);
+  const confirmed = { grading: 1, state: 'done', confirmed: true, points: 27, max_points: 40 };
+  await update(confirmed, { grading: 12, state: 'running' });
+  await expect(receipt).toContainText('0 of 2 finished · 0 graded · 0 failed · 1 running');
+  await expect(receipt).toContainText('1 run not shown in the roster');
+  await page.getByRole('button', { name: 'Download grades…' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Grades saved to' })).toContainText('1 grade confirmed');
+  await update(confirmed, { grading: 12, state: 'failed', failure: 'timeout' });
+  await expect(receipt).toContainText('1 of 2 finished · 0 graded · 1 failed');
+  await page.getByRole('button', { name: /^Failed 1$/ }).click();
+  const retry = page.getByRole('button', { name: 'Retry grading 002468' });
+  await page.evaluate(() => window.ProctorHarness.gradeFails('Student is already being graded.'));
+  await retry.click();
+  await expect(page.getByRole('alert')).toContainText('already being graded');
+  await expect(retry).toBeEnabled();
+  await page.evaluate(() => window.ProctorHarness.gradeFails(''));
+  await retry.click();
+  await expect(retry).toBeDisabled();
+  await expect(page.getByRole('status').filter({ hasText: 'Retry #13 queued' })).toBeVisible();
+  const sent = await page.evaluate(() => window.ProctorHarness.calls.workspace.filter(call => /^Grade/.test(call.call)));
+  expect(sent).toEqual([{ call: 'GradeExam', sessionIds: [] }, ...Array.from({ length: 2 }, () => ({ call: 'GradeStudent', sessionId: '00000002-0000-4000-8000-000000000000', submissionId: 0 }))]);
+  await page.getByRole('button', { name: 'Review 002468' }).click();
+  expect(await page.evaluate(() => window.ProctorHarness.calls.windows.at(-1).name)).toBe('review-00000002-0000-4000-8000-000000000000');
+  // The other class run was masked by the first student's confirmed grade. It becomes visible now.
+  await update({ grading: 11, state: 'done', points: 35, max_points: 40 }, { grading: 13, state: 'running' });
+  await expect(receipt).toContainText('Class grading finished · 1 graded');
+  await expect(receipt).toContainText('2 of 2 finished · 1 graded · 1 failed');
+  await expect(receipt).not.toContainText('queued for grading');
+  await receipt.getByRole('button', { name: 'Hide', exact: true }).click();
+  await expect(receipt).toHaveCount(0);
+});
+
+for (const width of [1280, 390]) {
+  test(`workspace roster and grade preview fit at ${width}px`, async ({ page }, info) => {
+    await page.setViewportSize({ width, height: 850 });
+    await monitor(page, { students: [workspaceStudent(0, { grade: { grading: 1, state: 'done', points: 26, max_points: 40 } }), workspaceStudent(1, { grade: { grading: 2, state: 'running' } })] });
+    await expand(line(page, 'Ada Lovelace'));
+    await page.screenshot({ path: info.outputPath('workspace-monitoring.png'), fullPage: true });
+    await openTab(page, 'Grading');
+    const scroll = page.getByRole('region', { name: /^Grading table/ });
+    if (width === 390) {
+      await scroll.focus();
+      await page.keyboard.press('ArrowRight');
+      await expect.poll(() => scroll.evaluate(el => el.scrollLeft)).toBeGreaterThan(0);
+      await scroll.evaluate(el => el.scrollLeft = 0);
+    }
+    await page.screenshot({ path: info.outputPath('workspace-grading.png'), fullPage: true });
+    const open = page.getByRole('button', { name: 'Grade submissions…' });
+    await open.click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    expect(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+    // When all the content fits, the footer should sit just below the form, not at the bottom of the viewport.
+    const footerGap = await dialog.evaluate(el => el.querySelector('footer').getBoundingClientRect().top - el.querySelector('form').getBoundingClientRect().bottom);
+    expect(Math.abs(footerGap)).toBeLessThanOrEqual(1);
+    await dialog.screenshot({ path: info.outputPath('grade-preview.png') });
+    if (width === 390) {
+      await page.setViewportSize({ width, height: 500 });
+      const body = dialog.locator('.body');
+      expect(await body.evaluate(el => el.scrollHeight)).toBeGreaterThan(await body.evaluate(el => el.clientHeight));
+      await body.evaluate(el => { el.scrollTop = el.scrollHeight; });
+      await expect(dialog.getByRole('heading')).toBeInViewport();
+      await expect(dialog.getByRole('button', { name: 'Grade 1 submission' })).toBeInViewport();
+    }
+    await page.keyboard.press('Escape');
+    await expect(open).toBeFocused();
+  });
+}
 
 test('the grades are downloaded as a file the proctor chooses, and the proctor is told how many are confirmed (Phase 8)', async ({ page }) => {
   await page.setViewportSize({ width: 1500, height: 800 });
@@ -553,6 +681,7 @@ test('the grades are downloaded as a file the proctor chooses, and the proctor i
     { ...workspaceStudent(1), account_number: '002468', grade: { grading: 2, state: 'done', points: 31, max_points: 40, confirmed: false, at: observed } },
     { ...workspaceStudent(2), account_number: '003579', submissions: 0 }] };
   await page.evaluate(({ sessions, roster, observed }) => { window.ProctorHarness.workspace(roster); window.ProctorHarness.monitoringRoster(sessions, [], observed); }, { sessions: students2, roster, observed });
+  await openTab(page, 'Grading');
   const button = page.getByRole('button', { name: 'Download grades…' });
   await expect(button).toBeEnabled();
   await button.click();
@@ -570,6 +699,7 @@ test('the grades are downloaded as a file the proctor chooses, and the proctor i
 test('with nobody graded there are no grades to download', async ({ page }) => {
   await page.setViewportSize({ width: 1500, height: 800 });
   await monitor(page, { students: [workspaceStudent(0, { submissions: 1 }), workspaceStudent(1, { submissions: 1, grade: { grading: 1, state: 'running', at: observed } })] });
+  await openTab(page, 'Grading');
   await expect(page.getByRole('button', { name: 'Download grades…' })).toBeDisabled();
   await page.evaluate(() => window.ProctorHarness.workspaceRoster(null));
   await expect(page.getByRole('button', { name: 'Download grades…' })).toHaveCount(0, { timeout: 8000 });
@@ -578,9 +708,10 @@ test('with nobody graded there are no grades to download', async ({ page }) => {
 test('nobody to grade, no button to press; a question exam has no grading at all', async ({ page }) => {
   await page.setViewportSize({ width: 1500, height: 800 });
   await monitor(page, { students: [workspaceStudent(0, { submissions: 0 }), workspaceStudent(1, { submissions: 1, grade: { grading: 1, state: 'running', at: observed } })] });
+  await openTab(page, 'Grading');
   await expect(page.getByRole('button', { name: 'Grade submissions…' })).toBeDisabled();
   await page.evaluate(() => window.ProctorHarness.workspaceRoster(null));
-  await expect(page.getByRole('group', { name: 'Grading' })).toHaveCount(0, { timeout: 8000 });
+  await expect(page.getByRole('tab', { name: /^Grading/ })).toHaveCount(0, { timeout: 8000 });
   await expect(page.getByRole('button', { name: 'Grade submissions…' })).toHaveCount(0);
 });
 

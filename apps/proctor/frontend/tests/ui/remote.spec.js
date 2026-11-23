@@ -8,6 +8,8 @@ async function connect(page) {
   await expect(page.getByRole('table', { name: /All sessions/ })).toBeVisible();
 }
 const rows = page => page.locator('tbody tr[data-session-id]');
+const diagnostics = row => row.locator('xpath=following-sibling::tr[1]');
+const expand = row => row.getByRole('button', { name: /^Details for / }).click();
 const attention = page => page.locator('[data-stat="attention"] .num');
 const harness = (page, call, ...args) => page.evaluate(([call, args]) => window.ProctorHarness[call](...args), [call, args]);
 
@@ -21,7 +23,9 @@ test('what was found shows on the row, in the application\'s words as text, and 
   const before = Number(await attention(page).innerText());
   await harness(page, 'remoteFound', 5, [{ kind: 'remote_session', name: 'Remote Desktop', detail: 'LAPTOP-1' }, { kind: 'remote_tool', name: '<img src=x onerror="window.injected=true">' }]);
   const row = rows(page).filter({ hasText: 'Student 005' });
-  await expect(row).toContainText('Remote access: Remote Desktop from LAPTOP-1 · <img src=x');
+  await expect(row).toContainText('Remote access reported');
+  await expand(row);
+  await expect(diagnostics(row)).toContainText('Remote access: Remote Desktop from LAPTOP-1 · <img src=x');
   await expect(attention(page)).toHaveText(String(before + 1));
   expect(await page.evaluate(() => window.injected)).toBeUndefined();
   await harness(page, 'remoteFound', 5, []);
@@ -47,7 +51,10 @@ test('a virtual machine shows on the row apart from remote access, and needs att
   const before = Number(await attention(page).innerText());
   await harness(page, 'remoteFound', 5, [{ kind: 'virtual_machine', name: 'VirtualBox', detail: 'innotek GmbH' }]);
   const row = rows(page).filter({ hasText: 'Student 005' });
-  await expect(row).toContainText('Virtual machine: VirtualBox (innotek GmbH)');
+  await expect(row).toContainText('Virtual machine reported');
+  await expand(row);
+  await expect(diagnostics(row)).toContainText('Virtual machine: VirtualBox (innotek GmbH)');
+  await expect(diagnostics(row)).toContainText('cannot report activity or focus loss outside the virtual machine');
   await expect(row).not.toContainText('Remote access');
   await expect(attention(page)).toHaveText(String(before + 1));
   await harness(page, 'remoteFound', 5, []);

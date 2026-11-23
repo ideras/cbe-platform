@@ -1,5 +1,4 @@
 <script>
-  import { untrack } from 'svelte';
   import * as api from '$proctor-api';
   import Confirmation from './Confirmation.svelte';
   import UnlockDialog from './UnlockDialog.svelte';
@@ -7,13 +6,16 @@
   import ExtendGraceDialog from './ExtendGraceDialog.svelte';
   import EndTimeDialog from './EndTimeDialog.svelte';
   import MonitoringRow from './MonitoringRow.svelte';
-  import { todoNote, gradingSummary, gradeSheetNote } from './workspace.js';
-  import GradeDialog from './GradeDialog.svelte';
+  import RosterGrading from './RosterGrading.svelte';
+  import Tabs from './Tabs.svelte';
   import Icon from '../../../../shared/theme/Icon.svelte';
+  import { todoNote, gradingSummary } from './workspace.js';
   import { localTime } from './dates.js';
   import { rosterFilters, rosterCounts, sortRoster, filterRoster, initials, duration, spoken, examLength, lockRule, inProgress, appRelease } from './roster.js';
+  import './live-roster.css';
   // Inlined on purpose: WebKitGTK cannot play audio through the wails:// scheme.
   import alertURL from './assets/lock-alert.wav?inline';
+
   let { view, bridgeError = '', disabled = false, onRefresh } = $props();
   let modal = $state(null);
   let actionBusy = $state(false);
@@ -29,57 +31,47 @@
   let timingBusy = $state(false);
   let timingError = $state('');
   let reviewError = $state('');
+  let refreshBusy = $state(false);
+  let refreshError = $state('');
   let filter = $state('all');
+  let selected = $state('monitoring');
+  let openRow = $state(null);
+  let detailsOpen = $state(false);
+  let missingOpen = $state(true);
+
   const monitored = $derived(view.catalog?.exams?.find(entry => entry.exam_id === view.exam_id));
   const sessions = $derived(sortRoster(view.roster?.sessions ?? []));
   const visible = $derived(filterRoster(sessions, filter));
   const counts = $derived(rosterCounts(sessions));
+  const filterCounts = $derived({ all: counts.total, attention: counts.attention, progress: counts.progress, submitted: counts.submitted });
   const missing = $derived(view.roster?.students_without_session ?? []);
-  // A workspace exam has one more column: what each student's container is doing, and what they say they have done (their own ticks).
   const workspaces = $derived(new Map((view.workspace?.students ?? []).map(student => [student.session_id, student])));
   const hasWorkspace = $derived(Boolean(view.workspace));
   const grading = $derived(gradingSummary(view.workspace?.students));
-  let gradeModal = $state(false);
-  let gradeBusy = $state(false);
-  let gradeError = $state('');
-  async function gradeClass() {
-    if (gradeBusy) return;
-    gradeBusy = true; gradeError = ''; outcome = '';
-    try {
-      const started = await api.GradeExam([]);
-      const left = started.skipped.length;
-      outcome = `${started.queued.length} submission${started.queued.length === 1 ? ' is' : 's are'} queued for grading${left ? `; ${left} student${left === 1 ? ' was' : 's were'} left out (${[...new Set(started.skipped.map(skip => skip.reason))].join('; ')})` : ''}. The grades appear in the roster as the runs end.`;
-      gradeModal = false; await onRefresh();
-    } catch (err) { gradeError = String(err); }
-    finally { gradeBusy = false; }
-  }
-  let sheetBusy = $state(false);
-  // The grade sheet: a CSV with a line for every student of the class (docs/workspace/TEACHER-GUIDE.md). The server makes it; this asks where to keep it.
-  async function downloadGrades() {
-    if (sheetBusy) return;
-    sheetBusy = true; reviewError = ''; outcome = '';
-    try {
-      const path = await api.SaveWorkspaceGrades(view.exam_id);
-      if (path) outcome = gradeSheetNote(path, grading);
-    } catch (err) { reviewError = String(err); }
-    finally { sheetBusy = false; }
-  }
+  const activeGrades = $derived(grading.waiting + grading.running);
+  const advisoryGrades = $derived(grading.done - grading.confirmed);
+  const tabs = $derived([
+    { id: 'monitoring', text: 'Monitoring', icon: 'classes', count: counts.total },
+    { id: 'grading', text: 'Grading', icon: 'fileCheck',
+      count: activeGrades ? `${activeGrades} active` : advisoryGrades ? `${advisoryGrades} advisory` : grading.confirmed ? `${grading.confirmed} confirmed` : undefined,
+      tone: activeGrades ? 'blue' : advisoryGrades ? 'warn' : 'ok' },
+  ]);
+  $effect(() => { if (!hasWorkspace && selected !== 'monitoring') selected = 'monitoring'; });
+
   const policy = $derived(view.roster?.policy ?? {});
-  // The server's release, and the students still working whose application is another one.
   const serverVersion = $derived(view.catalog?.server_version ?? '');
   const otherRelease = $derived(sessions.filter(row => inProgress(row) && appRelease(row, serverVersion).differs));
-  // The first few of them by name; the rest are counted, and their rows say which release each runs.
   const otherNames = $derived(otherRelease.slice(0, 5).map(row => row.student_name).join(', ') + (otherRelease.length > 5 ? ` and ${otherRelease.length - 5} more` : ''));
   const stale = $derived(Boolean(view.stale || bridgeError));
-  // The exam's first roster is still on its way from the server. Nothing is displayed yet, so nothing is out of date: the proctor is
-  // told it is loading, and the stale warning waits for a failure (view.error, or a native side that does not answer) to report.
   const waiting = $derived(Boolean(view.loading && !view.loaded));
   const quietStale = $derived(waiting && !view.error && !bridgeError);
+  const blocked = $derived(disabled || view.busy);
+  const scheduled = $derived(monitored && (monitored.published || monitored.active_sessions > 0));
   const lengthText = $derived(monitored ? examLength(monitored.duration_seconds) : 'unknown');
   const graceText = $derived(monitored ? `${spoken(monitored.grace_seconds * 1000)}${monitored.extra_grace_seconds ? ` + ${spoken(monitored.extra_grace_seconds * 1000)} added` : ''}` : 'unknown');
   const title = $derived(monitored ? `${monitored.title} (${monitored.class_name})` : view.exam_id);
 
-  // Announce every lock once, regardless of which table filter is selected.
+  // Announce every lock once, regardless of which tab or filter is selected.
   const announced = new Set();
   let alertSound;
   $effect(() => {
@@ -92,8 +84,14 @@
       alertSound.play().catch(() => {});
     } catch { /* The row still shows the lock if the courtesy alert cannot play. */ }
   });
-  const examKey = $derived(`${view.server}|${view.exam_id}`);
-  $effect(() => { examKey; untrack(() => { outcome = ''; reviewError = ''; filter = 'all'; }); });
+
+  async function requestRefresh() {
+    if (blocked || refreshBusy) return;
+    refreshBusy = true; refreshError = '';
+    try { await onRefresh(); }
+    catch (err) { refreshError = `Could not refresh the roster: ${String(err)}`; }
+    finally { refreshBusy = false; }
+  }
   async function review(row) {
     reviewError = '';
     try { await api.OpenReview(row.session_id); } catch (err) { reviewError = String(err); }
@@ -147,86 +145,115 @@
     finally { timingBusy = false; }
   }
 </script>
-<div class="monitoring">
-  <section class="panel" aria-label="Live roster">
-    <header class="roster-head">
-      <div class="heading"><div class="eyebrow">Live roster</div><h1 aria-label="Live roster: {title}">{monitored?.title ?? view.exam_id}{#if monitored}<span>{` · ${monitored.class_name}`}</span>{/if}</h1></div>
-      <div class="live" class:historical={stale} title="Server observation: {localTime(view.roster?.server_time, 'unavailable')}"><span class="pulse" class:running={!stale && view.loaded} aria-hidden="true"></span>{stale ? 'Last confirmed' : 'Updated'} <strong>{localTime(view.last_success, 'not yet')}</strong></div>
-    </header>
-    <div class="panel-body">
+
+<section class="live-roster" aria-label="Live roster">
+  <header class="roster-head">
+    <span class="heading-icon"><Icon name="monitor" size={21} /></span>
+    <div class="heading"><div class="eyebrow">Live roster</div><h1 aria-label="Live roster: {title}">{monitored?.title ?? view.exam_id}{#if monitored}<span>{` · ${monitored.class_name}`}</span>{/if}</h1></div>
+    <div class="heading-actions">
+      <span class="live"><span class="pulse" class:running={!stale && view.loaded} aria-hidden="true"></span>{stale ? 'Last confirmed' : 'Updated'} <strong>{view.loaded ? localTime(view.roster?.server_time ?? view.last_success, 'not yet') : 'not yet'}</strong></span>
+      <button class="header-button" disabled={blocked || refreshBusy} onclick={requestRefresh}><Icon name="refresh" size={15} />Refresh</button>
+      {#if view.loaded}<button class="header-button" aria-expanded={detailsOpen} aria-controls="exam-details" onclick={() => detailsOpen = !detailsOpen}>Exam details <span class="chevron"><Icon name="chevron" size={14} /></span></button>{/if}
+    </div>
+  </header>
+
+  {#if view.loaded}
+    <section class="details" id="exam-details" aria-label="Exam details" hidden={!detailsOpen}>
+      {#if detailsOpen}
+      <div class="settings">
+        <span class="chip"><Icon name="clock" size={15} /><span>Duration: <b>{lengthText}</b></span></span>
+        <span class="chip time"><Icon name="clock" size={15} /><span>Grace: <b>{graceText}</b></span></span>
+        <span class="chip"><Icon name="clock" size={15} /><b>{monitored?.ends_at ? `Ends ${localTime(monitored.ends_at)}` : 'No exam end time'}</b></span>
+        <span class="chip">Not logged in <b>{missing.length}</b></span>
+      </div>
+      <div class="policy">
+        <p><Icon name="lock" size={14} /><span>Exam rules: alarm after {spoken(policy.focus_threshold_ms)} · screenshot every {spoken(policy.capture_interval_ms)} · {lockRule(policy)}.</span></p>
+        <p><Icon name="server" size={14} /><span>Server policy: heartbeat {duration(policy.heartbeat_interval_ms)} · overdue strictly beyond {duration(policy.overdue_threshold_ms)}{#if serverVersion}{` · release ${serverVersion}`}{/if}.</span></p>
+      </div>
+      {/if}
+    </section>
+    {#if scheduled}
+      <div class="timing" role="group" aria-label="Exam timing controls">
+        <span class="tool-note"><strong>Exam timing</strong>{#if !detailsOpen} · <span>{monitored.ends_at ? `Ends ${localTime(monitored.ends_at)}` : 'No exam end time'}</span> · <span>Grace: {graceText}</span>{/if}</span>
+        <div class="timing-actions">
+          <button class="outline" disabled={blocked || timingBusy} onclick={() => askTiming('end')}><Icon name="clock" size={15} />Change end time…</button>
+          {#if monitored.ends_at}<button class="outline" disabled={blocked || timingBusy} onclick={() => askTiming('clear')}>Clear end time</button>{/if}
+          <button class="primary" disabled={blocked || timingBusy} onclick={() => askTiming('grace')}><Icon name="plus" size={15} />Extend grace for everyone…</button>
+        </div>
+      </div>
+    {/if}
+  {/if}
+
+  {#if (stale && !quietStale) || waiting || reviewError || refreshError || outcome}
+    <div class="notices">
       {#if stale && !quietStale}<p role="alert" class="callout warning stale">STALE / UNCONFIRMED — displayed values are historical observations, not current status. {view.error} {bridgeError}</p>{/if}
       {#if waiting}<p class="callout pending" role="status">Loading the roster from the server…</p>{/if}
-      {#if reviewError}<p role="alert">{reviewError}</p>{/if}
+      {#if reviewError || refreshError}<p class="callout warning" role="alert">{reviewError || refreshError}</p>{/if}
       {#if outcome}<p role="status">{outcome}</p>{/if}
-      {#if view.loaded}
-        <dl class="stats" aria-label="Session totals">
-          <div class="stat" data-stat="total"><dt>sessions</dt><dd class="num">{counts.total}</dd></div>
-          <div class="stat active" data-stat="progress" title="Active and grace sessions, including locked students"><dt>in progress</dt><dd class="num">{counts.progress}</dd></div>
-          <div class="stat attention" data-stat="attention" title="Network, focus, lock or pending-finalization warnings; each student counted once"><dt>need attention</dt><dd class="num">{counts.attention}</dd></div>
-          <div class="stat locked" data-stat="locked"><dt>locked</dt><dd class="num">{counts.locked}</dd></div>
-          <div class="stat done" data-stat="submitted"><dt>submitted</dt><dd class="num">{counts.submitted}</dd></div>
-        </dl>
-        <div class="settings">
-          <span class="chip length"><Icon name="clock" size={15} /><span>Duration: <b>{lengthText}</b></span></span>
-          <span class="chip time"><Icon name="clock" size={15} /><span>Grace: <b>{graceText}</b></span></span>
-          <span class="chip"><Icon name="clock" size={15} /><b>{monitored?.ends_at ? `Ends ${localTime(monitored.ends_at)}` : 'No exam end time'}</b></span>
-          <span class="chip">Not logged in <b>{missing.length}</b></span>
-          {#if monitored && (monitored.published || monitored.active_sessions > 0)}
-            <div class="settings-actions">
-              <button class="outline" disabled={disabled || view.busy || timingBusy} onclick={() => askTiming('end')}><Icon name="clock" size={15} />Change end time…</button>
-              {#if monitored.ends_at}<button class="outline" disabled={disabled || view.busy || timingBusy} onclick={() => askTiming('clear')}>Clear end time</button>{/if}
-              <button class="primary" disabled={disabled || view.busy || timingBusy} onclick={() => askTiming('grace')}><Icon name="plus" size={15} />Extend grace for everyone…</button>
-            </div>
-          {/if}
-        </div>
-        {#if hasWorkspace}
-          <div class="grading" role="group" aria-label="Grading">
-            <span class="chip"><Icon name="fileCheck" size={15} /><span>Grading: <b>{grading.done} graded</b>{grading.confirmed ? ` (${grading.confirmed} confirmed)` : ''}{grading.waiting + grading.running ? ` · ${grading.waiting + grading.running} waiting or being graded` : ''}{grading.failed ? ` · ${grading.failed} failed` : ''}{grading.ungraded ? ` · ${grading.ungraded} submitted, not graded` : ''}</span></span>
-            <span class="note-inline">A grade is advisory until you confirm it.</span>
-            <div class="settings-actions">
-              <button class="outline" disabled={disabled || view.busy || gradeBusy || !grading.gradable} onclick={() => { gradeModal = true; gradeError = ''; }}><Icon name="done" size={15} />Grade submissions…</button>
-              <button class="outline" disabled={disabled || view.busy || sheetBusy || !grading.done} title={grading.done ? 'Save the grades of the class as a spreadsheet file (CSV): the confirmed ones and the advisory ones in separate columns' : 'Nobody has a grade yet'} onclick={downloadGrades}><Icon name="download" size={15} />Download grades…</button>
-            </div>
-          </div>
-        {/if}
-        <div class="policy">
-          <p><Icon name="lock" size={13} /><span>Exam rules: alarm after {spoken(policy.focus_threshold_ms)} · screenshot every {spoken(policy.capture_interval_ms)} · {lockRule(policy)}.</span></p>
-          <p><Icon name="server" size={13} /><span>Server policy: heartbeat {duration(policy.heartbeat_interval_ms)} · overdue strictly beyond {duration(policy.overdue_threshold_ms)}{#if serverVersion}{` · release ${serverVersion}`}{/if}.</span></p>
-        </div>
-        {#if otherRelease.length}
-          <p class="callout warning release">{otherRelease.length === 1 ? '1 student still working runs' : `${otherRelease.length} students still working run`} another release of the application than the server ({serverVersion}): {otherNames}. Their rows say which.</p>
-        {/if}
-        <div class="table-frame">
-          <div class="table-tools">
-            <span>Locked first, then student name; warning columns are independent. Showing {visible.length} of {counts.total}.</span>
-            <div class="filters" role="group" aria-label="Filter sessions">{#each rosterFilters as option}<button class="filter" class:on={filter === option.id} aria-pressed={filter === option.id} onclick={() => filter = option.id}>{option.label}</button>{/each}</div>
-          </div>
-          <!-- svelte-ignore a11y_no_noninteractive_tabindex (Keyboard users need to scroll this region in WebKit.) -->
-          <div class="table-scroll" role="region" aria-label="Session table — scroll horizontally for controls" tabindex="0"><table>
-            <caption class="visually-hidden">All sessions — locked first, then student name; warning columns are independent</caption>
-            <colgroup><col class="student-column" /><col class="network-column" /><col class="focus-column" />{#if hasWorkspace}<col class="workspace-column" />{/if}<col class="time-column" /><col class="control-column" /></colgroup>
-            <thead><tr><th scope="col">Student</th><th scope="col">Network</th><th scope="col">Focus</th>{#if hasWorkspace}<th scope="col">Workspace <span class="muted-th">(TODO is {todoNote})</span></th>{/if}<th scope="col">Lifecycle / remaining</th><th scope="col">Review / control</th></tr></thead>
-            <tbody>{#each visible as row (row.session_id)}
-              <MonitoringRow {row} workspace={hasWorkspace ? (workspaces.get(row.session_id) ?? null) : undefined} serverTime={view.roster.server_time} {policy} {serverVersion} disabled={disabled || view.busy} {timingBusy} {unlockBusy} {actionBusy} {releaseBusy}
-                onReview={review} onExtend={row => askTiming('grace', row)} onUnlock={askUnlock} onForce={row => ask('force', row)} onRelease={askRelease} />
-            {:else}<tr class="empty-row"><td colspan={hasWorkspace ? 6 : 5}>{sessions.length ? 'No sessions match this filter.' : 'No sessions for this exam yet.'}</td></tr>{/each}</tbody>
-          </table></div>
-        </div>
-      {/if}
     </div>
-  </section>
+  {/if}
   {#if view.loaded}
-    <section class="panel" aria-label="Students not logged in">
-      <header class="missing-head"><Icon name="classes" size={18} /><h2>Students not logged in</h2><span class="count">{missing.length}</span></header>
-      <div class="panel-body">
-        <p class="note"><Icon name="info" size={15} /><span>No session for this exam — not classified as overdue.</span></p>
-        <ul class="people" role="list" aria-label="Students without a session">{#each missing as student (student.account_number)}<li class="person"><span class="avatar" aria-hidden="true">{initials(student.student_name)}</span><b>{student.student_name}</b><span class="account">{student.account_number}</span></li>{/each}</ul>
-        {#if !missing.length}<p class="note">No students without a session.</p>{/if}
+    {#if hasWorkspace}
+      <Tabs id="roster" label="Roster sections" {tabs} bind:selected>
+        {#snippet panel(id)}
+          {#if id === 'monitoring'}{@render monitoring()}
+          {:else}<RosterGrading examId={view.exam_id} server={view.server} exam={monitored?.title ?? view.exam_id} {sessions} {missing} {workspaces} summary={grading} {stale} disabled={blocked} onReview={review} {onRefresh} />{/if}
+        {/snippet}
+      </Tabs>
+    {:else}{@render monitoring()}{/if}
+  {/if}
+</section>
+
+{#snippet monitoring()}
+  <div class="panel-body">
+    <dl class="stats" aria-label="Session totals">
+      <div class="stat" data-stat="total"><dt>sessions</dt><dd class="num">{counts.total}</dd></div>
+      <div class="stat active" data-stat="progress" title="Active and grace sessions, including locked students"><dt>in progress</dt><dd class="num">{counts.progress}</dd></div>
+      <div class="stat attention" data-stat="attention" title="Network, focus, lock, login, remote access, VM or finalization warnings; each student counted once"><dt>need attention</dt><dd class="num">{counts.attention}</dd></div>
+      <div class="stat locked" data-stat="locked"><dt>locked</dt><dd class="num">{counts.locked}</dd></div>
+      <div class="stat done" data-stat="submitted"><dt>submitted</dt><dd class="num">{counts.submitted}</dd></div>
+      <div class="stat" data-stat="missing"><dt>not logged in</dt><dd class="num">{missing.length}</dd></div>
+    </dl>
+    {#if otherRelease.length}
+      <p class="callout warning release"><Icon name="warning" size={16} /><span>{otherRelease.length === 1 ? '1 student still working runs' : `${otherRelease.length} students still working run`} another release of the application than the server ({serverVersion}): {otherNames}. Their rows say which.</span></p>
+    {/if}
+    <div class="tools">
+      <div class="filters" role="group" aria-label="Filter sessions">
+        {#each rosterFilters as { id, label }}<button class="filter" aria-pressed={filter === id} onclick={() => filter = id}>{label} <span class="filter-count">{filterCounts[id]}</span></button>{/each}
+      </div>
+      <span class="tool-note">Locked first, then by name · Showing {visible.length} of {counts.total}.</span>
+    </div>
+    <div class="table-frame">
+      <!-- svelte-ignore a11y_no_noninteractive_tabindex (Keyboard users need to scroll this region in WebKit.) -->
+      <div class="table-scroll" role="region" aria-label="Session table — scroll horizontally for controls" tabindex="0">
+        <table class:workspace-table={hasWorkspace}>
+          <caption class="visually-hidden">All sessions — locked first, then student name; warning columns are independent</caption>
+          <colgroup><col class="student-column" /><col /><col /><col />{#if hasWorkspace}<col class="workspace-column" />{/if}<col class="control-column" /></colgroup>
+          <thead><tr><th scope="col">Student</th><th scope="col">Lifecycle</th><th scope="col">Network</th><th scope="col">Focus</th>{#if hasWorkspace}<th scope="col">Workspace <small>· TODO is {todoNote}</small></th>{/if}<th scope="col">Review / control</th></tr></thead>
+          <tbody>
+            {#each visible as row (row.session_id)}
+              <MonitoringRow {row} workspace={hasWorkspace ? (workspaces.get(row.session_id) ?? null) : undefined} serverTime={view.roster.server_time} {policy} {serverVersion} disabled={blocked} {timingBusy} {unlockBusy} {actionBusy} {releaseBusy}
+                expanded={openRow === row.session_id} onToggle={() => openRow = openRow === row.session_id ? null : row.session_id}
+                onReview={review} onExtend={row => askTiming('grace', row)} onUnlock={askUnlock} onForce={row => ask('force', row)} onRelease={askRelease} />
+            {:else}<tr class="empty-row"><td colspan={hasWorkspace ? 6 : 5}>{sessions.length ? 'No sessions match this filter.' : 'No sessions for this exam yet.'}</td></tr>{/each}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <section class="missing" aria-label="Students not logged in">
+      <h2><button class="missing-head" aria-expanded={missingOpen} aria-controls="missing-students" onclick={() => missingOpen = !missingOpen}>
+        <span class="chevron"><Icon name="chevron" size={14} /></span>Not logged in <span class="count">{missing.length}</span>
+        <small>No session for this exam — not classified as overdue.</small>
+      </button></h2>
+      <div class="missing-body" id="missing-students" hidden={!missingOpen}>
+        {#if missing.length}
+          <ul class="people" role="list" aria-label="Students without a session">{#each missing as student (student.account_number)}<li class="person"><span class="avatar" aria-hidden="true">{initials(student.student_name)}</span><b>{student.student_name}</b><span class="account">{student.account_number}</span></li>{/each}</ul>
+        {:else}<p class="tool-note">No students without a session.</p>{/if}
       </div>
     </section>
-  {/if}
-</div>
-{#if gradeModal}<GradeDialog summary={grading} busy={gradeBusy} error={gradeError} onCancel={() => gradeModal = false} onConfirm={gradeClass} />{/if}
+  </div>
+{/snippet}
+
 {#if modal}<Confirmation kind={modal.kind} student={modal.student} busy={actionBusy} error={actionError} onCancel={() => modal = null} onConfirm={action} />{/if}
 {#if unlockModal}<UnlockDialog student={unlockModal} live={sessions.find(row => row.session_id === unlockModal.session_id) ?? null} serverTime={view.roster?.server_time} exam={monitored}
   busy={unlockBusy} error={unlockError} onReview={row => api.OpenReview(row.session_id)} onCancel={() => unlockModal = null} onConfirm={unlock} />{/if}
@@ -234,65 +261,52 @@
 {#if timingModal?.kind === 'grace'}<ExtendGraceDialog student={timingModal.student} {sessions} exam={monitored} busy={timingBusy} error={timingError} onCancel={() => timingModal = null} onConfirm={changeTiming} />{:else if timingModal}<EndTimeDialog exam={monitored} serverTime={view.catalog?.server_time} clear={timingModal.kind === 'clear'} busy={timingBusy} error={timingError} onCancel={() => timingModal = null} onConfirm={changeTiming} />{/if}
 
 <style>
-  .monitoring { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; min-width: 0; }
-  .panel { min-width: 0; overflow: hidden; background: var(--bg-raised); border: 1px solid var(--border-subtle); border-radius: 14px; box-shadow: var(--shadow-card); }
-  .roster-head { display: flex; align-items: center; flex-wrap: wrap; gap: .75rem; padding: .9rem 1.1rem; background: var(--header-strong); color: var(--on-dark); }
-  .heading { min-width: 0; }
-  .eyebrow { color: var(--accent-cyan-soft); font-size: .7rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
-  h1 { margin: 0; color: inherit; font-size: 1.15rem; line-height: 1.25; overflow-wrap: anywhere; }
+  .live-roster { min-width: 0; background: var(--bg-raised); border: 1px solid var(--border-subtle); border-radius: 14px; box-shadow: var(--shadow-card); }
+  .roster-head { display: flex; align-items: center; flex-wrap: wrap; gap: .6rem .75rem; padding: .75rem 1rem; border-radius: 13px 13px 0 0; background: var(--header-strong); color: var(--on-dark); }
+  .heading-icon { display: grid; place-items: center; flex: none; width: 38px; height: 38px; border-radius: 10px; background: var(--side-active); border: 1px solid var(--cyan-chip-border); color: var(--accent-cyan-soft); }
+  .heading { flex: 1 1 15rem; min-width: 0; }
+  .eyebrow { color: var(--accent-cyan-soft); font-size: .68rem; font-weight: 700; letter-spacing: .1em; }
+  h1 { margin: 0; color: inherit; font-size: 1.1rem; line-height: 1.25; overflow-wrap: anywhere; }
   h1 span { color: var(--side-text); font-weight: 500; }
-  .live { display: inline-flex; align-items: center; flex-wrap: wrap; gap: .5rem; margin-left: auto; padding: .25rem .75rem; background: var(--side-active); border: 1px solid var(--cyan-chip-border); border-radius: 999px; color: var(--side-text); font-size: .85rem; }
+  .heading-actions { display: flex; align-items: center; flex-wrap: wrap; gap: .4rem; }
+  .live, .header-button { display: inline-flex; align-items: center; gap: .4rem; margin: 0; padding: .22rem .6rem; background: var(--side-active); border: 1px solid var(--cyan-chip-border); color: var(--side-text); font-size: .8rem; }
+  .live { border-radius: 999px; }
   .live strong { color: var(--on-dark); font-family: var(--font-mono); }
-  .pulse { width: 9px; height: 9px; border-radius: 50%; background: var(--muted-dot); }
+  .header-button { min-height: 30px; border-radius: 8px; }
+  .header-button:hover:not(:disabled) { background: var(--chip-on-dark); color: var(--on-dark); }
+  .header-button:focus-visible { outline-color: var(--accent-cyan-soft); }
+  .chevron { display: inline-flex; }
+  [aria-expanded='true'] > .chevron { transform: rotate(90deg); }
+  .pulse { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--muted-dot); }
   .pulse.running { background: var(--accent-cyan); animation: live-pulse 1.8s infinite; }
-  @keyframes live-pulse { 0%, 100% { box-shadow: 0 0 0 0 var(--focus-halo-strong); } 70% { box-shadow: 0 0 0 8px var(--transparent); } }
-  .panel-body { display: flex; flex-direction: column; gap: 1rem; padding: 1rem 1.1rem 1.1rem; min-width: 0; }
-  .panel-body > p { margin: 0; }
-  .stale { font-weight: 600; }
-  .stats { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .6rem; margin: 0; }
-  .stat { display: flex; flex-direction: column; gap: .15rem; padding: .6rem .8rem; background: var(--bg-primary); border: 1px solid var(--border-subtle); border-top: 3px solid var(--muted-dot); border-radius: 10px; }
-  .stat dt { order: 2; color: var(--text-muted); font-size: .78rem; }
-  .num { order: 1; margin: 0; font-family: var(--font-mono); font-size: 1.5rem; font-weight: 700; line-height: 1.1; }
-  .stat.active { border-top-color: var(--accent-cyan); } .active .num { color: var(--action-primary); }
-  .stat.attention { border-top-color: var(--warn); } .attention .num { color: var(--warn-text); }
-  .stat.locked { border-top-color: var(--alert); } .locked .num { color: var(--alert-text); }
-  .stat.done { border-top-color: var(--ok); } .done .num { color: var(--ok-text); }
-  .settings { display: flex; align-items: center; flex-wrap: wrap; gap: .6rem; padding: .7rem .8rem; background: var(--bg-primary); border: 1px solid var(--border-subtle); border-radius: 10px; }
-  .chip { display: inline-flex; align-items: center; gap: .35rem; padding: .2rem .6rem; border-radius: 7px; background: var(--bg-secondary); color: var(--text-main); font-size: .85rem; }
-  .chip b { color: inherit; } .chip.time { background: var(--warn-fill); color: var(--warn-text); } .time b, .chip.length b { font-family: var(--font-mono); }
-  .settings-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-left: auto; }
-  .settings-actions button { display: inline-flex; align-items: center; justify-content: center; gap: .4rem; min-height: 36px; padding: .3rem .9rem; border-radius: 8px; font-size: .9rem; }
-  .grading { display: flex; align-items: center; flex-wrap: wrap; gap: .6rem; padding: .7rem .8rem; background: var(--bg-primary); border: 1px solid var(--border-subtle); border-radius: 10px; }
-  .note-inline { color: var(--text-muted); font-size: .8rem; }
-  .outline { background: var(--bg-raised); color: var(--action-hover); border-color: var(--action-border); }
-  .policy { display: flex; flex-wrap: wrap; gap: .4rem 1.2rem; color: var(--text-muted); font-size: .8rem; }
-  .policy p { display: flex; align-items: flex-start; gap: .35rem; margin: 0; }
-  .policy :global(svg) { margin-top: .15rem; color: var(--action-primary); }
-  .table-frame { min-width: 0; overflow: hidden; background: var(--bg-raised); border: 1px solid var(--border-subtle); border-radius: 12px; }
-  .table-tools { display: flex; align-items: center; flex-wrap: wrap; gap: .6rem; padding: .6rem .8rem; border-bottom: 1px solid var(--border-subtle); color: var(--text-muted); font-size: .8rem; }
-  .filters { display: flex; flex-wrap: wrap; gap: .3rem; margin-left: auto; }
-  .filter { min-height: 0; padding: .2rem .65rem; border-radius: 999px; background: var(--bg-primary); color: var(--text-muted); font-size: .8rem; font-weight: 400; }
-  .filter.on { background: var(--selection-fill); border-color: var(--action-primary); color: var(--action-hover); font-weight: 700; }
-  .table-scroll { overflow-x: auto; }
-  table { width: 100%; min-width: 980px; border-collapse: collapse; table-layout: fixed; }
-  .student-column { width: 19%; } .network-column { width: 24%; } .focus-column { width: 19%; } .time-column { width: 20%; } .control-column { width: 18%; }
-  .workspace-column { width: 22%; }
-  table:has(.workspace-column) { min-width: 1240px; }
-  table:has(.workspace-column) .student-column { width: 16%; } table:has(.workspace-column) .network-column { width: 18%; } table:has(.workspace-column) .focus-column { width: 14%; }
-  table:has(.workspace-column) .time-column { width: 15%; } table:has(.workspace-column) .control-column { width: 15%; }
-  .muted-th { color: var(--text-muted); font-weight: 400; letter-spacing: 0; text-transform: none; }
-  th { text-align: left; padding: .6rem .8rem; background: var(--bg-secondary); color: var(--action-hover); border-bottom: 1px solid var(--border-subtle); font-size: .7rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
-  .empty-row td { padding: 1.5rem; text-align: center; color: var(--text-muted); }
-  .visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-  .missing-head { display: flex; align-items: center; flex-wrap: wrap; gap: .75rem; padding: .9rem 1.1rem; background: var(--header-soft); color: var(--action-hover); border-bottom: 1px solid var(--cyan-border); }
-  h2 { margin: 0; color: inherit; font-size: 1.05rem; }
-  .count { padding: .05rem .55rem; border-radius: 999px; background: var(--bg-raised); border: 1px solid var(--action-border); font-family: var(--font-mono); font-size: .8rem; font-weight: 700; }
-  .note { display: flex; align-items: center; gap: .5rem; margin: 0; color: var(--text-muted); font-size: .88rem; }
-  .note :global(svg) { color: var(--action-primary); }
-  .people { display: flex; flex-wrap: wrap; gap: .5rem; margin: 0; padding: 0; list-style: none; }
-  .person { display: inline-flex; align-items: center; flex-wrap: wrap; gap: .55rem; max-width: 100%; padding: .4rem .75rem .4rem .45rem; background: var(--bg-primary); border: 1px solid var(--border-subtle); border-radius: 999px; font-size: .88rem; overflow-wrap: anywhere; }
-  .avatar { display: grid; place-items: center; flex: none; width: 26px; height: 26px; border-radius: 50%; background: var(--bg-secondary); color: var(--text-main); font-size: .72rem; font-weight: 700; }
-  .account { color: var(--action-hover); font-family: var(--font-mono); font-size: .85rem; }
-  @media (max-width: 900px) { .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); } .settings-actions { margin-left: 0; width: 100%; } .live { margin-left: 0; } }
-  @media (max-width: 520px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } .filters { margin-left: 0; } .settings-actions button { flex: 1 1 auto; } }
+  @keyframes live-pulse { 0%, 100% { box-shadow: 0 0 0 0 var(--focus-halo-strong); } 70% { box-shadow: 0 0 0 7px var(--transparent); } }
+  @media (prefers-reduced-motion: reduce) { .pulse.running { animation: none; } }
+  .details, .timing { padding: .5rem 1rem; background: var(--bg-primary); border-bottom: 1px solid var(--border-subtle); }
+  .settings, .policy, .timing, .timing-actions { display: flex; align-items: center; flex-wrap: wrap; gap: .35rem .55rem; }
+  .policy { margin-top: .4rem; gap: .3rem 1rem; color: var(--text-muted); font-size: .78rem; }
+  .policy p { display: flex; align-items: flex-start; gap: .3rem; margin: 0; }
+  .policy :global(svg), .release :global(svg) { flex: none; }
+  .policy :global(svg) { color: var(--action-primary); margin-top: .08rem; }
+  .chip { display: inline-flex; align-items: center; gap: .3rem; padding: .15rem .5rem; border-radius: 7px; background: var(--bg-secondary); font-size: .8rem; }
+  .chip b { font-family: var(--font-mono); }
+  .chip.time { background: var(--warn-fill); color: var(--warn-text); }
+  .timing { justify-content: space-between; }
+  .timing :global(.tool-note) { overflow-wrap: anywhere; }
+  .notices { display: grid; gap: .4rem; padding: .7rem 1rem; }
+  .notices p { margin: 0; overflow-wrap: anywhere; }
+  .release { display: flex; align-items: center; gap: .5rem; font-size: .84rem; overflow-wrap: anywhere; }
+  .release::before { display: none; }
+  .student-column { width: 23%; } .workspace-column { width: 19%; } .control-column { width: 115px; }
+  .missing { border: 1px solid var(--border-subtle); border-radius: 10px; background: var(--bg-raised); }
+  h2 { margin: 0; }
+  .missing-head { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-start; gap: .35rem .5rem; width: 100%; margin: 0; padding: .4rem .7rem; border: 0; border-radius: 9px; color: var(--action-hover); background: var(--bg-primary); font-size: .88rem; text-align: left; }
+  .missing-head small { color: var(--text-muted); font-size: .76rem; font-weight: 500; }
+  .count { padding: 0 .4rem; border-radius: 999px; background: var(--bg-secondary); font: 700 .75rem/1.5 var(--font-mono); }
+  .missing-body { padding: .55rem .7rem; border-top: 1px solid var(--border-subtle); }
+  .missing-body p { margin: 0; }
+  .people { display: flex; flex-wrap: wrap; gap: .4rem; margin: 0; padding: 0; list-style: none; }
+  .person { display: inline-flex; align-items: center; flex-wrap: wrap; gap: .4rem; max-width: 100%; padding: .2rem .6rem .2rem .3rem; background: var(--bg-primary); border: 1px solid var(--border-subtle); border-radius: 999px; font-size: .82rem; overflow-wrap: anywhere; }
+  .avatar { display: grid; place-items: center; flex: none; width: 24px; height: 24px; border-radius: 50%; background: var(--bg-secondary); font: 700 .68rem/1 var(--font-mono); }
+  .account { color: var(--action-hover); font: .75rem/1 var(--font-mono); }
+  @media (max-width: 560px) { .roster-head, .details, .timing, .notices { padding-inline: .7rem; } .heading { flex-basis: calc(100% - 55px); } }
 </style>
