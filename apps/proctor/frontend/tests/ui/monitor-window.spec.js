@@ -116,7 +116,10 @@ test('a window the native side cannot answer says so at once instead of spinning
 test('the settings row gives the exam duration beside its grace, and extending the grace leaves the duration alone', async ({ page }) => {
   await page.goto('/#/monitoring');
   await expect(table(page)).toBeVisible();
-  const chips = page.locator('.settings .chip');
+  const details = page.getByRole('button', { name: 'Exam details', exact: true });
+  await expect(details).toHaveAttribute('aria-expanded', 'false');
+  await details.press('Enter');
+  const chips = page.getByRole('region', { name: 'Exam details' }).locator('.settings .chip');
   // Duration first, then what is added to it: the exam's 90 minutes and its 30 seconds of grace.
   await expect(chips).toHaveText(['Duration: 1 h 30 min', 'Grace: 30 s', 'No exam end time', /^Not logged in \d+$/]);
   await expect(chips.first().locator('svg')).toBeVisible();

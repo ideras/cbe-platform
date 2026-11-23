@@ -12,10 +12,14 @@ async function monitoring(page, prepare) {
 const rows = page => page.locator('tbody tr[data-session-id]');
 const harness = (page, call, ...args) => page.evaluate(([call, args]) => window.ProctorHarness[call](...args), [call, args]);
 const callout = page => page.locator('.callout.release');
+const examDetails = page => page.getByRole('button', { name: 'Exam details' });
+const diagnostics = row => row.locator('xpath=following-sibling::tr[1]');
+const expand = row => row.getByRole('button', { name: /^Details for / }).click();
 
 test('every row names its application release, and the server policy names the server release', async ({ page }) => {
   await monitoring(page);
-  await expect(rows(page).first()).toContainText('· app v0.16.0-test');
+  await expect(rows(page).first()).toContainText('v0.16.0-test');
+  await examDetails(page).click();
   await expect(page.getByText('· release v0.16.0-test.', { exact: false })).toBeVisible();
   // The same release everywhere: nothing to warn about.
   await expect(callout(page)).toHaveCount(0);
@@ -27,24 +31,30 @@ test('a student on another release, or on an application too old to say, is poin
   const first = await rows(page).nth(1).getAttribute('data-session-id');
   await harness(page, 'rowPatch', 1, { presence: { app_version: 'v0.15.0' } });
   const row = page.locator(`tbody tr[data-session-id="${first}"]`);
-  await expect(row).toContainText('Application v0.15.0 · the server is v0.16.0-test');
+  await expand(row);
+  await expect(diagnostics(row)).toContainText('Application v0.15.0 · the server is v0.16.0-test');
+  await expect(diagnostics(row)).not.toContainText('older');
   await expect(callout(page)).toContainText('1 student still working runs another release of the application than the server (v0.16.0-test)');
   // An application older than the release field says nothing; once it has checked in, that is an older application too.
   const second = await rows(page).nth(2).getAttribute('data-session-id');
   await harness(page, 'rowPatch', 2, { presence: { app_version: '', last_seen: '2035-01-01T00:00:00Z' } });
-  await expect(page.locator(`tbody tr[data-session-id="${second}"]`)).toContainText('Application older than v0.16.0-test: it does not report its release');
+  const oldClient = page.locator(`tbody tr[data-session-id="${second}"]`);
+  await expect(oldClient).toContainText('Release not reported');
+  await expand(oldClient);
+  await expect(diagnostics(oldClient)).toContainText('Application older than v0.16.0-test: it does not report its release');
   await expect(callout(page)).toContainText('2 students still working run another release');
   // Updated, the warnings go.
   await harness(page, 'rowPatch', 1, { presence: { app_version: 'v0.16.0-test' } });
   await harness(page, 'rowPatch', 2, { presence: { app_version: 'v0.16.0-test' } });
   await expect(callout(page)).toHaveCount(0);
-  await expect(row).not.toContainText('the server is');
+  await expect(diagnostics(oldClient)).not.toContainText('does not report its release');
 });
 
 test('a server too old to report its release compares nothing', async ({ page }) => {
   await monitoring(page, () => window.ProctorHarness.serverVersion(''));
   await harness(page, 'rowPatch', 1, { presence: { app_version: '' , last_seen: '2035-01-01T00:00:00Z' } });
   await expect(page.locator('.callout.release')).toHaveCount(0);
+  await examDetails(page).click();
   await expect(page.getByText('· release ', { exact: false })).toHaveCount(0);
 });
 
@@ -64,6 +74,8 @@ test('a long list of students on another release names the first five and counts
   for (let i = 1; i <= 7; i++) await harness(page, 'rowPatch', i, { presence: { app_version: 'v0.15.0' } });
   await expect(callout(page)).toContainText('7 students still working run another release');
   await expect(callout(page)).toContainText('and 2 more. Their rows say which.');
-  await expect(rows(page).first()).toContainText('10.0.0.1 · app v0.16.0-test');
+  await expand(rows(page).first());
+  await expect(diagnostics(rows(page).first())).toContainText('10.0.0.1 · app v0.16.0-test');
+  await examDetails(page).click();
   await expect(page.getByText('beyond 30.0s · release v0.16.0-test.', { exact: false })).toBeVisible();
 });

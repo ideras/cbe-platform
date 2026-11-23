@@ -26,7 +26,9 @@ function fixture() {
   return [ada, alan, barbara, dennis];
 }
 const rows = page => page.locator('tbody tr[data-session-id]');
-const filters = page => page.getByRole('group', { name: 'Filter sessions' });
+const filterButton = (page, label) => page.getByRole('group', { name: 'Filter sessions' }).getByRole('button', { name: new RegExp(`^${label} \\d+$`) });
+const disclosure = row => row.getByRole('button', { name: /^Details for / });
+const details = row => row.locator('xpath=following-sibling::tr[1]');
 const count = (page, name) => page.locator(`[data-stat="${name}"] .num`);
 
 async function monitor(page, sessions = fixture(), students = missing) {
@@ -44,24 +46,48 @@ test('summary counts are unfiltered, warnings remain independent, and filters su
   await expect(barbara.locator('.network')).toContainText('Network overdue');
   await expect(barbara.locator('.focus')).toContainText('Sustained focus loss');
   await expect(barbara.locator('.remaining')).toHaveClass(/low/);
-  await filters(page).getByRole('button', { name: 'Needs attention', exact: true }).click();
+  await filterButton(page, 'Needs attention').click();
   await expect(rows(page)).toHaveCount(2);
   await page.waitForTimeout(1100);
-  await expect(filters(page).getByRole('button', { name: 'Needs attention', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(filterButton(page, 'Needs attention')).toHaveAttribute('aria-pressed', 'true');
   await expect(rows(page)).toHaveCount(2);
   await expect(count(page, 'total')).toHaveText('4');
-  await filters(page).getByRole('button', { name: 'In progress', exact: true }).click();
+  await filterButton(page, 'In progress').click();
   await expect(rows(page)).toHaveCount(3);
   await expect(rows(page).first()).toContainText('Dennis Ritchie');
-  await filters(page).getByRole('button', { name: 'Submitted', exact: true }).click();
+  await filterButton(page, 'Submitted').click();
   await expect(rows(page)).toHaveCount(1);
   await expect(rows(page).first()).toContainText('Ada Lovelace');
-  await expect(rows(page).first()).toContainText('Final #4128 · sequence 1 · grace_expired');
-  await expect(rows(page).first().getByRole('button')).toHaveCount(1);
   await rows(page).first().getByRole('button', { name: 'Review 001234', exact: true }).click();
+  await expect(disclosure(rows(page).first())).toHaveAttribute('aria-expanded', 'false');
   expect(await page.evaluate(() => window.ProctorHarness.calls.windows.at(-1).name)).toMatch(/^review-/);
-  await filters(page).getByRole('button', { name: 'All', exact: true }).click();
+  await disclosure(rows(page).first()).press('Enter');
+  await expect(details(rows(page).first())).toContainText('Final #4128 · sequence 1 · grace_expired');
+  await filterButton(page, 'All').click();
   await expect(rows(page)).toHaveCount(4);
+});
+
+test('refresh is guarded and keeps the selected filter, row and server observation time', async ({ page }) => {
+  await page.addInitScript(() => { window.__proctorFake = { refreshDelay: 400 }; });
+  await monitor(page);
+  await filterButton(page, 'Needs attention').click();
+  const dennis = disclosure(rows(page).first());
+  await dennis.press('Space');
+  await expect(dennis).toHaveAttribute('aria-expanded', 'true');
+  const timeBefore = await page.locator('.live strong').innerText();
+  const refresh = page.getByRole('button', { name: 'Refresh', exact: true });
+  await refresh.click();
+  await expect(refresh).toBeDisabled();
+  await page.keyboard.press('Enter');
+  await expect(refresh).toBeEnabled();
+  expect(await page.evaluate(() => window.ProctorHarness.calls.refresh)).toBe(1);
+  await expect(dennis).toHaveAttribute('aria-expanded', 'true');
+  await expect(filterButton(page, 'Needs attention')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.live strong')).toHaveText(timeBefore);
+  await page.evaluate(({ sessions, students }) => window.ProctorHarness.monitoringRoster(sessions, students, '2035-01-01T22:24:00Z'), { sessions: fixture(), students: missing });
+  await expect(page.locator('.live strong')).not.toHaveText(timeBefore);
+  await disclosure(rows(page).nth(1)).press('Enter');
+  await expect(dennis).toHaveAttribute('aria-expanded', 'false');
 });
 
 test('stale data stops the live indicator and retains server timing and lock age', async ({ page }) => {
@@ -87,12 +113,17 @@ test('empty filtered and initial rosters are explicit; missing students use labe
   await expect(page.getByRole('listitem')).toContainText('Grace Hopper');
   await expect(page.getByRole('listitem')).toContainText('005678');
   await expect(page.locator('.avatar')).toHaveAttribute('aria-hidden', 'true');
-  await filters(page).getByRole('button', { name: 'In progress', exact: true }).click();
+  const missingToggle = page.getByRole('button', { name: /^Not logged in 1/ });
+  await missingToggle.press('Space');
+  await expect(missingToggle).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.getByRole('list', { name: 'Students without a session' })).toBeHidden();
+  await filterButton(page, 'In progress').click();
   await expect(rows(page)).toHaveCount(0);
   await expect(page.getByRole('cell', { name: 'No sessions match this filter.', exact: true })).toBeVisible();
   await page.evaluate(observed => window.ProctorHarness.monitoringRoster([], [], observed), observed);
   await expect(count(page, 'total')).toHaveText('0');
   await expect(page.getByRole('cell', { name: 'No sessions for this exam yet.', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: /^Not logged in 0/ }).click();
   await expect(page.getByText('No students without a session.', { exact: true })).toBeVisible();
 });
 
@@ -104,8 +135,9 @@ test('pending finalization needs attention but is not counted as a finished subm
   await expect(count(page, 'submitted')).toHaveText('1');
   const pending = rows(page).filter({ hasText: 'Alan Turing' });
   await expect(pending).toContainText('Finalization pending — no confirmed final yet');
-  await expect(pending.getByRole('button', { name: /Extend grace/ })).toHaveCount(0);
-  await expect(pending.getByRole('button', { name: 'Force-submit 002468…', exact: true })).toBeVisible();
+  await disclosure(pending).click();
+  await expect(details(pending).getByRole('button', { name: /Extend grace/ })).toHaveCount(0);
+  await expect(details(pending).getByRole('button', { name: 'Force-submit 002468…', exact: true })).toBeVisible();
 });
 
 test('a lock outside the selected filter still updates the count and sounds once', async ({ page }) => {
@@ -115,7 +147,7 @@ test('a lock outside the selected filter still updates the count and sounds once
   });
   await monitor(page);
   await expect.poll(() => page.evaluate(() => window.__plays)).toBe(1);
-  await filters(page).getByRole('button', { name: 'Submitted', exact: true }).click();
+  await filterButton(page, 'Submitted').click();
   await page.evaluate(() => window.ProctorHarness.lock(1, 'away'));
   await expect(count(page, 'locked')).toHaveText('2');
   await expect.poll(() => page.evaluate(() => window.__plays)).toBe(2);
@@ -130,10 +162,11 @@ for (const width of [1280, 600, 390]) {
     await page.setViewportSize({ width, height: 1100 });
     await monitor(page);
     await expect(page.locator('.roster-head')).toHaveCSS('background-image', /linear-gradient/);
-    await expect(page.locator('.missing-head')).toHaveCSS('background-image', /linear-gradient/);
+    await expect(page.getByRole('button', { name: /^Not logged in/ })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Exam details' })).toHaveAttribute('aria-expanded', 'false');
     await expect(page.getByRole('button', { name: 'Extend grace for everyone…', exact: true })).toHaveClass(/primary/);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    if (width < 1000) {
+    if (width < 700) {
       const scroll = page.getByRole('region', { name: 'Session table — scroll horizontally for controls', exact: true });
       expect(await scroll.evaluate(el => el.scrollWidth > el.clientWidth)).toBe(true);
       await scroll.focus(); await page.keyboard.press('ArrowRight');

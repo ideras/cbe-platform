@@ -9,13 +9,16 @@ async function connect(page) {
 }
 const rows = page => page.locator('tbody tr[data-session-id]');
 const first = page => rows(page).first();
+const diagnostics = row => row.locator('xpath=following-sibling::tr[1]');
+const expand = row => row.getByRole('button', { name: /^Details for / }).click();
 const attention = page => page.locator('[data-stat="attention"] .num');
 const harness = (page, call, ...args) => page.evaluate(([call, args]) => window.ProctorHarness[call](...args), [call, args]);
 
 test('a student nobody tried to log in as shows nothing and offers no release', async ({ page }) => {
   await connect(page);
   await expect(first(page)).not.toContainText('Login refused');
-  await expect(first(page).getByRole('button', { name: /Allow new login/ })).toHaveCount(0);
+  await expand(first(page));
+  await expect(diagnostics(first(page)).getByRole('button', { name: /Allow new login/ })).toHaveCount(0);
 });
 
 test('a refused login shows on the row, needs attention, and offers the release', async ({ page }) => {
@@ -24,11 +27,13 @@ test('a refused login shows on the row, needs attention, and offers the release'
   await harness(page, 'loginRefused', 5, 2, '10.0.9.9');
   const row = rows(page).filter({ hasText: 'Student 005' });
   await expect(row).toContainText('Login refused ×2');
-  await expect(row).toContainText('from 10.0.9.9');
+  await expand(row);
+  await expect(diagnostics(row)).toContainText('from 10.0.9.9');
   await expect(attention(page)).toHaveText(String(before + 1));
-  // The row still shows the computer that has the account, so the proctor can compare the two addresses.
-  await expect(row).toContainText('desk-5 · 10.0.0.6');
-  await expect(row.getByRole('button', { name: 'Allow new login 0006…', exact: true })).toBeVisible();
+  // The details still show the computer that has the account, so the proctor can compare the two addresses.
+  await expect(diagnostics(row)).toContainText('desk-5');
+  await expect(diagnostics(row)).toContainText('10.0.0.6');
+  await expect(diagnostics(row).getByRole('button', { name: 'Allow new login 0006…', exact: true })).toBeVisible();
 });
 
 test('the proctor releases the account with a reason, and the row says the next login will be let in', async ({ page }) => {
@@ -37,7 +42,8 @@ test('the proctor releases the account with a reason, and the row says the next 
   const row = rows(page).filter({ hasText: 'Student 005' });
   await expect(row).toContainText('Login refused ×1'); // the screen has picked the refusal up, so the count below includes it
   const before = Number(await attention(page).innerText());
-  await row.getByRole('button', { name: 'Allow new login 0006…', exact: true }).click();
+  await expand(row);
+  await diagnostics(row).getByRole('button', { name: 'Allow new login 0006…', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Allow a new login' });
   await expect(dialog).toBeVisible();
   // It names the student, the computer that has the account now and the one that was refused, and what will happen.
@@ -59,8 +65,8 @@ test('the proctor releases the account with a reason, and the row says the next 
   expect(sent).toEqual([{ sessionID: '00000005-0000-4000-8000-000000000000', reason: "the student's laptop went flat", confirmed: true }]);
   // Answered: the row waits for the student's login, needs no more attention, and the button is gone.
   await expect(row).toContainText('Next login allowed');
-  await expect(row).toContainText('waiting for the student');
-  await expect(row.getByRole('button', { name: /Allow new login/ })).toHaveCount(0);
+  await expect(diagnostics(row)).toContainText('waiting for the student');
+  await expect(diagnostics(row).getByRole('button', { name: /Allow new login/ })).toHaveCount(0);
   await expect(attention(page)).toHaveText(String(before - 1));
   // The student logs in: the report ends.
   await harness(page, 'loggedIn', 5);
@@ -72,7 +78,9 @@ test('a release the server refuses keeps the dialog open and says why', async ({
   await connect(page);
   await harness(page, 'loginRefused', 0);
   await harness(page, 'releaseFails', 'The session already ended.');
-  await first(page).getByRole('button', { name: 'Allow new login 0001…', exact: true }).click();
+  await expect(first(page)).toContainText('Login refused ×1');
+  await expand(first(page));
+  await diagnostics(first(page)).getByRole('button', { name: 'Allow new login 0001…', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Allow a new login' });
   await dialog.getByLabel('Reason').fill('the first computer is being swapped');
   await dialog.getByRole('button', { name: 'Allow new login', exact: true }).click();
@@ -82,7 +90,7 @@ test('a release the server refuses keeps the dialog open and says why', async ({
   await dialog.getByRole('button', { name: 'Cancel' }).click();
   await expect(dialog).toBeHidden();
   await expect(first(page)).toContainText('Login refused ×1');
-  await expect(first(page).getByRole('button', { name: 'Allow new login 0001…', exact: true })).toBeVisible();
+  await expect(diagnostics(first(page)).getByRole('button', { name: 'Allow new login 0001…', exact: true })).toBeFocused();
 });
 
 test('a session that is over offers no release even if someone tried it', async ({ page }) => {
@@ -91,5 +99,6 @@ test('a session that is over offers no release even if someone tried it', async 
   await harness(page, 'loginRefused', 3);
   const row = rows(page).filter({ hasText: 'Student 003' });
   await expect(row).toContainText('Login refused');
-  await expect(row.getByRole('button', { name: /Allow new login/ })).toHaveCount(0);
+  await expand(row);
+  await expect(diagnostics(row).getByRole('button', { name: /Allow new login/ })).toHaveCount(0);
 });

@@ -5,13 +5,14 @@ for (const viewport of [{ width: 1280, height: 800 }, { width: 600, height: 700 
   test(`compact controls, roster and dialogs remain readable at ${viewport.width}px`, async ({ page }, info) => {
     await page.setViewportSize(viewport);
     await page.goto('/#/monitoring');
-    const rows = page.locator('table:has(caption:has-text("All sessions")) tbody tr');
+    const rows = page.locator('table:has(caption:has-text("All sessions")) tbody tr[data-session-id]');
     await expect(rows).toHaveCount(90);
     const row = rows.first();
     await expect(row).toContainText('Network overdue'); await expect(row).toContainText('Sustained focus loss');
     expect(await row.locator('td').first().evaluate(cell => parseFloat(getComputedStyle(cell).paddingTop))).toBeLessThanOrEqual(14);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({ path: info.outputPath('roster.png') });
+    await row.getByRole('button', { name: /^Details for / }).click();
     await page.getByRole('button', { name: 'Force-submit 0001…', exact: true }).click();
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible();

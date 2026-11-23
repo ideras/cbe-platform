@@ -4,9 +4,9 @@
   import { localTime } from './dates.js';
   import { workspaceBadge, activityText, todoText, todoNote, useText, gradeLine } from './workspace.js';
   import { inProgress, canForce, needsAttention, duration, sound, networkBadge, focusBadge, lifecycleBadge, lockLabel, lowTime, loginGate, remoteFindings, virtualMachine, appRelease } from './roster.js';
-  // serverVersion is the server's release, which each student's application is compared with.
-  // workspace is the student's workspace on a workspace exam, null while they have none, and undefined for an exam that has no workspaces.
-  let { row, workspace, serverTime, policy, serverVersion = '', disabled = false, timingBusy = false, unlockBusy = false, actionBusy = false, releaseBusy = false,
+
+  // null: no workspace for this student yet; undefined: a normal exam.
+  let { row, workspace, serverTime, policy, serverVersion = '', expanded, onToggle, disabled = false, timingBusy = false, unlockBusy = false, actionBusy = false, releaseBusy = false,
     onReview, onExtend, onUnlock, onForce, onRelease } = $props();
   const network = $derived(networkBadge(row));
   const focus = $derived(focusBadge(row));
@@ -16,131 +16,133 @@
   const vm = $derived(virtualMachine(row));
   const release = $derived(appRelease(row, serverVersion));
   const space = $derived(workspace ? workspaceBadge(workspace) : null);
+  const detailsId = $derived(`monitor-details-${row.session_id}`);
 </script>
-<tr data-session-id={row.session_id} class:network-row={row.network_warning} class:focus-row={row.focus_warning} class:locked-row={!!row.locked} class:attention-row={needsAttention(row)}>
+
+<!-- The row click is a pointer shortcut for the real, keyboard-accessible disclosure button. -->
+<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_noninteractive_element_interactions -->
+<tr data-session-id={row.session_id} class:expanded class:locked-row={!!row.locked} class:focus-row={row.focus_warning} class:attention-row={needsAttention(row)}
+  onclick={event => { if (!event.target.closest('button')) onToggle(); }}>
   <td>
-    <div class="name">{row.student_name}</div><div class="account">{row.account_number}</div>
-    {#if !row.roster_active}<small>Inactive roster record</small>{/if}
-    <div class="host">{row.presence.hostname || 'Hostname not reported'} · {row.presence.remote_addr || 'IP not reported'}{#if release.version}{` · app ${release.version}`}{/if}</div>
-    {#if gate}
-      <!-- Someone tried this account while it was open on the computer above; a proctor decides whether to let them in. -->
-      <div class="gate" class:released={gate.released}>
-        {#if gate.released}<Icon name="login" size={13} /><span>Next login allowed {localTime(gate.releasedAt, '')} · waiting for the student</span>
-        {:else}<Icon name="warning" size={13} /><span>Login refused ×{gate.refusals} · last {localTime(gate.lastAt, 'at an unknown time')}{gate.addr ? ` from ${gate.addr}` : ''}</span>{/if}
-      </div>
-    {/if}
-    {#if release.differs}
-      <!-- The student's application is another release than the server's: it may lack fixes the exam relies on. -->
-      <div class="release"><Icon name="warning" size={13} /><span>{release.note}</span></div>
-    {/if}
-    {#if remote.length}
-      <!-- The application found a Remote Desktop session or remote-control software: its own words, shown as text. -->
-      <div class="remote"><Icon name="warning" size={13} /><span>Remote access: {remote.join(' · ')}</span></div>
-    {/if}
-    {#if vm}
-      <!-- The application runs inside a virtual machine: what the student does on the host (another window, another program) is not seen by it, so focus
-           loss is not a reliable sign here. The application's own words, shown as text. -->
-      <div class="remote" title="The exam application runs inside a virtual machine, so it cannot see what is done outside it: leaving the window is not reported."><Icon name="warning" size={13} /><span>Virtual machine: {vm}</span></div>
+    <button class="student-toggle" aria-label="Details for {row.student_name} ({row.account_number})" aria-expanded={expanded} aria-controls={detailsId} onclick={onToggle}>
+      <span class="chevron"><Icon name="chevron" size={14} /></span>
+      <span><strong>{row.student_name}</strong><small class="account">{row.account_number}</small></span>
+    </button>
+    {#if release.version || release.differs}<span class="version" class:mismatch={release.differs} title={release.note || 'Application release'}>{#if release.differs}<Icon name="warning" size={12} />{/if}{release.version || 'Release not reported'}</span>{/if}
+    {#if gate || remote.length || vm || !row.roster_active}
+      <small class="flags">{[gate?.waiting ? `Login refused ×${gate.refusals}` : gate?.released ? 'Next login allowed' : '', remote.length && 'Remote access reported', vm && 'Virtual machine reported', !row.roster_active && 'Inactive roster record'].filter(Boolean).join(' · ')}</small>
     {/if}
   </td>
   <td>
-    <span class="badge {network.tone}">{network.text}</span>
-    <div class="kv">
-      {#if row.presence.monitoring}
-        <div><span class="key">Heartbeat age:{' '}</span><span class="value" class:warn-value={row.network_warning}>{duration(row.presence.heartbeat_age_ms)}</span></div>
-        <div><span class="key">Missed intervals:{' '}</span><span class="value" class:warn-value={row.network_warning}>{row.presence.missed_intervals}</span></div>
-      {:else}
-        <div><span class="key">Last heartbeat before the end:{' '}</span><span class="value">{duration(row.presence.heartbeat_age_ms)} earlier</span></div>
-        <div><span class="key">Missed intervals before the end:{' '}</span><span class="value">{row.presence.missed_intervals}</span></div>
-      {/if}
-      <div><span class="key">Sound:{' '}</span><span class="value">{sound(row.presence)}</span></div>
-    </div>
-    {#if row.presence.ever_overdue}<small>Historical overdue recorded</small>{/if}
-    <small>{row.presence.monitoring ? 'Live monitored' : 'Not live monitored'}</small>
+    <span class="roster-badge {life.tone}">{life.text}</span>
+    <small class="remaining" class:low={lowTime(row, serverTime)}>{row.status === 'grace' ? 'Grace remaining' : 'Remaining'}: <strong>{remainingTime(row, serverTime)}</strong></small>
+    {#if row.locked}<small>Locked {lockLabel(row, policy, serverTime).ago}{#if inProgress(row)}{' · time keeps running'}{/if}</small>{/if}
+    {#if row.finalization_pending}<small>Finalization pending — no confirmed final yet</small>{/if}
   </td>
   <td>
-    <span class="badge {focus.tone}">{focus.text}</span>
-    <div class="kv">
-      <div><span class="key">Current focus:{' '}</span><span class="value" class:alert-value={row.focus_warning}>{row.presence.focus.state}</span></div>
-      <div><span class="key">Current unfocused:{' '}</span><span class="value" class:alert-value={row.focus_warning}>{duration(row.presence.focus.unfocused_duration_ms)}</span></div>
-    </div>
-    <small>Last known capped loss: {duration(row.last_known_unfocused_duration_ms)}</small>
+    <span class="roster-badge {network.tone}">{network.text}</span>
+    <small>{row.presence.monitoring ? 'Heartbeat age' : 'Last heartbeat before the end'}: <b>{duration(row.presence.heartbeat_age_ms)}</b>{#if !row.presence.monitoring}{' earlier'}{/if}</small>
+  </td>
+  <td>
+    <span class="roster-badge {focus.tone}">{focus.text}</span>
+    <small>{row.presence.monitoring ? `Away now: ${duration(row.presence.focus.unfocused_duration_ms)}` : 'Not live monitored'}</small>
   </td>
   {#if workspace !== undefined}
     <td class="workspace">
       {#if workspace}
-        <span class="badge {space.tone}">{space.text}</span>
-        <div class="kv">
-          <div><span class="key">Student:{' '}</span><span class="value">{workspace.connected ? 'connected' : 'not connected'}</span></div>
-          <div><span class="key">Last activity:{' '}</span><span class="value">{activityText(workspace.last_activity, serverTime)}</span></div>
-          <div><span class="key">Container:{' '}</span><span class="value">{useText(workspace)}</span></div>
-          <div class="todo"><span class="key">TODO:{' '}</span><span class="value">{todoText(workspace)}</span> <em>({todoNote})</em></div>
-        </div>
-        {#if workspace.submissions}<small>{workspace.submissions} submission{workspace.submissions === 1 ? '' : 's'}{#if workspace.last_submission_at}{' · last '}{localTime(workspace.last_submission_at, '')}{/if}{#if workspace.submitted_final}{' · '}<strong>final made</strong>{/if}</small>{:else}<small>Nothing submitted yet</small>{/if}
-        {#if gradeLine(workspace.grade)}{@const grade = gradeLine(workspace.grade)}
-          <div class="grade tone-{grade.tone}"><span class="key">Grade:{' '}</span><span class="value">{grade.text}</span>{#if grade.note}{' '}<em>({grade.note})</em>{/if}</div>
-        {/if}
-        {#if workspace.agent_restarts}<small>Workspace restarted {workspace.agent_restarts} time{workspace.agent_restarts === 1 ? '' : 's'}</small>{/if}
-      {:else}
-        <small>No workspace yet</small>
-      {/if}
+        <span class="roster-badge {space.tone}">{space.text}</span>
+        <small>TODO: <b>{todoText(workspace)}</b> <span>({todoNote})</span></small>
+        {#if workspace.todo_total > 0}<span class="mini-bar" aria-hidden="true"><span style:width={`${100 * workspace.todo_done / workspace.todo_total}%`}></span></span>{/if}
+        {#if workspace.submissions}<small>{workspace.submissions} submission{workspace.submissions === 1 ? '' : 's'}{#if workspace.submitted_final}{' · final made'}{/if}</small>{:else}<small>Nothing submitted yet</small>{/if}
+      {:else}<small>No workspace yet</small>{/if}
     </td>
   {/if}
   <td>
-    <span class="badge {life.tone}">{life.text}</span>
-    <div class="remaining" class:low={lowTime(row, serverTime)}><span class="key">{row.status === 'grace' ? 'Grace remaining' : 'Remaining'}:{' '}</span><strong>{remainingTime(row, serverTime)}</strong></div>
-    <small>State: {row.status}</small>
-    {#if row.locked}<small>Locked {lockLabel(row, policy, serverTime).ago}{#if inProgress(row)}{' · time keeps running'}{/if}</small>{/if}
-    {#if row.finalization_pending}<small class="pending">Finalization pending — no confirmed final yet</small>
-    {:else if row.final_version}<small>Final #{row.final_version.final_version_id} · sequence {row.final_version.version_seq} · {row.final_version.reason}</small>{/if}
-  </td>
-  <td>
     <div class="controls">
-      <button type="button" class="outline" onclick={() => onReview(row)}><Icon name="preview" size={14} />Review {row.account_number}</button>
-      {#if inProgress(row)}<button type="button" class="outline" aria-label="Extend grace {row.account_number}…" disabled={disabled || timingBusy} onclick={() => onExtend(row)}><Icon name="clock" size={14} />Extend grace…</button>{/if}
-      {#if gate?.waiting && inProgress(row)}<button type="button" class="outline" aria-label="Allow new login {row.account_number}…" disabled={disabled || releaseBusy} onclick={() => onRelease(row)}><Icon name="login" size={14} />Allow new login…</button>{/if}
-      {#if row.locked && inProgress(row)}<button type="button" class="danger" aria-label="Unlock {row.account_number}…" disabled={disabled || unlockBusy} onclick={() => onUnlock(row)}><Icon name="lock" size={14} />Unlock…</button>
-      {:else if canForce(row)}<button type="button" class="danger" aria-label="Force-submit {row.account_number}…" disabled={disabled || actionBusy} onclick={() => onForce(row)}>Force-submit…</button>{/if}
+      <button type="button" class="outline" aria-label="Review {row.account_number}" onclick={() => onReview(row)}><Icon name="preview" size={14} />Review</button>
+      {#if row.locked && inProgress(row)}<button type="button" class="danger" aria-label="Unlock {row.account_number}…" disabled={disabled || unlockBusy} onclick={() => onUnlock(row)}><Icon name="lock" size={14} />Unlock…</button>{/if}
     </div>
   </td>
 </tr>
+<tr class="detail-row" id={detailsId} hidden={!expanded}>
+  <td colspan={workspace === undefined ? 5 : 6}>
+    {#if expanded}
+      <div class="diagnostics">
+        <div>
+          <h3>Computer</h3>
+          <div><b>{row.presence.hostname || 'Hostname not reported'}</b></div>
+          <div>{row.presence.remote_addr || 'IP not reported'}{#if release.version}{` · app ${release.version}`}{/if}</div>
+          {#if release.differs}<p class="warning-note">{release.note}</p>{/if}
+          {#if gate}
+            <p class="warning-note">{#if gate.released}Next login allowed {localTime(gate.releasedAt, '')} · waiting for the student
+            {:else}Login refused ×{gate.refusals} · last {localTime(gate.lastAt, 'at an unknown time')}{gate.addr ? ` from ${gate.addr}` : ''}{/if}</p>
+          {/if}
+          {#if remote.length}<p class="warning-note">Remote access: {remote.join(' · ')}</p>{/if}
+        </div>
+        <div>
+          <h3>Network</h3>
+          <div>{row.presence.monitoring ? 'Missed intervals' : 'Missed intervals before the end'}: <b>{row.presence.missed_intervals}</b></div>
+          <div>Sound: <b>{sound(row.presence)}</b></div>
+          {#if row.presence.ever_overdue}<div>Historical overdue recorded</div>{/if}
+          <div>{row.presence.monitoring ? 'Live monitored' : 'Not live monitored'}</div>
+        </div>
+        <div>
+          <h3>Focus</h3>
+          <div>Current focus: <b>{row.presence.focus.state}</b></div>
+          <div>Current unfocused: <b>{duration(row.presence.focus.unfocused_duration_ms)}</b></div>
+          <div>Last known capped loss: <b>{duration(row.last_known_unfocused_duration_ms)}</b></div>
+          {#if vm}<p class="warning-note">Virtual machine: {vm}. The application cannot report activity or focus loss outside the virtual machine.</p>{/if}
+        </div>
+        <div>
+          <h3>{workspace === undefined ? 'Session' : 'Workspace and session'}</h3>
+          {#if workspace}
+            <div>Student: <b>{workspace.connected ? 'connected' : 'not connected'}</b></div>
+            <div>Last activity: <b>{activityText(workspace.last_activity, serverTime)}</b></div>
+            <div>Container: <b>{useText(workspace)}</b></div>
+            {#if workspace.last_submission_at}<div>Last submission: <b>{localTime(workspace.last_submission_at)}</b></div>{/if}
+            {#if workspace.agent_restarts}<div>Workspace restarted {workspace.agent_restarts} time{workspace.agent_restarts === 1 ? '' : 's'}</div>{/if}
+            {#if gradeLine(workspace.grade)}{@const grade = gradeLine(workspace.grade)}
+              <div>Grade: <b>{grade.text}</b>{grade.note ? ` (${grade.note})` : ''}</div>
+            {/if}
+          {/if}
+          <div>State: <b>{row.status}</b></div>
+          {#if !row.finalization_pending && row.final_version}<div>Final #{row.final_version.final_version_id} · sequence {row.final_version.version_seq} · {row.final_version.reason}</div>{/if}
+        </div>
+      </div>
+      <div class="controls">
+        {#if inProgress(row)}<button type="button" class="outline" aria-label="Extend grace {row.account_number}…" disabled={disabled || timingBusy} onclick={() => onExtend(row)}><Icon name="clock" size={14} />Extend grace…</button>{/if}
+        {#if gate?.waiting && inProgress(row)}<button type="button" class="outline" aria-label="Allow new login {row.account_number}…" disabled={disabled || releaseBusy} onclick={() => onRelease(row)}><Icon name="login" size={14} />Allow new login…</button>{/if}
+        {#if !(row.locked && inProgress(row)) && canForce(row)}<button type="button" class="danger" aria-label="Force-submit {row.account_number}…" disabled={disabled || actionBusy} onclick={() => onForce(row)}>Force-submit…</button>{/if}
+      </div>
+    {/if}
+  </td>
+</tr>
+
 <style>
-  td { text-align: left; vertical-align: top; padding: .65rem .8rem; border-bottom: 1px solid var(--border-subtle); font-size: .88rem; overflow-wrap: anywhere; }
-  tr:last-child td { border-bottom: none; }
-  tr:hover { background: var(--hover-fill); }
-  .attention-row td:first-child { box-shadow: inset 4px 0 0 var(--warn); }
-  .focus-row td:first-child, .locked-row td:first-child { box-shadow: inset 4px 0 0 var(--alert); }
-  .name { font-weight: 700; }
-  .account { color: var(--action-hover); font-family: var(--font-mono); font-size: .85rem; }
-  .gate { display: flex; align-items: flex-start; gap: .35rem; margin-top: .4rem; padding: .25rem .5rem; border-radius: 7px; background: var(--warn-fill); color: var(--warn-text); font-size: .78rem; font-weight: 600; }
-  .gate :global(svg) { flex: none; margin-top: .12rem; }
-  .release, .remote { display: flex; align-items: flex-start; gap: .35rem; margin-top: .4rem; padding: .25rem .5rem; border-radius: 7px; background: var(--warn-fill); color: var(--warn-text); font-size: .78rem; font-weight: 600; overflow-wrap: anywhere; }
-  .release :global(svg), .remote :global(svg) { flex: none; margin-top: .12rem; }
-  .gate.released { background: var(--selection-fill); color: var(--action-hover); }
-  .host { margin-top: .15rem; color: var(--text-muted); font-family: var(--font-mono); font-size: .78rem; }
-  .kv { display: flex; flex-direction: column; gap: .2rem; }
-  .key { color: var(--text-muted); }
-  .value { color: var(--text-main); font-family: var(--font-mono); font-weight: 600; }
-  .value.warn-value { color: var(--warn-text); }
-  .value.alert-value { color: var(--alert-text); }
-  small { display: block; margin-top: .2rem; color: var(--text-muted); font-size: .76rem; }
-  .badge { display: inline-flex; align-items: center; gap: .35rem; padding: .15rem .55rem; margin-bottom: .35rem; border-radius: 999px; font-size: .75rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
-  .badge::before { content: ''; flex: none; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
-  .ok { background: var(--ok-fill); color: var(--ok-text); }
-  .active { background: var(--selection-fill); color: var(--action-hover); }
-  .network { background: var(--warn-fill); color: var(--warn-text); }
-  .focus, .lock { background: var(--alert-fill); color: var(--alert-text); }
-  .neutral { background: var(--bg-secondary); color: var(--text-main); }
-  .todo em { color: var(--text-muted); font-size: .76rem; font-style: normal; }
-  .grade em { color: var(--text-muted); font-size: .76rem; font-style: normal; }
-  .tone-ok .value { color: var(--ok-text); font-weight: 700; }
-  .tone-lock .value { color: var(--alert-text); font-weight: 600; }
-  .tone-active .value { color: var(--action-hover); }
-  .remaining { margin-top: .1rem; font-family: var(--font-mono); font-size: 1rem; }
-  .remaining .key { font-size: .76rem; }
-  .remaining strong { color: inherit; font-weight: 700; }
-  .remaining.low { color: var(--alert-text); }
-  .controls { display: flex; flex-direction: column; align-items: flex-start; gap: .35rem; }
-  button { display: inline-flex; align-items: center; justify-content: flex-start; gap: .4rem; min-height: 30px; margin: 0; padding: .2rem .7rem; border-radius: 8px; font-size: .82rem; }
-  .outline { background: var(--bg-raised); border-color: var(--action-border); color: var(--action-hover); }
+  tr[data-session-id] { cursor: pointer; }
+  tr[data-session-id]:hover { background: var(--hover-fill); }
+  tr.expanded { background: var(--selection-fill); }
+  .attention-row td:first-child { box-shadow: inset 4px 0 var(--warn); }
+  .focus-row td:first-child, .locked-row td:first-child { box-shadow: inset 4px 0 var(--alert); }
+  .student-toggle { display: inline-flex; align-items: center; gap: .4rem; padding: 0 .25rem 0 0; margin: 0; border: 0; border-radius: 5px; color: var(--text-main); background: var(--transparent); box-shadow: none; text-align: left; min-height: 30px; }
+  .student-toggle:hover:not(:disabled) { background: var(--hover-fill); color: var(--action-hover); }
+  .chevron { display: inline-flex; flex: none; color: var(--action-primary); }
+  .expanded .chevron { transform: rotate(90deg); }
+  .account { color: var(--action-hover); font-family: var(--font-mono); }
+  .version { display: inline-flex; align-items: center; gap: .2rem; margin: .15rem 0 0 1.2rem; padding: 0 .35rem; border-radius: 5px; background: var(--bg-secondary); color: var(--text-muted); font: .72rem/1.5 var(--font-mono); }
+  .version.mismatch, .warning-note { background: var(--warn-fill); color: var(--warn-text); }
+  small { display: block; color: var(--text-muted); font-size: .76rem; }
+  .flags { margin: .15rem 0 0 1.2rem; color: var(--warn-text); }
+  .remaining strong { font-family: var(--font-mono); color: var(--text-main); }
+  .remaining.low, .remaining.low strong { color: var(--alert-text); }
+  .controls { display: flex; flex-wrap: wrap; gap: .35rem; }
+  .controls:empty { display: none; }
+  .detail-row td { background: var(--bg-primary); padding: .75rem; }
+  .diagnostics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .65rem 1rem; color: var(--text-muted); font-size: .8rem; }
+  .diagnostics + .controls:not(:empty) { margin-top: .65rem; }
+  h3 { margin: 0 0 .2rem; font-size: .69rem; text-transform: uppercase; letter-spacing: .07em; color: var(--action-primary); }
+  .diagnostics b { color: var(--text-main); }
+  .warning-note { margin: .25rem 0 0; padding: .15rem .35rem; border-radius: 4px; }
+  @media (max-width: 940px) { .diagnostics { width: min(calc(100vw - 4rem), 100%); grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 560px) { .diagnostics { grid-template-columns: minmax(0, 1fr); } }
 </style>

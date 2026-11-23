@@ -2,7 +2,9 @@ import { test, expect } from '@playwright/test';
 import { connect as connectTo } from './helpers.js';
 
 const SESSION = '22222222-2222-4222-8222-222222222222';
-const sessionRows = page => page.locator('table:has(caption:has-text("All sessions")) tbody tr');
+const sessionRows = page => page.locator('table:has(caption:has-text("All sessions")) tbody tr[data-session-id]');
+const diagnostics = row => row.locator('xpath=following-sibling::tr[1]');
+const expand = row => row.getByRole('button', { name: /^Details for / }).click();
 // The live roster is in the monitoring window, which the main window opens once it is connected.
 // Another window is another page load, so leave the current page first: changing only the # part would not reload it.
 async function connect(page) { await page.goto('about:blank'); await page.goto('/#/monitoring'); await expect(page.getByRole('table', { name: /All sessions/ })).toBeVisible(); }
@@ -14,11 +16,13 @@ test('full classroom remains visible with independent warnings and readable fiel
   await expect(sessionRows(page)).toHaveCount(90);
   await expect(page.getByRole('list', { name: 'Students without a session' }).getByRole('listitem')).toHaveCount(30);
   const row = sessionRows(page).first();
-  for (const value of ['Student 000', '0001', 'desk-0', '10.0.0.1', 'Network overdue', 'Sustained focus loss', 'Current focus: unknown', 'Heartbeat age: 35.0s', 'Sound: muted (35%)', 'Remaining: 00:01:29']) await expect(row).toContainText(value);
+  for (const value of ['Student 000', '0001', 'Network overdue', 'Sustained focus loss', 'Heartbeat age: 35.0s', 'Remaining: 00:01:29']) await expect(row).toContainText(value);
   // The network warning is a warn-fill pill, never a filled row (color budget); the focus pill uses the alert fill.
   expect(await row.evaluate(el => getComputedStyle(el).backgroundColor)).toBe('rgba(0, 0, 0, 0)');
   expect(await row.locator('.network').evaluate(el => getComputedStyle(el).backgroundColor)).toBe('rgb(245, 233, 196)');
   expect(await row.locator('.network').evaluate(el => getComputedStyle(el).backgroundColor)).not.toBe(await row.locator('.focus').evaluate(el => getComputedStyle(el).backgroundColor));
+  await expand(row);
+  for (const value of ['desk-0', '10.0.0.1', 'Current focus: unknown', 'Sound: muted (35%)']) await expect(diagnostics(row)).toContainText(value);
   await expect(page.getByRole('region', { name: 'Live roster' }).getByText('Student 089', { exact: true })).toBeAttached(); await expect(page.getByText('Missing 029', { exact: true })).toBeAttached();
   await page.setViewportSize({ width: 600, height: 700 }); await expect(sessionRows(page)).toHaveCount(90);
   expect(external).toEqual([]);
@@ -29,27 +33,31 @@ test('a finished session shows its heartbeat counters as of its end, not as live
   await page.evaluate(() => window.ProctorHarness.finished(1));
   const row = sessionRows(page).nth(1);
   await expect(row).toContainText('Last heartbeat before the end: 1.0s earlier');
-  await expect(row).toContainText('Missed intervals before the end: 0');
+  await expand(row);
+  await expect(diagnostics(row)).toContainText('Missed intervals before the end: 0');
   await expect(row).not.toContainText('Heartbeat age:');
 });
 
 test('the roster shows the sound level each student computer reported', async ({ page }) => {
   await connect(page);
-  await expect(sessionRows(page).nth(1)).toContainText('Sound: 70%');
-  await expect(sessionRows(page).nth(2)).toContainText('Sound: not reported');
+  await expand(sessionRows(page).nth(1));
+  await expect(diagnostics(sessionRows(page).nth(1))).toContainText('Sound: 70%');
+  await expand(sessionRows(page).nth(2));
+  await expect(diagnostics(sessionRows(page).nth(2))).toContainText('Sound: not reported');
 });
 
 test('the dashboard theme applies to the roster, warning fields and confirmation dialog whatever the OS preference', async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'dark' }); await connect(page);
   await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(253, 246, 227)');
   await expect(sessionRows(page).first()).toHaveCSS('color', 'rgb(10, 35, 66)');
+  await expand(sessionRows(page).first());
   await page.getByRole('button', { name: 'Force-submit 0001…', exact: true }).click();
   await expect(page.getByRole('dialog')).toHaveCSS('background-color', 'rgb(255, 251, 242)');
 });
 
 test('stale data remains visibly historical without invented countdown or focus', async ({ page }) => {
   await connect(page); await page.evaluate(() => window.ProctorHarness.stale(true));
-  await expect(page.getByRole('alert')).toContainText('STALE / UNCONFIRMED'); await expect(sessionRows(page).first()).toContainText('Current focus: unknown');
+  await expect(page.getByRole('alert')).toContainText('STALE / UNCONFIRMED'); await expand(sessionRows(page).first()); await expect(diagnostics(sessionRows(page).first())).toContainText('Current focus: unknown');
   await page.waitForTimeout(1100); await expect(sessionRows(page).first()).toContainText('Remaining: 00:01:29');
   await page.evaluate(() => window.ProctorHarness.stale(false)); await expect(page.getByText('STALE / UNCONFIRMED', { exact: false })).toHaveCount(0);
 });
@@ -153,7 +161,7 @@ test('the image window zooms, steps through the focus loss and saves the origina
 });
 
 test('force-submit cancellation sends nothing and duplicate clicks preserve a concurrent student final', async ({ page }) => {
-  await connect(page); await page.getByRole('button', { name: 'Force-submit 0001…', exact: true }).click();
+  await connect(page); await expand(sessionRows(page).first()); await page.getByRole('button', { name: 'Force-submit 0001…', exact: true }).click();
   await expect(page.getByRole('dialog')).toContainText('Student 000 (0001)'); await expect(page.getByRole('dialog')).toContainText('Irreversible');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click(); expect(await page.evaluate(() => window.ProctorHarness.calls.force)).toEqual([]);
   await page.evaluate(() => { window.ProctorHarness.holdForce(); window.ProctorHarness.originalSubmit(); });
@@ -166,6 +174,7 @@ test('force-submit cancellation sends nothing and duplicate clicks preserve a co
 
 test('authorization failure is visible and nothing is kept in browser storage', async ({ page }) => {
   await connect(page);
+  await expand(sessionRows(page).first());
   await page.evaluate(() => window.ProctorHarness.failForce(true)); await page.getByRole('button', { name: 'Force-submit 0001…', exact: true }).click(); await page.getByLabel('Operator reason').fill('reason'); await page.getByRole('checkbox').check(); await page.getByRole('button', { name: 'Confirm irreversible action' }).click(); await expect(page.getByRole('dialog').getByRole('alert')).toContainText('authorization was rejected');
   expect(await page.evaluate(() => localStorage.length + sessionStorage.length)).toBe(0);
 });
@@ -230,8 +239,9 @@ test('the admitting bar says how many students are locked', async ({ page }) => 
   await expect(page.getByRole('region', { name: 'Now admitting' })).toContainText('1 locked');
 });
 
-test('the header shows the rules the exam was published with', async ({ page }) => {
+test('the exam details show the rules the exam was published with', async ({ page }) => {
   await connect(page);
+  await page.getByRole('button', { name: 'Exam details' }).click();
   await expect(page.getByText('Exam rules: alarm after 5 s · screenshot every 5 s · locks after 5 min away or 5 min without contact.')).toBeVisible();
 });
 

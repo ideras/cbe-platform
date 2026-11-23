@@ -368,7 +368,10 @@ export async function DeleteExam(examId, submissions, confirmed) {
   exams = exams.filter(item => item.exam_id !== examId);
   return { exam_id: examId, title: entry.title, sessions: entry.total_sessions, screenshots: entry.total_sessions > 0 ? deleteScreenshots : 0, files_pending: entry.total_sessions > 0 ? deleteFilesPending : 0 };
 }
-export async function Refresh() {}
+export async function Refresh() {
+  calls.refresh = (calls.refresh ?? 0) + 1;
+  if (early.refreshDelay) await new Promise(resolve => setTimeout(resolve, early.refreshDelay));
+}
 let closeListener = () => {};
 export function OnCloseRequested(listener) { closeListener = listener; return () => { closeListener = () => {}; }; }
 // Windows: the fake records what Go would open. Pages for the other windows are loaded directly by the tests.
