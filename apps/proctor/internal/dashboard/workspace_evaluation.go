@@ -25,41 +25,57 @@ func renderStudentEvaluation(exam, student string, todos []GradingTodo, run Grad
 		out.WriteString("\nThis exam has no TODO items to report.\n")
 		return []byte(out.String())
 	}
+	for _, row := range studentEvaluationRows(todos, run, ticked) {
+		id, title := evaluationText(row.todo.ID), evaluationText(row.todo.Text)
+		if title == "" {
+			title = id
+		}
+		score := "—"
+		if row.earned != nil {
+			score = evaluationScore(row.earned, row.todo.Points)
+		}
+		fmt.Fprintf(&out, "\n### %s\n\nID: **%s**  \nResult: **%s**  \nPoints: **%s**  \nMarked as done: **%s**\n\nOutput feedback:\n", title, id, row.verdict, score, row.tick)
+		if strings.TrimSpace(row.feedback) == "" {
+			out.WriteString("\nNo feedback was reported.\n")
+			continue
+		}
+		writeEvaluationFeedback(&out, row.feedback)
+	}
+	return []byte(out.String())
+}
+
+type evaluationRow struct {
+	todo                    GradingTodo
+	earned                  *float64
+	verdict, tick, feedback string
+}
+
+func studentEvaluationRows(todos []GradingTodo, run Grading, ticked map[string]bool) []evaluationRow {
 	results := make(map[string]GradingResult, len(run.Results))
 	for _, result := range run.Results {
 		if result.Known {
 			results[result.TodoID] = result
 		}
 	}
+	rows := make([]evaluationRow, 0, len(todos))
 	for _, todo := range todos {
-		result, found := results[todo.ID]
-		verdict, score := "No result", "—"
-		if found {
-			score = evaluationScore(&result.Points, todo.Points)
-			verdict = "Not passed"
+		row := evaluationRow{todo: todo, verdict: "No result", tick: "Not available"}
+		if result, found := results[todo.ID]; found {
+			row.earned, row.feedback = &result.Points, result.Log
+			row.verdict = "Not passed"
 			if result.Passed {
-				verdict = "Passed"
+				row.verdict = "Passed"
 			}
 		}
-		tick := "Not available"
 		if ticked != nil {
-			tick = "No"
+			row.tick = "No"
 			if ticked[todo.ID] {
-				tick = "Yes"
+				row.tick = "Yes"
 			}
 		}
-		id, title := evaluationText(todo.ID), evaluationText(todo.Text)
-		if title == "" {
-			title = id
-		}
-		fmt.Fprintf(&out, "\n### %s\n\nID: **%s**  \nResult: **%s**  \nPoints: **%s**  \nMarked as done: **%s**\n\nOutput feedback:\n", title, id, verdict, score, tick)
-		if strings.TrimSpace(result.Log) == "" {
-			out.WriteString("\nNo feedback was reported.\n")
-			continue
-		}
-		writeEvaluationFeedback(&out, result.Log)
+		rows = append(rows, row)
 	}
-	return []byte(out.String())
+	return rows
 }
 
 func writeEvaluationFeedback(out *strings.Builder, log string) {

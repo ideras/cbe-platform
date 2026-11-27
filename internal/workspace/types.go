@@ -127,6 +127,7 @@ type SessionInfo struct {
 	SessionID string
 	ExamID    string
 	Account   string
+	CanvasID  string
 	// Status is the session's own status (active, grace, submitted, force_submitted).
 	Status     string
 	DeadlineAt time.Time

@@ -81,6 +81,7 @@ type Grading struct {
 // WorkspaceGradings is a student's runs, newest first, with the exam's TODOs.
 type WorkspaceGradings struct {
 	SessionID string        `json:"session_id"`
+	CanvasID  string        `json:"canvas_id,omitempty"`
 	Todos     []GradingTodo `json:"todos"`
 	Gradings  []Grading     `json:"gradings"`
 }

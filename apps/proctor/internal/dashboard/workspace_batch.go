@@ -70,8 +70,11 @@ func (s *Service) DownloadWorkspaceBatch(examID, server, kind string, overwrite 
 		if overwrite {
 			return result, errors.New("Only evaluation reports can be overwritten.")
 		}
-	case "reports":
+	case "reports", "reports-json":
 		suffix, title = "-report.md", "Download all evaluation reports"
+		if kind == "reports-json" {
+			suffix = "-report.json"
+		}
 	default:
 		return result, errors.New("Invalid workspace download selection.")
 	}
@@ -85,10 +88,10 @@ func (s *Service) DownloadWorkspaceBatch(examID, server, kind string, overwrite 
 		return result, errors.New("Load the workspace exam before starting the download.")
 	}
 	ctx, base, token, link, previous := s.connection, s.view.Server, s.token, s.link, s.downloadParent
-	examTitle := ""
+	exam := ExamEntry{ID: examID}
 	for _, entry := range s.view.Catalog.Exams {
 		if entry.ID == examID {
-			examTitle = entry.Title
+			exam = entry
 			break
 		}
 	}
@@ -166,7 +169,7 @@ func (s *Service) DownloadWorkspaceBatch(examID, server, kind string, overwrite 
 				if kind == "files" {
 					issue = s.exportWorkspaceFiles(ctx, base, token, examID, &artifactClient, root, student)
 				} else {
-					issue = s.exportWorkspaceReport(ctx, base, token, examID, examTitle, root, student, overwrite)
+					issue = s.exportWorkspaceReport(ctx, base, token, exam, root, student, kind, overwrite)
 				}
 			}
 			if issue != nil && !errors.Is(issue, errBatchExists) && !errors.Is(issue, errBatchNoSubmission) && !errors.Is(issue, errBatchNoFiles) && !errors.Is(issue, errBatchNotGraded) && !errors.Is(issue, errBatchNewSubmission) {
@@ -311,23 +314,31 @@ func batchExistingDestination(root *os.Root, name string, overwrite bool) (strin
 	}
 }
 
-func (s *Service) exportWorkspaceReport(ctx context.Context, base, token, examID, examTitle string, root *os.Root, student workspaceBatchStudent, overwrite bool) error {
-	latest, _, err := s.batchLatestSubmission(ctx, base, token, examID, student.session)
+func (s *Service) exportWorkspaceReport(ctx context.Context, base, token string, exam ExamEntry, root *os.Root, student workspaceBatchStudent, kind string, overwrite bool) error {
+	latest, _, err := s.batchLatestSubmission(ctx, base, token, exam.ID, student.session)
 	if err != nil {
 		return err
 	}
-	todos, run, err := s.batchReportGrading(ctx, base, token, student.session, latest)
+	gradings, run, err := s.batchReportGrading(ctx, base, token, student.session, latest)
 	if err != nil {
 		return err
 	}
-	current, ticked, err := s.batchLatestSubmission(ctx, base, token, examID, student.session)
+	current, ticked, err := s.batchLatestSubmission(ctx, base, token, exam.ID, student.session)
 	if err != nil {
 		return err
 	}
 	if current != latest {
 		return errBatchNewSubmission
 	}
-	data := renderStudentEvaluation(examTitle, student.Name, todos, run, ticked)
+	var data []byte
+	if kind == "reports-json" {
+		data, err = renderStudentEvaluationJSON(exam, student.Student, gradings, run, ticked)
+		if err != nil {
+			return err
+		}
+	} else {
+		data = renderStudentEvaluation(exam.Title, student.Name, gradings.Todos, run, ticked)
+	}
 	existing, err := batchExistingDestination(root, student.target, overwrite)
 	if err != nil {
 		return err
@@ -385,35 +396,35 @@ func replaceBatchReport(ctx context.Context, root *os.Root, name string, data []
 	return nil
 }
 
-func (s *Service) batchReportGrading(ctx context.Context, base, token, session string, submission int64) ([]GradingTodo, Grading, error) {
+func (s *Service) batchReportGrading(ctx context.Context, base, token, session string, submission int64) (WorkspaceGradings, Grading, error) {
 	var out WorkspaceGradings
 	err := getJSON(ctx, s.client, base, token, http.MethodGet, "/admin/workspace/session/"+session+"/gradings", nil, &out)
 	if err != nil {
-		return nil, Grading{}, batchContextError(ctx, fmt.Errorf("Could not read grading results: %w", err))
+		return out, Grading{}, batchContextError(ctx, fmt.Errorf("Could not read grading results: %w", err))
 	}
 	invalid := errors.New("Invalid grading response.")
 	if out.SessionID != session || out.Todos == nil || out.Gradings == nil {
-		return nil, Grading{}, invalid
+		return out, Grading{}, invalid
 	}
 	for _, todo := range out.Todos {
 		if todo.ID == "" || len(todo.ID) > 256 || len(todo.Text) > 64<<10 || !finite(todo.Points) {
-			return nil, Grading{}, invalid
+			return out, Grading{}, invalid
 		}
 	}
 	// The server lists runs newest first. Use the confirmed run for this submission, or the newest completed one.
 	var selected Grading
 	for _, run := range out.Gradings {
 		if !validGrading(run) {
-			return nil, Grading{}, invalid
+			return out, Grading{}, invalid
 		}
 		if run.SubmissionID == submission && run.State == "done" && (selected.ID == 0 || run.Confirmed && !selected.Confirmed) {
 			selected = run
 		}
 	}
 	if selected.ID == 0 {
-		return nil, Grading{}, errBatchNotGraded
+		return out, Grading{}, errBatchNotGraded
 	}
-	return out.Todos, selected, nil
+	return out, selected, nil
 }
 
 // Read the same last recorded submission as Student Review, using the batch's captured connection, not a new link lookup.
