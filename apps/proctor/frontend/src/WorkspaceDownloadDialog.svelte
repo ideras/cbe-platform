@@ -8,6 +8,7 @@
   const files = $derived(batch.kind === 'files');
   const title = $derived(files ? 'Download all student files' : 'Download all evaluation reports');
   let busy = $state(false);
+  let format = $state('markdown');
   let overwrite = $state(false);
   let problem = $state('');
   let result = $state(null);
@@ -36,7 +37,8 @@
     progress = null;
     timer = setInterval(readProgress, 250);
     try {
-      const value = await api.DownloadWorkspaceBatch(batch.examId, batch.server, batch.kind, !files && overwrite);
+      const kind = !files && format === 'json' ? 'reports-json' : batch.kind;
+      const value = await api.DownloadWorkspaceBatch(batch.examId, batch.server, kind, !files && overwrite);
       if (value.cancelled) { onClose(); return; }
       result = value;
     } catch (err) {
@@ -77,9 +79,15 @@
       <div class="callout"><strong>Entire exam</strong> · Includes students outside the current filter.</div>
       <p>{files
         ? 'Files from the latest recorded submission go into a folder for each student, with their directory structure intact.'
-        : 'Saves one short Markdown report per student, based on the TODO items in Student Review → Grading. It includes results, points and the feedback shown when a TODO is expanded, but not submitted files or full run logs. The latest submission must have a completed grading run.'}</p>
+        : 'Saves one report per student, based on the TODO items in Student Review → Grading. It includes results, points and the feedback shown when a TODO is expanded. The latest submission must have a completed grading run.'}</p>
       <p>Students without an eligible {files ? 'submission' : 'report'} are skipped.{files ? ' Existing folders are never replaced.' : ''}</p>
       {#if !files}
+        <label class="format">Format
+          <select bind:value={format}>
+            <option value="markdown">Markdown</option>
+            <option value="json">JSON</option>
+          </select>
+        </label>
         <p>Review the grader’s feedback before sharing the reports with students.</p>
         <label class="overwrite" class:checked={overwrite}>
           <input type="checkbox" bind:checked={overwrite} aria-labelledby="workspace-overwrite-label" aria-describedby="workspace-overwrite-note" />
@@ -106,6 +114,7 @@
   .content { display: grid; gap: .75rem; padding: 1.1rem; }
   p { margin: 0; }
   progress { width: 100%; accent-color: var(--action-primary); }
+  .format { display: grid; gap: .25rem; font-weight: 600; }
   .overwrite { display: flex; align-items: flex-start; gap: .55rem; border: 1px solid var(--border-subtle); border-left: 4px solid var(--warn); border-radius: 8px; background: var(--bg-primary); padding: .55rem .65rem; cursor: pointer; }
   .overwrite.checked { border-left-color: var(--alert); background: var(--alert-fill); color: var(--alert-text); }
   .overwrite input { flex: none; margin: .2rem 0 0; accent-color: var(--action-primary); }

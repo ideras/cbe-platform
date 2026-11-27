@@ -54,6 +54,7 @@ type AdminGrading struct {
 // AdminGradings is a student's runs, newest first, with the exam's TODOs to read them against.
 type AdminGradings struct {
 	SessionID string             `json:"session_id"`
+	CanvasID  string             `json:"canvas_id,omitempty"`
 	Todos     []AdminGradingTodo `json:"todos"`
 	Gradings  []AdminGrading     `json:"gradings"`
 }
@@ -97,7 +98,7 @@ func (s *Service) Gradings(ctx context.Context, session string) (AdminGradings, 
 	if err != nil {
 		return AdminGradings{}, err
 	}
-	out := AdminGradings{SessionID: session, Todos: todos, Gradings: []AdminGrading{}}
+	out := AdminGradings{SessionID: session, CanvasID: info.CanvasID, Todos: todos, Gradings: []AdminGrading{}}
 	for _, record := range records {
 		out.Gradings = append(out.Gradings, adminGrading(record, false))
 	}
