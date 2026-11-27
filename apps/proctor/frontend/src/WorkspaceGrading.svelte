@@ -159,7 +159,7 @@
           <span class="meta">Run <b>#{detail.id}</b> · submission <b>{detail.submission}</b>{detail.duration_ms ? ` · ${numeric(detail.duration_ms / 1000)} s` : ''}{detail.finished_at ? ` · ended ${localDateTime(detail.finished_at)}` : ` · asked ${localDateTime(detail.queued_at)}`}</span>
           {#if detail.state === 'done' || detail.state === 'failed'}
             <div class="review-toolbar">
-              <button class="review-button" onclick={() => { dialog = { output: detail }; }}><Icon name="terminal" size={14} />What the run printed</button>
+              <button class="review-button" onclick={() => { dialog = { output: detail, todos }; }}><Icon name="terminal" size={14} />What the run printed</button>
               {#if detail.state === 'done'}
                 {#if detail.confirmed}<button class="review-button outline" disabled={busy} onclick={() => ask(detail, false)}>Take the confirmation back</button>
                 {:else}<button class="review-button primary" disabled={busy} onclick={() => ask(detail, true)}><Icon name="check" size={14} />Confirm {score(detail.points, detail.max_points)}</button>{/if}
@@ -226,7 +226,7 @@
   </div>
 {:else}<p class="review-hint">This student has not been graded.</p>{/if}
 
-{#if dialog?.output}<RunOutput run={dialog.output} {copy} onClose={closeDialog} />
+{#if dialog?.output}<RunOutput run={dialog.output} todos={dialog.todos} {copy} onClose={closeDialog} />
 {:else if dialog}
   <Modal title={dialog.yes ? 'Confirm grade' : 'Take the confirmation back'} titleId="review-confirm-title" subtitle="This changes the grade that stands for the student." icon="check" tone="deep" width="29rem" {busy} lightDismiss onClose={closeDialog}>
     <div class="review-modal confirm-body">
