@@ -746,15 +746,72 @@ test('the review window has a Grading tab: the runs, the results of each TODO wi
   const output = results.getByRole('button', { name: 'What the run printed' });
   await output.click();
   const dialog = page.getByRole('dialog', { name: 'What run #2 printed' });
-  await expect(dialog.getByRole('table')).toContainText('4/4 tests passed');
+  await expect(dialog.getByRole('group', { name: 'Run summary' })).toContainText('16 / 40');
+  await expect(dialog.getByRole('region', { name: 'TODO items' }).getByRole('button', { name: /^t1/ })).toContainText('4/4 tests passed');
+  await expect(dialog.getByRole('region', { name: 'Other output' })).toContainText('zz');
   await dialog.getByRole('button', { name: 'Raw JSON' }).click();
-  await expect(dialog.getByLabel('Standard output of the run')).toContainText('{"t1": {"passed": true}}');
+  await expect(dialog.getByLabel('Standard output of the run')).toContainText('"passed": true');
   await dialog.getByRole('button', { name: /^Standard error/ }).click();
   await expect(dialog.getByLabel('Standard error of the run')).toContainText('ok: push_front 1 2 3 -> 3 2 1');
   await expect(dialog.locator('script, img')).toHaveCount(0);
   await page.keyboard.press('Escape');
   await expect(dialog).toBeHidden();
   await expect(output).toBeFocused();
+});
+
+test('run output groups scored checks, explains lost points and keeps the original streams', async ({ page }) => {
+  const results = [
+    { todo_id: 'e1a', known: true, passed: false, points: 1.5, log: '1.5/8 pts · raiz ✓ · precedencia ✗' },
+    { todo_id: 'e1b', known: true, passed: true, points: 8, log: '8/8 pts · árbol ✓' },
+    { todo_id: 'e2a', known: true, passed: false, points: 0, log: '0/4 pts · R1 ✗ (respondió «<b>4</b>», se esperaba «2») · R2 ✗ (sin responder)' },
+  ];
+  const stdout = JSON.stringify(Object.fromEntries(results.map(({ todo_id, passed, points, log }) => [todo_id, { passed, points, log }])));
+  const stderr = 'parser.cpp:42: warning: unused variable\n[grade] R1 timed out\n';
+  const fixture = gradedData([run(72, { results, stdout, stderr, exit_code: 0, points: 9.5, max_points: 20 })]);
+  fixture.gradings.todos = results.map(({ todo_id }, index) => ({ id: todo_id, text: todo_id, points: [8, 8, 4][index] }));
+  await page.addInitScript(() => Object.defineProperty(navigator, 'clipboard', { value: { writeText: async text => { window.__copied = text; } } }));
+  await review(page, fixture);
+  await openTab(page, 'Grading');
+  await page.getByRole('button', { name: 'What the run printed' }).click();
+  const dialog = page.getByRole('dialog', { name: 'What run #72 printed' });
+  const summary = dialog.getByRole('group', { name: 'Run summary' });
+  await expect(summary).toContainText('9.5 / 20');
+  await expect(summary).toContainText('2/5');
+  await expect(dialog).toContainText('exit code 0');
+  const first = dialog.getByRole('region', { name: 'Exercise 1' });
+  const full = first.getByRole('button', { name: /^e1b/ });
+  await expect(full).toHaveAttribute('aria-expanded', 'false');
+  await dialog.getByRole('button', { name: 'Expand all' }).click();
+  await expect(full).toHaveAttribute('aria-expanded', 'true');
+  await dialog.getByRole('button', { name: 'Collapse all' }).click();
+  await expect(first.getByRole('button', { name: /^e1a/ })).toHaveAttribute('aria-expanded', 'false');
+  await dialog.getByRole('button', { name: /^Lost points 2/ }).click();
+  await expect(full).toBeHidden();
+  const search = dialog.getByRole('searchbox', { name: 'Find a check' });
+  await search.fill('RESPONDIÓ');
+  await expect(first).toBeHidden();
+  await expect(dialog.getByText('<b>4</b>', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('Expected', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('sin responder', { exact: true })).toBeVisible();
+  await expect(dialog.locator('mark').first()).toHaveText('respondió');
+  await search.fill('missing');
+  await expect(dialog.getByText('No results match “missing”.')).toBeVisible();
+  await search.fill('');
+  await dialog.getByRole('button', { name: /^Zero 1/ }).click();
+  await expect(dialog.getByRole('region', { name: 'Exercise 2' })).toBeVisible();
+  await expect(first).toBeHidden();
+  await dialog.getByRole('button', { name: 'Raw JSON' }).click();
+  await expect(dialog.getByLabel('Standard output of the run')).toContainText('"points": 1.5');
+  await dialog.getByRole('button', { name: 'Copy standard output' }).click();
+  await expect.poll(() => page.evaluate(() => window.__copied)).toBe(stdout);
+  await dialog.getByRole('button', { name: /^Standard error/ }).click();
+  await expect(dialog.getByText('1 warning line · 1 error or timeout line')).toBeVisible();
+  await expect(search).toBeHidden();
+  await dialog.getByRole('button', { name: 'Copy standard error' }).click();
+  await expect.poll(() => page.evaluate(() => window.__copied)).toBe(stderr);
+  await dialog.getByRole('button', { name: /^Standard output/ }).click();
+  await dialog.getByRole('button', { name: 'Results', exact: true }).click();
+  await expect(dialog.getByRole('button', { name: /^Zero 1/ })).toHaveAttribute('aria-pressed', 'true');
 });
 
 test('a grade is confirmed and the confirmation taken back, and the proctor is told the server\'s refusals', async ({ page }) => {
@@ -846,6 +903,19 @@ test('a student who was never graded says so', async ({ page }) => {
   await expect(page.getByRole('region', { name: 'Summary' })).toContainText('Not graded');
 });
 
+test('the run output dialog shows a truncated capture and an empty stream', async ({ page }) => {
+  await review(page, gradedData([run(1, { stdout: '{"t1":{"log":"part', stdout_truncated: true, stderr: '' })]));
+  await openTab(page, 'Grading');
+  await page.getByRole('button', { name: 'What the run printed' }).click();
+  const dialog = page.getByRole('dialog', { name: 'What run #1 printed' });
+  await expect(dialog.getByText('This stream was cut at the output limit.')).toBeVisible();
+  await expect(dialog.getByLabel('Standard output of the run')).toContainText('{"t1":{"log":"part');
+  await expect(dialog.getByRole('group', { name: 'Output view' })).toHaveCount(0);
+  await dialog.getByRole('button', { name: /^Standard error/ }).click();
+  await expect(dialog.getByText('(standard error was empty)')).toBeVisible();
+  await expect(dialog.getByText('This stream was cut at the output limit.')).toBeHidden();
+});
+
 const event = (id, type, detail) => ({ id: `event:${id}`, kind: 'event', occurred_at: '2035-01-01T00:05:00Z', event: { event_log_id: id, event_type: type, detail, screenshots: [] } });
 
 test('the history names workspace events in words and has a workspace filter', async ({ page }) => {
@@ -933,8 +1003,8 @@ test('the review fits a narrow window and copies real data from each view', asyn
   await fits();
   await page.getByRole('button', { name: 'What the run printed' }).click();
   const output = page.getByRole('dialog', { name: 'What run #1 printed' });
-  await output.getByRole('button', { name: 'Copy output' }).click();
-  await expect(output.getByRole('status')).toContainText('Output copied');
+  await output.getByRole('button', { name: 'Copy standard output' }).click();
+  await expect(output.getByRole('status')).toContainText('Standard output copied');
   await expect.poll(copied).toBe(run(1).stdout);
   await fits();
   expect(errors).toEqual([]);
